@@ -456,6 +456,12 @@ pub struct AppSettings {
     pub post_process_prompts: Vec<LLMPrompt>,
     #[serde(default)]
     pub post_process_selected_prompt_id: Option<String>,
+    /// Per-app cleanup prompt overrides: active-app name (as returned by
+    /// `active_app::current().app_name`, e.g. "Slack", "Visual Studio Code",
+    /// "Mail") → a cleanup prompt/instruction string. When the frontmost app
+    /// matches an entry, its prompt is used instead of the selected default.
+    #[serde(default)]
+    pub per_app_prompts: HashMap<String, String>,
     #[serde(default)]
     pub mute_while_recording: bool,
     #[serde(default)]
@@ -959,6 +965,7 @@ pub fn get_default_settings() -> AppSettings {
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
         post_process_selected_prompt_id: None,
+        per_app_prompts: HashMap::new(),
         mute_while_recording: false,
         append_trailing_space: false,
         app_language: default_app_language(),

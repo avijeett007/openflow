@@ -2464,6 +2464,8 @@ dependencies = [
  "keyring",
  "log",
  "natural",
+ "objc2",
+ "objc2-app-kit",
  "once_cell",
  "rdev 0.5.0-2",
  "regex",

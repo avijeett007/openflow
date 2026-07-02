@@ -7,6 +7,7 @@ export { AboutSettings } from "./about/AboutSettings";
 export { PostProcessingSettings } from "./post-processing/PostProcessingSettings";
 export { ModelsSettings } from "./models/ModelsSettings";
 export { ModelSetupSettings } from "./model-setup/ModelSetupSettings";
+export { DashboardSettings } from "./dashboard/DashboardSettings";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";

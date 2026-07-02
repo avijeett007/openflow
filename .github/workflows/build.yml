@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Install Rust toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -98,7 +98,7 @@ jobs:
       # dispatch and tag builds). macOS -> .dmg, Windows -> .exe (NSIS) + .msi.
       - name: Upload installers (macOS)
         if: contains(matrix.platform, 'macos')
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: openflow-${{ matrix.target }}
           path: |
@@ -108,7 +108,7 @@ jobs:
 
       - name: Upload installers (Windows)
         if: contains(matrix.platform, 'windows')
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: openflow-${{ matrix.target }}
           path: |

@@ -1122,6 +1122,35 @@ pub fn set_post_process_selected_prompt(app: AppHandle, id: String) -> Result<()
     Ok(())
 }
 
+/// Set (or, with an empty prompt, remove) the per-app cleanup prompt override
+/// for a given active-app name. See `AppSettings::per_app_prompts`.
+#[tauri::command]
+#[specta::specta]
+pub fn set_per_app_prompt(app: AppHandle, app_name: String, prompt: String) -> Result<(), String> {
+    let key = app_name.trim().to_string();
+    if key.is_empty() {
+        return Err("App name cannot be empty".to_string());
+    }
+
+    let mut settings = settings::get_settings(&app);
+    if prompt.trim().is_empty() {
+        settings.per_app_prompts.remove(&key);
+    } else {
+        settings.per_app_prompts.insert(key, prompt);
+    }
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+/// Return all configured per-app cleanup prompt overrides.
+#[tauri::command]
+#[specta::specta]
+pub fn get_per_app_prompts(
+    app: AppHandle,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    Ok(settings::get_settings(&app).per_app_prompts)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_mute_while_recording_setting(app: AppHandle, enabled: bool) -> Result<(), String> {

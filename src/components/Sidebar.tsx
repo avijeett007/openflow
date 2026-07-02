@@ -1,6 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import {
+  BarChart3,
   Cog,
   FlaskConical,
   History,
@@ -21,6 +22,7 @@ import {
   PostProcessingSettings,
   ModelsSettings,
   ModelSetupSettings,
+  DashboardSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -69,6 +71,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.history",
     icon: History,
     component: HistorySettings,
+    enabled: () => true,
+  },
+  dashboard: {
+    labelKey: "sidebar.dashboard",
+    icon: BarChart3,
+    component: DashboardSettings,
     enabled: () => true,
   },
   postprocessing: {

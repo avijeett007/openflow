@@ -76,6 +76,29 @@ fn is_blank_transcription(transcription: &str) -> bool {
     transcription.trim().is_empty()
 }
 
+/// Resolve a per-app cleanup prompt for the given active-app name. Matches
+/// case-insensitively, either exactly or by containment in either direction
+/// (so "Code" matches "Visual Studio Code" and vice versa). Empty prompt values
+/// and an "unknown"/empty app name are ignored. Returns `None` when nothing
+/// matches, so callers fall back to the default selected prompt.
+fn resolve_per_app_prompt(settings: &AppSettings, app_name: &str) -> Option<String> {
+    let name = app_name.trim();
+    if name.is_empty() || name.eq_ignore_ascii_case("unknown") {
+        return None;
+    }
+    let lower = name.to_lowercase();
+    settings
+        .per_app_prompts
+        .iter()
+        .filter(|(_, prompt)| !prompt.trim().is_empty())
+        .find(|(key, _)| {
+            let key_lower = key.trim().to_lowercase();
+            !key_lower.is_empty()
+                && (lower == key_lower || lower.contains(&key_lower) || key_lower.contains(&lower))
+        })
+        .map(|(_, prompt)| prompt.clone())
+}
+
 async fn post_process_transcription(settings: &AppSettings, transcription: &str) -> Option<String> {
     if is_blank_transcription(transcription) {
         debug!("Post-processing skipped because the transcription is empty");
@@ -104,26 +127,39 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         return None;
     }
 
-    let selected_prompt_id = match &settings.post_process_selected_prompt_id {
-        Some(id) => id.clone(),
-        None => {
-            debug!("Post-processing skipped because no prompt is selected");
-            return None;
-        }
+    // Per-app tone override: if the frontmost app matches a configured
+    // per_app_prompts entry, use that prompt instead of the selected default.
+    // Defensive — an "unknown" or unmatched app falls through to the default.
+    let per_app_prompt = {
+        let active = crate::active_app::current();
+        resolve_per_app_prompt(settings, &active.app_name)
     };
 
-    let prompt = match settings
-        .post_process_prompts
-        .iter()
-        .find(|prompt| prompt.id == selected_prompt_id)
-    {
-        Some(prompt) => prompt.prompt.clone(),
-        None => {
-            debug!(
-                "Post-processing skipped because prompt '{}' was not found",
-                selected_prompt_id
-            );
-            return None;
+    let prompt = if let Some(prompt) = per_app_prompt {
+        debug!("Using per-app cleanup prompt override for the active application");
+        prompt
+    } else {
+        let selected_prompt_id = match &settings.post_process_selected_prompt_id {
+            Some(id) => id.clone(),
+            None => {
+                debug!("Post-processing skipped because no prompt is selected");
+                return None;
+            }
+        };
+
+        match settings
+            .post_process_prompts
+            .iter()
+            .find(|prompt| prompt.id == selected_prompt_id)
+        {
+            Some(prompt) => prompt.prompt.clone(),
+            None => {
+                debug!(
+                    "Post-processing skipped because prompt '{}' was not found",
+                    selected_prompt_id
+                );
+                return None;
+            }
         }
     };
 
@@ -705,7 +741,12 @@ impl ShortcutAction for TranscribeAction {
         play_feedback_sound(app, SoundType::Stop);
 
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
-        let post_process = self.post_process;
+        // Cleanup is applied when either the dedicated post-processing binding was
+        // used (`self.post_process` forces it, even if the toggle is off) or the
+        // user has enabled cleanup globally for the main transcribe hotkey. The
+        // effective value drives the overlay "Polishing" state, the actual cleanup
+        // call, and the history entry's post_process flag alike.
+        let post_process = self.post_process || get_settings(app).post_process_enabled;
         let cancel_generation = rm.cancel_generation();
 
         tauri::async_runtime::spawn(async move {
@@ -773,6 +814,12 @@ impl ShortcutAction for TranscribeAction {
                             Err(e) => Err(anyhow::anyhow!("Remote STT failed: {e}")),
                         }
                     } else {
+                        // Language selection (item M3.4): the local engine honors the
+                        // persisted `selected_language` setting, coerced against the
+                        // loaded model's capabilities in `TranscriptionManager`
+                        // (see `effective_language_for_model`). Whisper-family models
+                        // are multilingual and transcribe/translate in that language;
+                        // Parakeet is English-only and ignores non-English selections.
                         match tm.finalize_stream() {
                             // A finalized stream with usable text wins. An empty result
                             // (no active stream, produced nothing, or a finalize error

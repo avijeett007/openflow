@@ -44,17 +44,17 @@ pub fn current() -> ActiveApp {
 
 #[cfg(target_os = "macos")]
 fn current_macos() -> ActiveApp {
-    // Shell out to System Events via osascript. objc2/AppKit isn't a dependency
-    // here, and osascript is a robust, permission-light way to read the frontmost
-    // process name. Wrapped so any failure degrades to `unknown`.
-    let app_name = run_osascript(
-        "tell application \"System Events\" to get name of first process whose frontmost is true",
-    )
-    .filter(|s| !s.is_empty())
-    .unwrap_or_else(|| "unknown".to_string());
+    // Read the frontmost app name via NSWorkspace. Unlike the old
+    // System Events / osascript path (which needs an Accessibility grant and
+    // otherwise errors with -1719), NSWorkspace.frontmostApplication requires no
+    // special permission. Any failure degrades to `unknown`.
+    let app_name = frontmost_app_name()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
 
     // Window title via AX is optional and finicky; try a best-effort read and
-    // leave it None on any failure.
+    // leave it None on any failure. This is the only remaining osascript use and
+    // is non-fatal — the app name no longer depends on it.
     let window_title = run_osascript(
         "tell application \"System Events\" to tell (first process whose frontmost is true) to get value of attribute \"AXTitle\" of front window",
     )
@@ -66,6 +66,27 @@ fn current_macos() -> ActiveApp {
         app_name,
         window_title,
         project,
+    }
+}
+
+/// Frontmost application's localized name via NSWorkspace (no Accessibility
+/// permission required). Returns `None` when there is no frontmost app or the
+/// name is nil.
+#[cfg(target_os = "macos")]
+fn frontmost_app_name() -> Option<String> {
+    use objc2_app_kit::NSWorkspace;
+
+    // NSWorkspace.sharedWorkspace + frontmostApplication/localizedName are
+    // thread-safe read-only accessors exposed as safe by objc2-app-kit; all
+    // returned objects are retained.
+    let workspace = NSWorkspace::sharedWorkspace();
+    let app = workspace.frontmostApplication()?;
+    let name = app.localizedName()?;
+    let s = name.to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
     }
 }
 

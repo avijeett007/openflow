@@ -15,6 +15,7 @@
     "advanced": "Advanced",
     "postProcessing": "Post Process",
     "history": "History",
+    "dashboard": "Dashboard",
     "debug": "Debug",
     "about": "About"
   },
@@ -554,6 +555,76 @@
       "retranscribeError": "Failed to re-transcribe. Please try again.",
       "transcribing": "Transcribing...",
       "transcriptionFailed": "Transcription failed. You can re-transcribe using the retry icon."
+    },
+    "dashboard": {
+      "title": "Dashboard",
+      "description": "Analytics from your logged dictations — how much you're dictating, where, and how it's paying off.",
+      "range": {
+        "7": "7 days",
+        "30": "30 days",
+        "90": "90 days",
+        "all": "All"
+      },
+      "kpis": {
+        "totalDictations": "Total dictations",
+        "totalWords": "Total words",
+        "avgWpm": "Avg. WPM",
+        "wpmValue": "{{wpm}} wpm",
+        "timeSaved": "Time saved",
+        "streak": "Current streak",
+        "streakValue_one": "{{count}} day",
+        "streakValue_other": "{{count}} days",
+        "appsUsed": "Apps used"
+      },
+      "overTime": {
+        "sectionTitle": "Dictations & words over time",
+        "title": "Over time",
+        "dictations": "Dictations",
+        "words": "Words",
+        "empty": "No data yet — start dictating to see your trends here."
+      },
+      "byApp": {
+        "sectionTitle": "By app",
+        "title": "By app",
+        "empty": "No app usage recorded yet."
+      },
+      "byProject": {
+        "sectionTitle": "By project",
+        "title": "By project",
+        "empty": "No project usage recorded yet."
+      },
+      "keywords": {
+        "sectionTitle": "Top keywords",
+        "title": "Top keywords",
+        "empty": "No keywords recorded yet."
+      },
+      "privacy": {
+        "sectionTitle": "Privacy",
+        "title": "Analytics privacy",
+        "description": "Choose how much detail is stored locally when you dictate. This never leaves your device.",
+        "updateError": "Failed to update analytics privacy. Please try again.",
+        "modes": {
+          "full": {
+            "label": "Full",
+            "description": "Full: stores word counts, app/project names, and top keywords so every chart above is populated."
+          },
+          "keywords_only": {
+            "label": "Keywords only",
+            "description": "Keywords only: stores word counts and top keywords, but not which app or project you were dictating into."
+          },
+          "off": {
+            "label": "Off",
+            "description": "Off: no new analytics are recorded. Existing data is kept until you clear it below."
+          }
+        },
+        "clearTitle": "Clear analytics data",
+        "clearDescription": "Permanently deletes all recorded analytics events. This does not affect your dictation history.",
+        "clearButton": "Clear analytics data",
+        "clearing": "Clearing…",
+        "clearConfirm": "This will permanently delete all recorded analytics data. This can't be undone.",
+        "clearSuccess": "Analytics data cleared.",
+        "clearError": "Failed to clear analytics data. Please try again."
+      }
     },
     "debug": {
       "title": "Debug",
