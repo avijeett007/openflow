@@ -184,12 +184,18 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Apply accelerator preferences before any model loads
     managers::transcription::apply_accelerator_settings(app_handle);
 
+    // Hands-free wake-word listener. Constructed here (like the other managers)
+    // and started later in this function if hands-free is enabled in settings.
+    let wake_word_manager =
+        Arc::new(managers::wake_word::WakeWordManager::new(app_handle));
+
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(history_manager.clone());
     app_handle.manage(analytics_manager.clone());
+    app_handle.manage(wake_word_manager.clone());
 
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
@@ -318,6 +324,13 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     // Create the recording overlay window (hidden by default)
     utils::create_recording_overlay(app_handle);
+
+    // Start the hands-free wake-word listener if enabled. Its loop drives the
+    // shared recorder only when idle and loads the local STT model on demand, so
+    // it is safe to start now even before any model is loaded.
+    if settings::get_settings(app_handle).hands_free_enabled {
+        wake_word_manager.start();
+    }
 }
 
 #[tauri::command]
@@ -545,6 +558,9 @@ pub fn run(cli_args: CliArgs) {
             shortcut::change_binding,
             shortcut::reset_binding,
             shortcut::change_ptt_setting,
+            shortcut::set_hands_free_enabled,
+            shortcut::set_wake_word,
+            shortcut::set_wake_word_sensitivity,
             shortcut::change_audio_feedback_setting,
             shortcut::change_audio_feedback_volume_setting,
             shortcut::change_sound_theme_setting,
@@ -830,7 +846,7 @@ pub fn run(cli_args: CliArgs) {
             // for portable mode (redirects WebView2 cache to portable Data dir)
             let mut win_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
-                    .title("Handy")
+                    .title("OpenFlow")
                     .inner_size(680.0, 570.0)
                     .min_inner_size(680.0, 570.0)
                     .resizable(true)

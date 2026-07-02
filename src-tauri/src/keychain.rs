@@ -6,7 +6,7 @@
 use anyhow::Result;
 use keyring::Entry;
 
-const SERVICE: &str = "care.hexai.openflow";
+const SERVICE: &str = "knotie.ai.openflow";
 
 fn account(scope: &str, provider: &str) -> String {
     format!("{scope}:{provider}")

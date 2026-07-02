@@ -1,11 +1,11 @@
 [package]
-name = "handy"
+name = "openflow"
 version = "0.9.0"
-description = "Handy"
-authors = ["cjpais"]
+description = "OpenFlow"
+authors = ["cjpais", "OpenFlow"]
 edition = "2021"
 license = "MIT"
-default-run = "handy"
+default-run = "openflow"
 
 [profile.dev]
 incremental = true # Compile your binary in smaller steps.
@@ -126,11 +126,14 @@ winreg = "0.55"
 # handy.exe and we ship zero DLLs, which sidesteps the installer's per-DLL
 # signtool verify entirely. CI pins -DGGML_NATIVE=OFF (see build.yml) so the
 # static build targets a portable ARM baseline, not the build runner's CPU.
+# Windows x64 is CPU-only for v1. The Vulkan GPU backend pulls in ggml-vulkan,
+# whose CMake build needs SPIRV-Headers that the Vulkan SDK CI action doesn't
+# provide a config package for ("Could not find SPIRV-HeadersConfig.cmake").
+# Building CPU-only (like Windows-ARM below) drops the whole Vulkan/SPIRV
+# toolchain dependency and produces a working unsigned installer; STT runs on
+# CPU (Parakeet/Whisper). GPU acceleration on Windows is a later optimization.
 [target.'cfg(all(windows, target_arch = "x86_64"))'.dependencies]
-transcribe-cpp = { version = "0.1.0", default-features = false, features = [
-  "dynamic-backends",
-  "vulkan",
-] }
+transcribe-cpp = { version = "0.1.0", default-features = false }
 
 [target.'cfg(all(windows, target_arch = "aarch64"))'.dependencies]
 transcribe-cpp = { version = "0.1.0", default-features = false }

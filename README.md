@@ -1,8 +1,12 @@
 # OpenFlow
 
+![OpenFlow](docs/icon.png)
+
 **Local-first voice dictation for your desktop. Press a shortcut, speak, and your words appear in whatever text field you're in — privately, on your own machine.**
 
-OpenFlow is a cross-platform desktop dictation app (macOS, Windows, Linux) built with Tauri 2, Rust, and React. It's a privacy-respecting, open-source alternative to hosted dictation tools like Wispr Flow: by default everything — audio capture, voice-activity detection, and speech-to-text — runs locally, so your voice never has to leave your computer.
+## What it is
+
+OpenFlow is a cross-platform desktop dictation app (macOS, Windows, Linux) built with Tauri 2, Rust, and React. It's a privacy-respecting, open-source alternative to hosted dictation tools like Wispr Flow: you choose where transcription and AI cleanup actually run — fully local, a self-hosted endpoint you control, or a remote hosted provider — plus optional AI cleanup of your transcripts and a local analytics dashboard so you can see how much you're dictating and where.
 
 OpenFlow is a fork of [Handy](https://github.com/cjpais/Handy) (MIT). Huge credit to CJ Pais and the Handy contributors — the audio pipeline, transcription managers, and Tauri foundation come from their work. See [Attribution](#attribution).
 
@@ -24,6 +28,16 @@ OpenFlow is designed around pluggable speech-to-text backends. Conceptually ther
 - **Mode C — Remote provider:** Use a third-party hosted transcription API. This trades some privacy for convenience/quality and requires network access and, typically, an API key.
 
 Local (Mode A) is fully local and the recommended default. Modes B and C are opt-in — if you use them, audio (or its transcript) is sent to the endpoint/provider you configure.
+
+## Features
+
+- **Three backend modes** — local on-device models, a self-hosted OpenAI-compatible endpoint, or a remote hosted provider, switchable per speech-to-text and per text-cleanup independently.
+- **Model Setup with Test buttons** — validate your self-hosted or remote endpoint/API key from within the app before relying on it, instead of finding out mid-dictation.
+- **AI text cleanup** — an optional post-processing pass with reusable prompt templates for grammar/formatting cleanup, including **per-app prompt overrides** so the cleanup instructions used can change automatically based on which application is focused.
+- **Analytics dashboard** — local-only charts for total dictations, words, average WPM, time saved, streaks, usage by app/project, and top keywords, with three **privacy modes** (Full, Keywords only, Off) controlling how much detail is stored, plus a one-click "clear analytics data" action.
+- **Keychain-stored keys** — API keys for remote providers are saved in the OS keychain, not in plaintext settings files.
+- **Configurable shortcuts** — global keyboard shortcuts with push-to-talk support.
+- **Local speech-to-text** — bundled/downloadable Whisper-family models (GPU-accelerated where available) and the CPU-optimized Parakeet V3, with Silero VAD trimming silence before transcription.
 
 ## Installation
 

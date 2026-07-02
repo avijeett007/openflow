@@ -5,7 +5,7 @@
   /* Near-opaque app surface (theme.css --color-background at 98%). Auto-flips
      light/dark with --color-background, so no dark-mode override is needed. */
   --s-surface: color-mix(in srgb, var(--color-background) 98%, transparent);
-  /* Accent = logo pink; flips automatically via --color-logo-primary. */
+  /* Accent = brand violet; flips automatically via --color-logo-primary. */
   --s-accent: var(--color-logo-primary);
   --s-accent-soft: color-mix(
     in srgb,
@@ -36,8 +36,8 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    /* Accent uses the lighter logo pink in dark — reads better on the dark
-       surface than the deeper UI pink. */
+    /* Accent uses the lighter logo violet in dark — reads better on the dark
+       surface than the deeper UI violet. */
     --s-accent-soft: color-mix(
       in srgb,
       var(--color-logo-primary) 20%,
@@ -263,20 +263,47 @@
   gap: 10px;
   justify-self: end;
 }
-.sdot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--s-accent);
+/* Little character/emoji indicator — swaps per state (👂 listening, ✍️
+   transcribing, ✨ polishing) and gets a gentle, GPU-friendly bounce/pulse
+   (transform only). Sits in the same small slot the old status dot/spinner
+   used, so it doesn't add any width to the pill. */
+.schar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
   flex: none;
-  animation: sdot-pulse 1.9s infinite;
+  will-change: transform;
 }
-@keyframes sdot-pulse {
-  0% {
-    box-shadow: 0 0 0 0 var(--s-accent-soft);
+.schar-listen {
+  animation: schar-pulse 1.9s ease-in-out infinite;
+}
+.schar-work {
+  animation: schar-bounce 1.1s ease-in-out infinite;
+}
+@keyframes schar-pulse {
+  0%,
+  100% {
+    transform: scale(1);
   }
-  70% {
-    box-shadow: 0 0 0 7px transparent;
+  50% {
+    transform: scale(1.2);
+  }
+}
+@keyframes schar-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .schar-listen,
+  .schar-work {
+    animation: none;
   }
 }
 .stimer {
@@ -342,21 +369,7 @@
   transform: scale(0.95);
 }
 
-/* working state (transcribing / polishing) — spinner + label */
-.sspinner {
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  border: 2px solid var(--s-hair);
-  border-top-color: var(--s-accent);
-  animation: sspin 0.7s linear infinite;
-  flex: none;
-}
-@keyframes sspin {
-  to {
-    transform: rotate(1turn);
-  }
-}
+/* working state (transcribing / polishing) — character + label */
 .swork-label {
   font-size: 12px;
   color: var(--s-muted);

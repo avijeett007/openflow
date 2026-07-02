@@ -29,6 +29,40 @@ async changePttSetting(enabled: boolean) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Enable/disable the hands-free wake-word listener. Persists the setting and
+ * starts/stops the background [`WakeWordManager`] loop to match.
+ */
+async setHandsFreeEnabled(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_hands_free_enabled", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Set the wake phrase the listener matches (rejects an empty value).
+ */
+async setWakeWord(wakeWord: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_wake_word", { wakeWord }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Set the fuzzy wake-word match threshold (clamped to 0.0..=1.0).
+ */
+async setWakeWordSensitivity(value: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_wake_word_sensitivity", { value }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAudioFeedbackSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_audio_feedback_setting", { enabled }) };
@@ -1118,7 +1152,22 @@ stt_selfhosted_url?: string; stt_selfhosted_model?: string; stt_selfhosted_api_s
 /**
  * How much of each dictation the usage-analytics backend persists.
  */
-analytics_privacy?: AnalyticsPrivacy }
+analytics_privacy?: AnalyticsPrivacy; 
+/**
+ * Master switch for the always-on wake-word listener. When true, the
+ * `WakeWordManager` runs a background loop that listens for the wake phrase
+ * and starts a voice-triggered dictation (no hotkey required).
+ */
+hands_free_enabled?: boolean; 
+/**
+ * The wake phrase the listener matches at the start of an utterance.
+ */
+wake_word?: string; 
+/**
+ * Similarity threshold (0.0..=1.0) for the fuzzy wake-word match. Higher is
+ * stricter; the default is a good balance for the "hey flow" default phrase.
+ */
+wake_word_sensitivity?: number }
 export type AppUsage = { app: string; dictations: number; words: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"

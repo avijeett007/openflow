@@ -12,6 +12,7 @@
     "general": "General",
     "models": "Models",
     "modelSetup": "Model Setup",
+    "handsFree": "Hands-free",
     "advanced": "Advanced",
     "postProcessing": "Post Process",
     "history": "History",
@@ -102,7 +103,7 @@
     },
     "permissions": {
       "title": "Permissions Required",
-      "description": "Handy needs a couple of permissions to work properly.",
+      "description": "OpenFlow needs a couple of permissions to work properly.",
       "microphone": {
         "title": "Microphone Access",
         "description": "Required to hear your voice for transcription."
@@ -162,7 +163,7 @@
     "general": {
       "title": "General",
       "shortcut": {
-        "title": "Handy Shortcuts",
+        "title": "OpenFlow Shortcuts",
         "description": "Configure keyboard shortcuts to trigger speech-to-text recording",
         "loading": "Loading shortcuts...",
         "none": "No shortcuts configured",
@@ -214,7 +215,7 @@
       },
       "rescan": {
         "label": "Rescan",
-        "tooltip": "Rescan for models added to the models folder or Hugging Face cache outside Handy"
+        "tooltip": "Rescan for models added to the models folder or Hugging Face cache outside OpenFlow"
       },
       "noModelsMatch": "No models match this filter."
     },
@@ -334,6 +335,27 @@
         }
       }
     },
+    "handsFree": {
+      "title": "Hands-free",
+      "description": "Listen continuously for a wake word so you can start dictating without touching a hotkey.",
+      "enable": {
+        "label": "Enable hands-free",
+        "description": "Listen continuously for a wake word — no hotkey needed. Say your wake word, then speak your text. Needs a local STT model and uses more CPU while listening."
+      },
+      "wakeWord": {
+        "label": "Wake word",
+        "description": "The phrase that starts a dictation, e.g. \"hey flow\".",
+        "placeholder": "hey flow",
+        "save": "Save",
+        "saved": "Saved",
+        "emptyError": "Wake word can't be empty."
+      },
+      "sensitivity": {
+        "label": "Sensitivity",
+        "description": "Lower = fewer false triggers. Higher = easier to trigger."
+      },
+      "tapToToggleHint": "Tip: even without hands-free, tapping the hotkey once (with Push-To-Talk off) starts listening hands-free until you tap it again — no holding required."
+    },
     "sound": {
       "title": "Sound",
       "microphone": {
@@ -392,11 +414,11 @@
       },
       "autostart": {
         "label": "Launch on Startup",
-        "description": "Automatically start Handy when you log in to your computer."
+        "description": "Automatically start OpenFlow when you log in to your computer."
       },
       "showTrayIcon": {
         "label": "Show Tray Icon",
-        "description": "Display the Handy icon in the system tray."
+        "description": "Display the OpenFlow icon in the system tray."
       },
       "overlay": {
         "style": {
@@ -649,7 +671,7 @@
       },
       "updateChecks": {
         "label": "Check for Updates",
-        "description": "Automatically check for new versions of Handy"
+        "description": "Automatically check for new versions of OpenFlow"
       },
       "whatsNewPreview": {
         "title": "Preview What's New",
@@ -724,15 +746,15 @@
       "title": "About",
       "version": {
         "title": "Version",
-        "description": "Current version of Handy"
+        "description": "Current version of OpenFlow"
       },
       "whatsNewUpdates": {
         "label": "Show What's New",
-        "description": "Show release notes after Handy updates"
+        "description": "Show release notes after OpenFlow updates"
       },
       "appDataDirectory": {
         "title": "App Data Directory",
-        "description": "Location where Handy stores its data"
+        "description": "Location where OpenFlow stores its data"
       },
       "sourceCode": {
         "title": "Source Code",
@@ -741,7 +763,7 @@
       },
       "supportDevelopment": {
         "title": "Support Development",
-        "description": "Help us continue building Handy",
+        "description": "Help us continue building OpenFlow",
         "button": "Donate"
       },
       "acknowledgments": {
@@ -749,7 +771,7 @@
         "ggml": {
           "title": "ggml",
           "description": "High-performance tensor library for on-device machine learning inference",
-          "details": "Handy's local speech-to-text is built on transcribe.cpp and ggml. Thanks to the amazing work by Georgi Gerganov and contributors."
+          "details": "OpenFlow's local speech-to-text is built on transcribe.cpp and ggml. Thanks to the amazing work by Georgi Gerganov and contributors."
         }
       }
     }
@@ -768,7 +790,7 @@
     "portableUpdateButton": "Open GitHub Releases"
   },
   "whatsNew": {
-    "title": "New in Handy v{{version}}"
+    "title": "New in OpenFlow v{{version}}"
   },
   "common": {
     "loading": "Loading...",
@@ -780,7 +802,7 @@
     "noOptionsFound": "No options found"
   },
   "accessibility": {
-    "permissionsDescription": "Handy needs accessibility permissions to type transcribed text.",
+    "permissionsDescription": "OpenFlow needs accessibility permissions to type transcribed text.",
     "openSettings": "Open System Settings"
   },
   "errors": {
@@ -803,10 +825,11 @@
   },
   "appLanguage": {
     "title": "Application Language",
-    "description": "Change the language of the Handy interface"
+    "description": "Change the language of the OpenFlow interface"
   },
   "overlay": {
-    "transcribing": "Transcribing...",
-    "processing": "Processing..."
+    "listening": "Listening… 👂",
+    "transcribing": "Working on it… ✍️",
+    "processing": "Making it shine… ✨"
   }
 }

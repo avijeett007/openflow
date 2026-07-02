@@ -524,6 +524,20 @@ pub struct AppSettings {
     /// How much of each dictation the usage-analytics backend persists.
     #[serde(default)]
     pub analytics_privacy: AnalyticsPrivacy,
+
+    // ---- OpenFlow: hands-free / wake-word ----
+    /// Master switch for the always-on wake-word listener. When true, the
+    /// `WakeWordManager` runs a background loop that listens for the wake phrase
+    /// and starts a voice-triggered dictation (no hotkey required).
+    #[serde(default)]
+    pub hands_free_enabled: bool,
+    /// The wake phrase the listener matches at the start of an utterance.
+    #[serde(default = "default_wake_word")]
+    pub wake_word: String,
+    /// Similarity threshold (0.0..=1.0) for the fuzzy wake-word match. Higher is
+    /// stricter; the default is a good balance for the "hey flow" default phrase.
+    #[serde(default = "default_wake_word_sensitivity")]
+    pub wake_word_sensitivity: f32,
 }
 
 fn default_model() -> String {
@@ -823,6 +837,14 @@ fn default_typing_tool() -> TypingTool {
     TypingTool::Auto
 }
 
+fn default_wake_word() -> String {
+    "hey flow".to_string()
+}
+
+fn default_wake_word_sensitivity() -> f32 {
+    0.8
+}
+
 fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
     let mut changed = false;
     for provider in default_post_process_providers() {
@@ -998,6 +1020,9 @@ pub fn get_default_settings() -> AppSettings {
         stt_selfhosted_model: String::new(),
         stt_selfhosted_api_style: SttApiStyle::default(),
         analytics_privacy: AnalyticsPrivacy::default(),
+        hands_free_enabled: false,
+        wake_word: default_wake_word(),
+        wake_word_sensitivity: default_wake_word_sensitivity(),
     }
 }
 

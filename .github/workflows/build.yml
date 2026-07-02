@@ -97,16 +97,6 @@ jobs:
           echo "ORT_LIB_LOCATION=$(brew --prefix onnxruntime)/lib" >> "$GITHUB_ENV"
           echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
 
-      # Windows x64 builds transcribe-cpp with the `vulkan` GPU backend, which
-      # needs the Vulkan SDK (headers + glslc). Windows-on-ARM is CPU-only, so it
-      # is excluded. Not needed on macOS.
-      - name: Install Vulkan SDK (Windows x64)
-        if: runner.os == 'Windows' && !contains(matrix.target, 'aarch64')
-        uses: humbletim/install-vulkan-sdk@v1.2
-        with:
-          version: 1.4.309.0
-          cache: true
-
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 

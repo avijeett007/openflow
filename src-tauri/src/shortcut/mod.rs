@@ -478,6 +478,47 @@ pub fn change_ptt_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Enable/disable the hands-free wake-word listener. Persists the setting and
+/// starts/stops the background [`WakeWordManager`] loop to match.
+#[tauri::command]
+#[specta::specta]
+pub fn set_hands_free_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.hands_free_enabled = enabled;
+    settings::write_settings(&app, settings);
+
+    if let Some(ww) =
+        app.try_state::<std::sync::Arc<crate::managers::wake_word::WakeWordManager>>()
+    {
+        ww.set_enabled(enabled);
+    }
+    Ok(())
+}
+
+/// Set the wake phrase the listener matches (rejects an empty value).
+#[tauri::command]
+#[specta::specta]
+pub fn set_wake_word(app: AppHandle, wake_word: String) -> Result<(), String> {
+    let trimmed = wake_word.trim();
+    if trimmed.is_empty() {
+        return Err("Wake word cannot be empty".to_string());
+    }
+    let mut settings = get_settings(&app);
+    settings.wake_word = trimmed.to_string();
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+/// Set the fuzzy wake-word match threshold (clamped to 0.0..=1.0).
+#[tauri::command]
+#[specta::specta]
+pub fn set_wake_word_sensitivity(app: AppHandle, value: f32) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.wake_word_sensitivity = value.clamp(0.0, 1.0);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_audio_feedback_setting(app: AppHandle, enabled: bool) -> Result<(), String> {

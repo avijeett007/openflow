@@ -180,12 +180,16 @@ const RecordingOverlay: React.FC = () => {
     </button>
   );
 
-  // dot (left) | waveform (center) | timer + cancel (right) — same structure for
-  // pill & panel, so the Live morph is a pure width change.
+  // little character (left) | waveform (center) | timer + cancel (right) —
+  // same structure for pill & panel, so the Live morph is a pure width change.
+  // The character emoji swaps per state and gets a light bounce/pulse (CSS
+  // only) for a bit of personality without adding weight.
   const listeningRow = (showTimer: boolean, showCancel: boolean) => (
-    <div className="sbase">
+    <div className="sbase" aria-label={t("overlay.listening")}>
       <div className="sbase-l">
-        <span className="sdot" />
+        <span className="schar schar-listen" aria-hidden="true">
+          👂
+        </span>
       </div>
       {waveform}
       <div className="sbase-r">
@@ -195,12 +199,14 @@ const RecordingOverlay: React.FC = () => {
     </div>
   );
 
-  // spinner (left) | label (center) | cancel (right) — same 3-zone grid as the
-  // listening row, so the label is centered.
-  const workingRow = (label: string, showCancel: boolean) => (
+  // character (left) | label (center) | cancel (right) — same 3-zone grid as
+  // the listening row, so the label is centered.
+  const workingRow = (label: string, emoji: string, showCancel: boolean) => (
     <div className="sbase">
       <div className="sbase-l">
-        <span className="sspinner" />
+        <span className="schar schar-work" aria-hidden="true">
+          {emoji}
+        </span>
       </div>
       <span className="swork-label">{label}</span>
       <div className="sbase-r">{showCancel && cancelBtn}</div>
@@ -251,6 +257,7 @@ const RecordingOverlay: React.FC = () => {
                 workKind === "polishing"
                   ? t("overlay.processing")
                   : t("overlay.transcribing"),
+                workKind === "polishing" ? "✨" : "✍️",
                 true,
               )
             : listeningRow(open, true)}
@@ -267,6 +274,7 @@ const RecordingOverlay: React.FC = () => {
     state === "processing"
       ? t("overlay.processing")
       : t("overlay.transcribing");
+  const workEmoji = state === "processing" ? "✨" : "✍️";
 
   return (
     <div
@@ -276,7 +284,9 @@ const RecordingOverlay: React.FC = () => {
       <div
         className={`scard compact ${working && isVisible ? "cworking" : ""}`}
       >
-        {working ? workingRow(workLabel, true) : listeningRow(false, true)}
+        {working
+          ? workingRow(workLabel, workEmoji, true)
+          : listeningRow(false, true)}
       </div>
     </div>
   );

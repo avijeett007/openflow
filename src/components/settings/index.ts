@@ -8,6 +8,7 @@ export { PostProcessingSettings } from "./post-processing/PostProcessingSettings
 export { ModelsSettings } from "./models/ModelsSettings";
 export { ModelSetupSettings } from "./model-setup/ModelSetupSettings";
 export { DashboardSettings } from "./dashboard/DashboardSettings";
+export { HandsFreeSettings } from "./hands-free/HandsFreeSettings";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";

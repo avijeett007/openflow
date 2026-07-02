@@ -3,14 +3,15 @@ import { useTranslation } from "react-i18next";
 import {
   BarChart3,
   Cog,
+  Ear,
   FlaskConical,
   History,
+  Home,
   Info,
   Sparkles,
   Cpu,
   SlidersHorizontal,
 } from "lucide-react";
-import HandyHand from "./icons/HandyHand";
 import { useSettings } from "../hooks/useSettings";
 import {
   GeneralSettings,
@@ -22,6 +23,7 @@ import {
   ModelsSettings,
   ModelSetupSettings,
   DashboardSettings,
+  HandsFreeSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -44,7 +46,7 @@ interface SectionConfig {
 export const SECTIONS_CONFIG = {
   general: {
     labelKey: "sidebar.general",
-    icon: HandyHand,
+    icon: Home,
     component: GeneralSettings,
     enabled: () => true,
   },
@@ -58,6 +60,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.modelSetup",
     icon: SlidersHorizontal,
     component: ModelSetupSettings,
+    enabled: () => true,
+  },
+  handsFree: {
+    labelKey: "sidebar.handsFree",
+    icon: Ear,
+    component: HandsFreeSettings,
     enabled: () => true,
   },
   advanced: {
@@ -117,9 +125,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <div className="flex flex-col w-40 h-full border-e border-mid-gray/20 items-center px-2">
       <div className="m-4 flex items-baseline gap-0.5 select-none">
+        {/* eslint-disable-next-line i18next/no-literal-string -- brand wordmark, not translatable content */}
         <span className="text-2xl font-extrabold tracking-tight text-logo-primary">
           Open
         </span>
+        {/* eslint-disable-next-line i18next/no-literal-string -- brand wordmark, not translatable content */}
         <span className="text-2xl font-extrabold tracking-tight text-text">
           Flow
         </span>

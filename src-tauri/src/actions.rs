@@ -565,6 +565,141 @@ fn build_dictation_event(
     }
 }
 
+/// Shared "finish a dictation" tail: clean the raw transcript, optionally persist
+/// a history entry, inject the text into the active app, and log a dictation
+/// analytics event. This is the single code path used by BOTH the manual hotkey
+/// stop ([`TranscribeAction::stop`]) and the hands-free wake-word path
+/// ([`crate::managers::wake_word`]), so cleanup, the per-app tone override,
+/// injection, and analytics all apply identically no matter how the dictation was
+/// triggered.
+///
+/// - `raw_text` is the raw transcription (pre-cleanup).
+/// - `post_process` forces/enables the LLM cleanup step.
+/// - `samples_len` is the captured audio sample count (16 kHz mono) used to derive
+///   `audio_ms` for analytics; pass `0` when unknown.
+/// - `stt_latency_ms` is the measured transcription latency for analytics.
+/// - `history_file_name` is `Some(name)` when a WAV was saved and a history entry
+///   should reference it; `None` skips the history save (e.g. wake-word, which
+///   does not persist a recording).
+/// - `cancel_generation` is the recorder cancel token captured before this
+///   dictation, so a mid-flight cancel still aborts the paste.
+pub(crate) async fn finish_dictation(
+    app: &AppHandle,
+    raw_text: String,
+    post_process: bool,
+    samples_len: usize,
+    stt_latency_ms: i64,
+    history_file_name: Option<String>,
+    cancel_generation: u64,
+) {
+    let ah = app.clone();
+    let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
+    let tm = Arc::clone(&app.state::<Arc<TranscriptionManager>>());
+    let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
+    let am = Arc::clone(&app.state::<Arc<AnalyticsManager>>());
+    let style = get_settings(&ah).overlay_style;
+
+    if post_process {
+        if style == OverlayStyle::Live {
+            tm.emit_stream_working(StreamWorkKind::Polishing);
+        } else {
+            show_processing_overlay(&ah);
+        }
+    }
+
+    let cleanup_start = Instant::now();
+    let processed = process_transcription_output(&ah, &raw_text, post_process).await;
+    let cleanup_latency_ms = if post_process {
+        cleanup_start.elapsed().as_millis() as i64
+    } else {
+        0
+    };
+    let cleaned_for_analytics = processed.post_processed_text.clone();
+
+    if rm.was_cancelled_since(cancel_generation) {
+        debug!("Transcription operation cancelled before paste");
+        utils::hide_recording_overlay(&ah);
+        change_tray_icon(&ah, TrayIconState::Idle);
+        return;
+    }
+
+    // Save to history if a recording file was persisted for this dictation.
+    if let Some(file_name) = history_file_name {
+        if let Err(err) = hm.save_entry(
+            file_name,
+            raw_text.clone(),
+            post_process,
+            processed.post_processed_text.clone(),
+            processed.post_process_prompt.clone(),
+        ) {
+            error!("Failed to save history entry: {}", err);
+        }
+    }
+
+    if processed.final_text.is_empty() {
+        utils::hide_recording_overlay(&ah);
+        change_tray_icon(&ah, TrayIconState::Idle);
+        return;
+    }
+
+    let ah_clone = ah.clone();
+    let paste_time = Instant::now();
+    let final_text = processed.final_text;
+    let rm_for_paste = Arc::clone(&rm);
+
+    // Build the analytics event on this async task thread. The active-app lookup
+    // can shell out to osascript, so it must never run on the main (paste)
+    // thread. injected_ok is flipped to true only when the paste succeeds. Off
+    // mode short-circuits inside log_event.
+    let settings_for_analytics = get_settings(&ah);
+    let privacy = settings_for_analytics.analytics_privacy;
+    let audio_ms = (samples_len as i64) * 1000 / 16_000;
+    let active = active_app::current();
+    let dictation_event = build_dictation_event(
+        &settings_for_analytics,
+        raw_text,
+        cleaned_for_analytics,
+        &final_text,
+        audio_ms,
+        stt_latency_ms,
+        cleanup_latency_ms,
+        active,
+        post_process,
+    );
+    let am_for_paste = Arc::clone(&am);
+
+    ah.run_on_main_thread(move || {
+        if rm_for_paste.was_cancelled_since(cancel_generation) {
+            debug!("Transcription operation cancelled before paste");
+            utils::hide_recording_overlay(&ah_clone);
+            change_tray_icon(&ah_clone, TrayIconState::Idle);
+            return;
+        }
+
+        match utils::paste(final_text, ah_clone.clone()) {
+            Ok(()) => {
+                debug!("Text pasted successfully in {:?}", paste_time.elapsed());
+                // Non-fatal analytics logging: never panics or blocks; errors are
+                // logged inside log_event.
+                let mut ev = dictation_event;
+                ev.injected_ok = true;
+                am_for_paste.log_event(ev, privacy);
+            }
+            Err(e) => {
+                error!("Failed to paste transcription: {}", e);
+                let _ = ah_clone.emit("paste-error", ());
+            }
+        }
+        utils::hide_recording_overlay(&ah_clone);
+        change_tray_icon(&ah_clone, TrayIconState::Idle);
+    })
+    .unwrap_or_else(|e| {
+        error!("Failed to run paste on main thread: {:?}", e);
+        utils::hide_recording_overlay(&ah);
+        change_tray_icon(&ah, TrayIconState::Idle);
+    });
+}
+
 impl ShortcutAction for TranscribeAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let start_time = Instant::now();
@@ -719,7 +854,6 @@ impl ShortcutAction for TranscribeAction {
         let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
         let tm = Arc::clone(&app.state::<Arc<TranscriptionManager>>());
         let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
-        let am = Arc::clone(&app.state::<Arc<AnalyticsManager>>());
 
         change_tray_icon(app, TrayIconState::Transcribing);
         // Stop should give immediate visual feedback. Live streaming can keep
@@ -872,117 +1006,21 @@ impl ShortcutAction for TranscribeAction {
                                 transcription
                             );
 
-                            // Analytics (M4): capture STT latency and the raw
-                            // transcript before `transcription` is moved into the
-                            // history save below.
+                            // Hand off to the shared finish tail (clean → history
+                            // → paste → analytics), which the wake-word path also
+                            // uses so injection/cleanup/logging are identical.
                             let stt_latency_ms = transcription_time.elapsed().as_millis() as i64;
-                            let raw_text_for_analytics = transcription.clone();
-
-                            if post_process {
-                                if style == OverlayStyle::Live {
-                                    tm.emit_stream_working(StreamWorkKind::Polishing);
-                                } else {
-                                    show_processing_overlay(&ah);
-                                }
-                            }
-                            let cleanup_start = Instant::now();
-                            let processed =
-                                process_transcription_output(&ah, &transcription, post_process)
-                                    .await;
-                            let cleanup_latency_ms = if post_process {
-                                cleanup_start.elapsed().as_millis() as i64
-                            } else {
-                                0
-                            };
-                            let cleaned_for_analytics = processed.post_processed_text.clone();
-
-                            if rm.was_cancelled_since(cancel_generation) {
-                                debug!("Transcription operation cancelled before paste");
-                                utils::hide_recording_overlay(&ah);
-                                change_tray_icon(&ah, TrayIconState::Idle);
-                                return;
-                            }
-
-                            // Save to history if WAV was saved
-                            if wav_saved {
-                                if let Err(err) = hm.save_entry(
-                                    file_name,
-                                    transcription,
-                                    post_process,
-                                    processed.post_processed_text.clone(),
-                                    processed.post_process_prompt.clone(),
-                                ) {
-                                    error!("Failed to save history entry: {}", err);
-                                }
-                            }
-
-                            if processed.final_text.is_empty() {
-                                utils::hide_recording_overlay(&ah);
-                                change_tray_icon(&ah, TrayIconState::Idle);
-                            } else {
-                                let ah_clone = ah.clone();
-                                let paste_time = Instant::now();
-                                let final_text = processed.final_text;
-                                let rm_for_paste = Arc::clone(&rm);
-
-                                // Build the analytics event on this async task
-                                // thread. The active-app lookup can shell out to
-                                // osascript, so it must never run on the main
-                                // (paste) thread. injected_ok is flipped to true
-                                // only when the paste succeeds. Off mode short-
-                                // circuits inside log_event.
-                                let settings_for_analytics = get_settings(&ah);
-                                let privacy = settings_for_analytics.analytics_privacy;
-                                let audio_ms = (sample_count as i64) * 1000 / 16_000;
-                                let active = active_app::current();
-                                let dictation_event = build_dictation_event(
-                                    &settings_for_analytics,
-                                    raw_text_for_analytics,
-                                    cleaned_for_analytics,
-                                    &final_text,
-                                    audio_ms,
-                                    stt_latency_ms,
-                                    cleanup_latency_ms,
-                                    active,
-                                    post_process,
-                                );
-                                let am_for_paste = Arc::clone(&am);
-
-                                ah.run_on_main_thread(move || {
-                                    if rm_for_paste.was_cancelled_since(cancel_generation) {
-                                        debug!("Transcription operation cancelled before paste");
-                                        utils::hide_recording_overlay(&ah_clone);
-                                        change_tray_icon(&ah_clone, TrayIconState::Idle);
-                                        return;
-                                    }
-
-                                    match utils::paste(final_text, ah_clone.clone()) {
-                                        Ok(()) => {
-                                            debug!(
-                                                "Text pasted successfully in {:?}",
-                                                paste_time.elapsed()
-                                            );
-                                            // Non-fatal analytics logging: never
-                                            // panics or blocks; errors are logged
-                                            // inside log_event.
-                                            let mut ev = dictation_event;
-                                            ev.injected_ok = true;
-                                            am_for_paste.log_event(ev, privacy);
-                                        }
-                                        Err(e) => {
-                                            error!("Failed to paste transcription: {}", e);
-                                            let _ = ah_clone.emit("paste-error", ());
-                                        }
-                                    }
-                                    utils::hide_recording_overlay(&ah_clone);
-                                    change_tray_icon(&ah_clone, TrayIconState::Idle);
-                                })
-                                .unwrap_or_else(|e| {
-                                    error!("Failed to run paste on main thread: {:?}", e);
-                                    utils::hide_recording_overlay(&ah);
-                                    change_tray_icon(&ah, TrayIconState::Idle);
-                                });
-                            }
+                            let history_file_name = if wav_saved { Some(file_name) } else { None };
+                            finish_dictation(
+                                &ah,
+                                transcription,
+                                post_process,
+                                sample_count,
+                                stt_latency_ms,
+                                history_file_name,
+                                cancel_generation,
+                            )
+                            .await;
                         }
                         Err(err) => {
                             if rm.was_cancelled_since(cancel_generation) {
