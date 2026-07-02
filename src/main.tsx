@@ -9,6 +9,11 @@ document.documentElement.dataset.platform = platform();
 // Initialize i18n
 import "./i18n";
 
+// Dev-only: automation bridge client for the external test harness
+if (import.meta.env.DEV) {
+  import("./devAutomation");
+}
+
 // Initialize model store (loads models and sets up event listeners)
 import { useModelStore } from "./stores/modelStore";
 useModelStore.getState().initialize();
