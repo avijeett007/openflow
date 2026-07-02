@@ -28,6 +28,21 @@ fn main() {
     // embedding pyke's /arch:AVX2 one (which crashes at startup on pre-Haswell CPUs).
     stage_onnxruntime_dll();
 
+    // The Windows bundle config (tauri.windows.conf.json) always lists a
+    // `transcribe-libs` resource dir. On the CPU-only static x64 build (no
+    // `dynamic-backends`, so `stage_transcribe_runtime_libs` is a no-op) nothing
+    // creates it, which makes `tauri_build::build()` fail with "resource path
+    // `transcribe-libs` doesn't exist". Create it (empty is fine — the CPU
+    // backend is statically linked; there are no DLLs to ship) so the bundle
+    // resolves. NOTE: local Parakeet (ONNX) on Windows still needs
+    // onnxruntime.dll bundled — tracked as a follow-up; remote STT and the
+    // static Whisper (transcribe-cpp) path work without it.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        let dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+            .join("transcribe-libs");
+        let _ = std::fs::create_dir_all(&dir);
+    }
+
     tauri_build::build()
 }
 
