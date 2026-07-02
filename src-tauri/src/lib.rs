@@ -1,4 +1,6 @@
 mod actions;
+mod backends;
+mod keychain;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod apple_intelligence;
 mod audio_feedback;
@@ -611,6 +613,18 @@ pub fn run(cli_args: CliArgs) {
             commands::models::get_transcription_model_status,
             commands::models::is_model_loading,
             commands::models::rescan_local_models,
+            commands::backends::set_stt_backend_mode,
+            commands::backends::set_stt_provider,
+            commands::backends::change_stt_model_setting,
+            commands::backends::change_stt_selfhosted_url_setting,
+            commands::backends::change_stt_selfhosted_model_setting,
+            commands::backends::set_stt_selfhosted_api_style,
+            commands::backends::set_api_key,
+            commands::backends::has_api_key,
+            commands::backends::delete_api_key,
+            commands::backends::list_stt_models,
+            commands::backends::test_stt_backend,
+            commands::backends::test_cleanup_backend,
             commands::audio::update_microphone_mode,
             commands::audio::get_microphone_mode,
             commands::audio::get_windows_microphone_permission_status,

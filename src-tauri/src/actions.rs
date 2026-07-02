@@ -135,10 +135,10 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         provider.id, model
     );
 
-    let api_key = settings
-        .post_process_api_keys
-        .get(&provider.id)
-        .cloned()
+    // OpenFlow: prefer the keychain; fall back to any legacy plaintext value.
+    let api_key = crate::keychain::get_api_key("cleanup", &provider.id)
+        .filter(|k| !k.is_empty())
+        .or_else(|| settings.post_process_api_keys.get(&provider.id).cloned())
         .unwrap_or_default();
 
     // Disable reasoning for providers where post-processing rarely benefits from it.
@@ -442,8 +442,12 @@ impl ShortcutAction for TranscribeAction {
         let tm = app.state::<Arc<TranscriptionManager>>();
         let rm = app.state::<Arc<AudioRecordingManager>>();
 
-        // Load ASR model and VAD model in parallel
-        tm.initiate_model_load();
+        // Load ASR model and VAD model in parallel. Skip local-model load when STT
+        // runs over HTTP — there may be no local model downloaded at all, and we
+        // don't want to pay the load for audio we'll send to a remote endpoint.
+        if get_settings(app).stt_backend_mode == crate::settings::SttBackendMode::Local {
+            tm.initiate_model_load();
+        }
         let rm_clone = Arc::clone(&rm);
         std::thread::spawn(move || {
             if let Err(e) = rm_clone.preload_vad() {
@@ -465,10 +469,15 @@ impl ShortcutAction for TranscribeAction {
         // Use the app-facing model capability as the single pre-recording source
         // for live streaming decisions. Unknown support is represented as false
         // until the model registry is updated by discovery or runtime load.
-        let model_supports_streaming = selected_model_info
-            .as_ref()
-            .map(|m| m.supports_streaming)
-            .unwrap_or(false);
+        // OpenFlow: only the on-device engine streams. For remote/self-hosted STT
+        // we buffer the whole utterance and POST it on release, so streaming stays
+        // off regardless of the model's advertised capability.
+        let stt_is_local = settings.stt_backend_mode == crate::settings::SttBackendMode::Local;
+        let model_supports_streaming = stt_is_local
+            && selected_model_info
+                .as_ref()
+                .map(|m| m.supports_streaming)
+                .unwrap_or(false);
         let vad_policy = if !settings.vad_enabled {
             VadPolicy::Disabled
         } else if model_supports_streaming {
@@ -643,20 +652,41 @@ impl ShortcutAction for TranscribeAction {
                         crate::audio_toolkit::save_wav_file(&wav_path, &samples_for_wav)
                     });
 
-                    // Transcribe concurrently with WAV save. If a live stream was
-                    // running, finalize it and use its text (all audio was already
-                    // fed to the stream); otherwise batch-transcribe the samples.
+                    // Transcribe concurrently with WAV save. OpenFlow: when the STT
+                    // backend is remote/self-hosted, POST the audio to the HTTP
+                    // endpoint instead of running the local engine (streaming is not
+                    // started for those modes, so there is nothing to finalize). Local
+                    // mode keeps Handy's stream-finalize-then-batch fallback.
                     let transcription_time = Instant::now();
-                    let transcription_result = match tm.finalize_stream() {
-                        // A finalized stream with usable text wins. An empty result
-                        // (no active stream, produced nothing, or a finalize error
-                        // after the engine was returned) falls back to a full batch
-                        // transcription of the same audio. A finalize timeout is
-                        // surfaced instead — the worker may still hold the engine,
-                        // so a batch fallback would contend with it.
-                        Ok(Some(text)) if !text.trim().is_empty() => Ok(text),
-                        Ok(_) => tm.transcribe(samples),
-                        Err(err) => Err(err),
+                    let stt_mode = get_settings(&ah).stt_backend_mode;
+                    let transcription_result = if stt_mode
+                        != crate::settings::SttBackendMode::Local
+                    {
+                        let settings = get_settings(&ah);
+                        match crate::backends::stt_http::transcribe(&settings, &samples).await {
+                            Ok(outcome) => {
+                                debug!(
+                                    "Remote STT ({}) returned {} chars in {}ms",
+                                    outcome.backend,
+                                    outcome.text.len(),
+                                    outcome.latency_ms
+                                );
+                                Ok(outcome.text)
+                            }
+                            Err(e) => Err(anyhow::anyhow!("Remote STT failed: {e}")),
+                        }
+                    } else {
+                        match tm.finalize_stream() {
+                            // A finalized stream with usable text wins. An empty result
+                            // (no active stream, produced nothing, or a finalize error
+                            // after the engine was returned) falls back to a full batch
+                            // transcription of the same audio. A finalize timeout is
+                            // surfaced instead — the worker may still hold the engine,
+                            // so a batch fallback would contend with it.
+                            Ok(Some(text)) if !text.trim().is_empty() => Ok(text),
+                            Ok(_) => tm.transcribe(samples),
+                            Err(err) => Err(err),
+                        }
                     };
 
                     // Await WAV save and verify

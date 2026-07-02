@@ -951,7 +951,13 @@ pub fn change_post_process_api_key_setting(
 ) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     validate_provider_exists(&settings, &provider_id)?;
-    settings.post_process_api_keys.insert(provider_id, api_key);
+    // OpenFlow: keep cleanup keys in the OS keychain, never in the settings JSON.
+    // We still clear any legacy plaintext value left in the store from older builds.
+    crate::keychain::set_api_key("cleanup", &provider_id, &api_key)
+        .map_err(|e| format!("Failed to store key in keychain: {e}"))?;
+    settings
+        .post_process_api_keys
+        .insert(provider_id, String::new());
     settings::write_settings(&app, settings);
     Ok(())
 }

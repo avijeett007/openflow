@@ -654,6 +654,123 @@ async rescanLocalModels() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async setSttBackendMode(mode: SttBackendMode) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_stt_backend_mode", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setSttProvider(providerId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_stt_provider", { providerId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSttModelSetting(providerId: string, model: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_stt_model_setting", { providerId, model }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSttSelfhostedUrlSetting(url: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_stt_selfhosted_url_setting", { url }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeSttSelfhostedModelSetting(model: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_stt_selfhosted_model_setting", { model }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setSttSelfhostedApiStyle(style: SttApiStyle) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_stt_selfhosted_api_style", { style }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Store an API key in the OS keychain. `scope` is "stt" or "cleanup",
+ * `provider` is the provider id (e.g. "groq"). Empty key deletes the entry.
+ */
+async setApiKey(scope: string, provider: string, key: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_api_key", { scope, provider, key }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Whether a key exists for (scope, provider). We never return the key itself.
+ */
+async hasApiKey(scope: string, provider: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("has_api_key", { scope, provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteApiKey(scope: string, provider: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_api_key", { scope, provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * List models for an OpenAI-compatible STT endpoint (self-hosted or a provider
+ * with a `/models` endpoint). Deepgram has no such endpoint → returns a curated
+ * static list.
+ */
+async listSttModels(providerId: string) : Promise<Result<string[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_stt_models", { providerId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Record ~2 s from the mic and transcribe it through the *currently selected*
+ * STT backend, returning the text + measured latency. Powers the STT card's
+ * "Test" button.
+ */
+async testSttBackend() : Promise<Result<BackendTestResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_stt_backend") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Run a fixed noisy sample through the *currently selected* cleanup backend and
+ * return the polished text + latency. Powers the Cleanup card's "Test" button.
+ */
+async testCleanupBackend() : Promise<Result<BackendTestResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_cleanup_backend") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateMicrophoneMode(alwaysOn: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_microphone_mode", { alwaysOn }) };
@@ -883,10 +1000,40 @@ whats_new_last_seen_version?: string; selected_model?: string; onboarding_comple
  * not gated on this — that follows model capability. Migrated from the old
  * `overlay_position` (position `none` → style `None`).
  */
-overlay_style?: OverlayStyle }
+overlay_style?: OverlayStyle; 
+/**
+ * Where STT runs: on-device (`Local`), a user-typed endpoint (`SelfHosted`),
+ * or a named cloud provider (`Remote`). Independent of the cleanup backend.
+ */
+stt_backend_mode?: SttBackendMode; 
+/**
+ * Selected remote provider id (indexes `stt_providers`).
+ */
+stt_provider_id?: string; stt_providers?: SttProvider[]; 
+/**
+ * Per-provider chosen model name (provider id → model).
+ */
+stt_models?: Partial<{ [key in string]: string }>; 
+/**
+ * Self-hosted (Mode B) endpoint URL, e.g. a Speaches / whisper-server base.
+ */
+stt_selfhosted_url?: string; stt_selfhosted_model?: string; stt_selfhosted_api_style?: SttApiStyle }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
+/**
+ * Result of a `Test` action (STT or cleanup): what came back and how long it
+ * took, so the setup UI can show "it works, ~740 ms" before the user commits.
+ */
+export type BackendTestResult = { ok: boolean; message: string; 
+/**
+ * Transcribed / cleaned sample text (empty on failure).
+ */
+text: string; latency_ms: number; 
+/**
+ * The backend that actually ran, e.g. "remote:groq" or "local".
+ */
+backend: string }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CustomSounds = { start: boolean; stop: boolean }
@@ -987,6 +1134,28 @@ export type StreamTextEvent = { committed: string; tentative: string }
  * Semantic kind of "working" phase, used to localize the spinner label.
  */
 export type StreamWorkKind = "transcribing" | "polishing"
+/**
+ * The wire protocol an HTTP STT endpoint speaks. Most providers and
+ * self-hosted servers (OpenAI, Groq, Speaches, whisper-server, LocalAI) use the
+ * OpenAI `/audio/transcriptions` multipart shape; Deepgram is different enough
+ * to need its own adapter.
+ */
+export type SttApiStyle = "openai_compatible" | "deepgram"
+/**
+ * Where speech-to-text runs. `Local` uses the bundled on-device engine
+ * (Handy's Parakeet/Whisper). `SelfHosted` and `Remote` both POST audio to an
+ * HTTP endpoint — the only difference is UX (a user-typed URL vs. a named
+ * provider) and where the key comes from.
+ */
+export type SttBackendMode = "local" | "self_hosted" | "remote"
+/**
+ * A remote STT provider entry (Mode C) or the template for a self-hosted one.
+ */
+export type SttProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; api_style?: SttApiStyle; default_model?: string; 
+/**
+ * Optional `/models` listing endpoint (OpenAI-compatible only).
+ */
+models_endpoint?: string | null }
 export type TranscribeAcceleratorSetting = "auto" | "cpu" | "gpu"
 export type TypingTool = "auto" | "wtype" | "kwtype" | "dotool" | "ydotool" | "xdotool"
 export type WindowsMicrophonePermissionStatus = { supported: boolean; overall_access: PermissionAccess; device_access: PermissionAccess; app_access: PermissionAccess; desktop_app_access: PermissionAccess }

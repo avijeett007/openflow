@@ -106,6 +106,48 @@ pub struct PostProcessProvider {
     pub supports_structured_output: bool,
 }
 
+/// Where speech-to-text runs. `Local` uses the bundled on-device engine
+/// (Handy's Parakeet/Whisper). `SelfHosted` and `Remote` both POST audio to an
+/// HTTP endpoint — the only difference is UX (a user-typed URL vs. a named
+/// provider) and where the key comes from.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SttBackendMode {
+    #[default]
+    Local,
+    SelfHosted,
+    Remote,
+}
+
+/// The wire protocol an HTTP STT endpoint speaks. Most providers and
+/// self-hosted servers (OpenAI, Groq, Speaches, whisper-server, LocalAI) use the
+/// OpenAI `/audio/transcriptions` multipart shape; Deepgram is different enough
+/// to need its own adapter.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SttApiStyle {
+    #[default]
+    OpenaiCompatible,
+    Deepgram,
+}
+
+/// A remote STT provider entry (Mode C) or the template for a self-hosted one.
+#[derive(Serialize, Deserialize, Debug, Clone, Type)]
+pub struct SttProvider {
+    pub id: String,
+    pub label: String,
+    pub base_url: String,
+    #[serde(default)]
+    pub allow_base_url_edit: bool,
+    #[serde(default)]
+    pub api_style: SttApiStyle,
+    #[serde(default)]
+    pub default_model: String,
+    /// Optional `/models` listing endpoint (OpenAI-compatible only).
+    #[serde(default)]
+    pub models_endpoint: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum OverlayPosition {
@@ -438,6 +480,27 @@ pub struct AppSettings {
     /// `overlay_position` (position `none` → style `None`).
     #[serde(default = "default_overlay_style")]
     pub overlay_style: OverlayStyle,
+
+    // ---- OpenFlow: speech-to-text backend selection (Modes A/B/C) ----
+    /// Where STT runs: on-device (`Local`), a user-typed endpoint (`SelfHosted`),
+    /// or a named cloud provider (`Remote`). Independent of the cleanup backend.
+    #[serde(default)]
+    pub stt_backend_mode: SttBackendMode,
+    /// Selected remote provider id (indexes `stt_providers`).
+    #[serde(default = "default_stt_provider_id")]
+    pub stt_provider_id: String,
+    #[serde(default = "default_stt_providers")]
+    pub stt_providers: Vec<SttProvider>,
+    /// Per-provider chosen model name (provider id → model).
+    #[serde(default)]
+    pub stt_models: HashMap<String, String>,
+    /// Self-hosted (Mode B) endpoint URL, e.g. a Speaches / whisper-server base.
+    #[serde(default = "default_stt_selfhosted_url")]
+    pub stt_selfhosted_url: String,
+    #[serde(default)]
+    pub stt_selfhosted_model: String,
+    #[serde(default)]
+    pub stt_selfhosted_api_style: SttApiStyle,
 }
 
 fn default_model() -> String {
@@ -553,6 +616,48 @@ fn default_show_tray_icon() -> bool {
 
 fn default_post_process_provider_id() -> String {
     "openai".to_string()
+}
+
+fn default_stt_provider_id() -> String {
+    "groq".to_string()
+}
+
+fn default_stt_selfhosted_url() -> String {
+    "http://localhost:8000/v1".to_string()
+}
+
+/// Remote STT providers (Mode C). Groq is the cheap low-friction default;
+/// OpenAI and Deepgram round out the set the goal calls for.
+pub fn default_stt_providers() -> Vec<SttProvider> {
+    vec![
+        SttProvider {
+            id: "groq".to_string(),
+            label: "Groq".to_string(),
+            base_url: "https://api.groq.com/openai/v1".to_string(),
+            allow_base_url_edit: false,
+            api_style: SttApiStyle::OpenaiCompatible,
+            default_model: "whisper-large-v3-turbo".to_string(),
+            models_endpoint: Some("/models".to_string()),
+        },
+        SttProvider {
+            id: "openai".to_string(),
+            label: "OpenAI".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            allow_base_url_edit: false,
+            api_style: SttApiStyle::OpenaiCompatible,
+            default_model: "gpt-4o-transcribe".to_string(),
+            models_endpoint: Some("/models".to_string()),
+        },
+        SttProvider {
+            id: "deepgram".to_string(),
+            label: "Deepgram".to_string(),
+            base_url: "https://api.deepgram.com/v1".to_string(),
+            allow_base_url_edit: false,
+            api_style: SttApiStyle::Deepgram,
+            default_model: "nova-2".to_string(),
+            models_endpoint: None,
+        },
+    ]
 }
 
 fn default_post_process_providers() -> Vec<PostProcessProvider> {
@@ -854,6 +959,13 @@ pub fn get_default_settings() -> AppSettings {
         extra_recording_buffer_ms: 0,
         vad_enabled: default_vad_enabled(),
         overlay_style: default_overlay_style(),
+        stt_backend_mode: SttBackendMode::default(),
+        stt_provider_id: default_stt_provider_id(),
+        stt_providers: default_stt_providers(),
+        stt_models: HashMap::new(),
+        stt_selfhosted_url: default_stt_selfhosted_url(),
+        stt_selfhosted_model: String::new(),
+        stt_selfhosted_api_style: SttApiStyle::default(),
     }
 }
 

@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod backends;
 pub mod history;
 pub mod models;
 pub mod transcription;
