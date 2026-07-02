@@ -1,130 +1,144 @@
-# OpenFlow
+<p align="center">
+  <img src="docs/icon.png" width="120" alt="OpenFlow"/>
+</p>
 
-![OpenFlow](docs/icon.png)
+<h1 align="center">OpenFlow</h1>
 
-**Local-first voice dictation for your desktop. Press a shortcut, speak, and your words appear in whatever text field you're in — privately, on your own machine.**
+<p align="center">Local-first voice dictation you actually control.</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey" alt="Platform: macOS | Windows"/>
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"/>
+  <img src="https://img.shields.io/badge/built%20with-Tauri-24C8DB" alt="Built with Tauri"/>
+  <img src="https://img.shields.io/badge/STT-local%20%2F%20self--hosted%20%2F%20remote-brightgreen" alt="STT: local / self-hosted / remote"/>
+</p>
+
+<p align="center">
+  Press a shortcut (or just say a wake word), speak, and your words appear in whatever field you're in — with speech-to-text and AI cleanup running wherever <em>you</em> decide.
+</p>
 
 ## What it is
 
-OpenFlow is a cross-platform desktop dictation app (macOS, Windows, Linux) built with Tauri 2, Rust, and React. It's a privacy-respecting, open-source alternative to hosted dictation tools like Wispr Flow: you choose where transcription and AI cleanup actually run — fully local, a self-hosted endpoint you control, or a remote hosted provider — plus optional AI cleanup of your transcripts and a local analytics dashboard so you can see how much you're dictating and where.
+OpenFlow is a local-first, cross-platform (macOS + Windows) voice-dictation desktop app — a privacy-respecting alternative to hosted tools like Wispr Flow. It's built on **Tauri 2 + Rust + React**.
 
-OpenFlow is a fork of [Handy](https://github.com/cjpais/Handy) (MIT). Huge credit to CJ Pais and the Handy contributors — the audio pipeline, transcription managers, and Tauri foundation come from their work. See [Attribution](#attribution).
+You choose where speech-to-text and AI cleanup run, **independently of each other**: fully local on your machine, a self-hosted endpoint you control, or a remote provider. On top of that, OpenFlow adds a local analytics dashboard, per-app AI cleanup tone, OS-keychain-backed API keys, and a wake-word / hands-free mode so you don't have to touch a hotkey at all.
 
-## How it works
-
-1. **Press** a configurable keyboard shortcut to start/stop recording (push-to-talk is also supported).
-2. **Speak** while the shortcut is active.
-3. **Release**, and OpenFlow transcribes your speech.
-4. **Get** the text pasted into whatever application you're using.
-
-Under the hood: silence is trimmed with Silero VAD (Voice Activity Detection), the audio is transcribed, and the result is delivered to the focused app via the system clipboard / synthetic paste.
-
-## Model backend modes
-
-OpenFlow is designed around pluggable speech-to-text backends. Conceptually there are three modes:
-
-- **Mode A — Local (default):** Transcription runs entirely on-device using bundled/downloaded models (Whisper-family models with GPU acceleration where available, and the CPU-optimized Parakeet V3). Nothing leaves your machine. This is the privacy-first default.
-- **Mode B — Self-hosted endpoint:** Point OpenFlow at a speech-to-text server you run yourself (for example on your LAN or a private box). You keep control of the data while offloading inference to more capable hardware.
-- **Mode C — Remote provider:** Use a third-party hosted transcription API. This trades some privacy for convenience/quality and requires network access and, typically, an API key.
-
-Local (Mode A) is fully local and the recommended default. Modes B and C are opt-in — if you use them, audio (or its transcript) is sent to the endpoint/provider you configure.
+OpenFlow is a fork of **[Handy](https://github.com/cjpais/Handy)** (MIT). Huge credit to CJ Pais and the Handy contributors — the audio pipeline, transcription managers, and Tauri foundation come from their work.
 
 ## Features
 
-- **Three backend modes** — local on-device models, a self-hosted OpenAI-compatible endpoint, or a remote hosted provider, switchable per speech-to-text and per text-cleanup independently.
-- **Model Setup with Test buttons** — validate your self-hosted or remote endpoint/API key from within the app before relying on it, instead of finding out mid-dictation.
-- **AI text cleanup** — an optional post-processing pass with reusable prompt templates for grammar/formatting cleanup, including **per-app prompt overrides** so the cleanup instructions used can change automatically based on which application is focused.
-- **Analytics dashboard** — local-only charts for total dictations, words, average WPM, time saved, streaks, usage by app/project, and top keywords, with three **privacy modes** (Full, Keywords only, Off) controlling how much detail is stored, plus a one-click "clear analytics data" action.
-- **Keychain-stored keys** — API keys for remote providers are saved in the OS keychain, not in plaintext settings files.
-- **Configurable shortcuts** — global keyboard shortcuts with push-to-talk support.
-- **Local speech-to-text** — bundled/downloadable Whisper-family models (GPU-accelerated where available) and the CPU-optimized Parakeet V3, with Silero VAD trimming silence before transcription.
+- **Three backend modes, set independently for STT and cleanup** — local on-device models, a self-hosted endpoint you run yourself, or a remote hosted provider. Pick one mode for transcription and a different one for cleanup if you want.
+- **Model Setup with live Test buttons** — validate a self-hosted or remote endpoint/API key from inside the app before you rely on it mid-dictation.
+- **AI cleanup with per-app tone** — an optional post-processing pass that fixes grammar/formatting, with prompt overrides that can change automatically based on which application is focused.
+- **Wake-word / hands-free mode** — say a wake phrase to start dictating, no hotkey required.
+- **Analytics dashboard** — usage, words-per-minute, time saved, activity by app, and top keywords, all computed locally, with adjustable privacy modes controlling how much detail is stored.
+- **API keys in the OS keychain** — remote provider credentials are stored via the system keychain, never in plaintext settings files.
+- **Push-to-talk and tap-to-toggle** — configurable global shortcuts to start/stop recording, however you prefer to trigger it.
 
-## Installation
+## Install
 
-Download the latest installer for your OS from the [Releases page](https://github.com/avijeett007/openflow/releases/latest).
+Download the latest installer from [GitHub Releases](https://github.com/avijeett007/openflow/releases/latest).
 
-> **Note on signing:** OpenFlow v1 ships **unsigned / ad-hoc** — there is no Apple notarization and no Windows Authenticode signature yet. Your OS will warn you the first time you open it. This is expected; the one-time unblock steps below are safe. (Signing and notarization are planned for a future public-distribution phase — see [Distribution & signing status](#distribution--signing-status).)
+> **Note:** builds are currently **unsigned** — this project is distributed personally, to technical friends, rather than through an App Store or notarized channel. Your OS will show a one-time warning; see below for the unblock steps.
 
 ### macOS
 
 1. Open the `.dmg` and drag **OpenFlow** to **Applications**.
-2. Because the app is unsigned, macOS Gatekeeper blocks the first launch. Do the one-time unblock in one of these ways:
-   - **Right-click** `OpenFlow.app` in Applications → **Open** → **Open** again in the dialog, **or**
-   - Run this in Terminal to strip the quarantine flag:
-
+2. Because the app is unsigned, Gatekeeper blocks the first launch. Unblock it once, either by:
+   - **Right-click** `OpenFlow.app` → **Open** → **Open** again in the dialog, or
+   - Running in Terminal:
      ```bash
      xattr -dr com.apple.quarantine /Applications/OpenFlow.app
      ```
-3. Launch OpenFlow and grant the [required permissions](#required-permissions-macos).
+3. Launch OpenFlow and grant the required permissions under **System Settings → Privacy & Security**:
+   - **Microphone** — to record your voice.
+   - **Accessibility** — to register global shortcuts and paste transcribed text into the focused app.
+   - **Input Monitoring** — to detect the global hotkey.
 
 ### Windows
 
-1. Run the `.exe` (NSIS) or `.msi` installer.
-2. Because the app is unsigned, Windows SmartScreen shows a "Windows protected your PC" dialog on first run. Click **More info → Run anyway** to proceed.
-
-### Linux
-
-Install from the `.deb`, `.rpm`, or AppImage bundle. See [BUILD.md](BUILD.md) for runtime dependencies (e.g. `libgtk-layer-shell0`) and per-distro notes.
-
-## Required permissions (macOS)
-
-OpenFlow needs these macOS permissions to function. Grant them under **System Settings → Privacy & Security**:
-
-- **Accessibility** — required to register global keyboard shortcuts and to paste transcribed text into the focused app.
-- **Microphone** — required to record your voice.
-- **Input Monitoring** — required to detect your shortcut key presses globally.
-
-On Windows and Linux no special permission grants are needed for the core flow (Linux Wayland users may need extra text-input tooling — see [BUILD.md](BUILD.md)).
-
-### macOS Tahoe (26.x) note
-
-On macOS 26 (Tahoe), the OS restricts synthetic keyboard events, which can interfere with the "type the transcript" path. OpenFlow handles this by falling back to **clipboard paste**, so dictation still works — but you **must** grant the **Accessibility** permission above for the paste to reach the target app.
+1. Run the installer.
+2. Windows SmartScreen will flag it as unrecognized — click **More info → Run anyway** to proceed.
 
 ## Building from source
 
-Full platform matrix and troubleshooting are in [BUILD.md](BUILD.md). Quick version:
+**Prerequisites:** [Rust](https://rustup.rs/) (stable, via rustup) and [Bun](https://bun.sh/) (`brew install bun`). Install frontend dependencies with `bun install` before building.
 
-**Prerequisites:** [Rust](https://rustup.rs/) (stable, via rustup), [Bun](https://bun.sh/), and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your OS.
+### macOS — Apple Silicon (arm64)
+
+Apple Silicon uses a prebuilt ONNX Runtime, so no extra setup is needed:
 
 ```bash
 bun install
-bun run tauri build      # or: bun run tauri dev
+bun run tauri build --target aarch64-apple-darwin
 ```
 
-### Intel Mac (x86_64) — extra step
+Output: `src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/OpenFlow_0.9.0_aarch64.dmg`
 
-The `ort` crate has no prebuilt binary for `x86_64-apple-darwin`, so ONNX Runtime must be installed and linked dynamically:
+### macOS — Intel (x64)
+
+ONNX Runtime has no prebuilt x64 binary, so it needs to be installed and linked dynamically:
 
 ```bash
 brew install onnxruntime
-ORT_LIB_LOCATION=$(brew --prefix onnxruntime)/lib ORT_PREFER_DYNAMIC_LINK=1 bun run tauri build
+ORT_LIB_LOCATION=$(brew --prefix onnxruntime)/lib ORT_PREFER_DYNAMIC_LINK=1 \
+  bun run tauri build --target x86_64-apple-darwin
 ```
 
-Apple Silicon macOS, Windows, and Linux use prebuilt `ort` binaries and need no special step.
+> On a real Mac with Finder running, the `.dmg` styling step just works. In headless CI it can need a manual `hdiutil` fallback step to produce the disk image.
 
-### Continuous integration
+### Windows
 
-The [`Build`](.github/workflows/build.yml) workflow builds unsigned installers for macOS arm64 (`macos-14`), macOS x64 (`macos-13`), and Windows (`windows-latest`). It runs on manual dispatch and on `v*` tags; tag builds attach the installers to a draft GitHub Release. The Intel-macOS job installs `onnxruntime` via Homebrew and exports the `ORT_*` env vars before building.
+`transcribe-cpp`'s CMake build produces paths that exceed `MAX_PATH`, so long paths need to be enabled first (as admin, in PowerShell):
 
-## Distribution & signing status
+```powershell
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+  -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+git config --system core.longpaths true
+```
 
-OpenFlow v1 is intentionally **unsigned**:
+Then build normally:
 
-- **macOS:** ad-hoc signed only (`signingIdentity: "-"`), no Apple Developer certificate, no notarization.
-- **Windows:** no Authenticode signing (the previous Azure Trusted Signing step was removed so builds run with zero credentials).
+```bash
+bun install
+bun run tauri build
+```
 
-Proper code signing and notarization are **deferred to a future public-distribution phase**. Until then, use the one-time unblock steps in [Installation](#installation).
+Windows speech-to-text builds are CPU-only. Output lands in `src-tauri/target/release/bundle/nsis/` as an NSIS `.exe`.
 
-**Auto-update:** The Tauri updater plugin is wired (pubkey + a GitHub releases endpoint), but stubbed for now — updater artifact generation is disabled and the signing keys will be regenerated as part of the signing phase. **TODO:** regenerate the updater signing keypair, update the `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`, and re-enable `bundle.createUpdaterArtifacts` once signing is in place.
+### CI builds
 
-## Adding a new provider
+Pushing a `v*` tag, or manually running the [`Build`](.github/workflows/build.yml) GitHub Actions workflow, builds macOS (arm64 + x64) and Windows installers and attaches them to a draft GitHub Release. This is the recommended way to produce installers for all platforms without juggling toolchains locally.
 
-Speech-to-text backends live in the Rust layer under `src-tauri/src/managers/` (`model.rs`, `transcription.rs`) with Tauri command handlers in `src-tauri/src/commands/`. To add a new provider (a self-hosted endpoint or a remote API), implement it alongside the existing transcription path there and surface its settings through the settings store (`src/stores/settingsStore.ts`) and model-selector UI (`src/components/model-selector/`). See [AGENTS.md](AGENTS.md) for the architecture overview.
+## Distribution
 
-## Attribution
+Installers are published on [GitHub Releases](https://github.com/avijeett007/openflow/releases) — that's the recommended way to get OpenFlow. The app has an auto-updater wired up against this repo's latest release.
 
-OpenFlow is a fork of **[Handy](https://github.com/cjpais/Handy)** by CJ Pais and contributors, used under the MIT License. The original copyright and license are preserved in [LICENSE](LICENSE).
+Code signing and notarization (an Apple Developer ID certificate, Windows Authenticode) are deferred to a future public-distribution phase; for now, builds are unsigned and use the one-time unblock steps above.
+
+## ⚠️ Contributions & support
+
+> **Contributions are not being accepted right now.** OpenFlow is a solo project that I maintain alongside a full-time job and my own startup, **[knotie.ai](https://knotie.ai)**. I don't have the bandwidth to review and maintain incoming PRs at the moment.
+>
+> If you'd like to request a feature or report a bug, please **[open an issue](https://github.com/avijeett007/openflow/issues)** — I'll keep adding features over time, I just can't promise a fast turnaround.
+
+## Support
+
+If OpenFlow saves you time, consider supporting its development:
+
+- [GitHub Sponsors](https://github.com/sponsors/avijeett007)
+- [Buy Me a Coffee](https://buymeacoffee.com/)
+
+<!-- Maintainer: please confirm/replace these donation links before publicizing them. -->
+
+## Adding a provider
+
+STT and cleanup backends live in `src-tauri/src/backends/` (the backend trait and HTTP adapters for self-hosted/remote STT), with the provider lists and configuration defined in `src-tauri/src/settings.rs`. Start there to wire up a new self-hosted or remote provider.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). OpenFlow is a fork of [Handy](https://github.com/cjpais/Handy) by CJ Pais and contributors; the original copyright and license are preserved in [LICENSE](LICENSE).
+
+---
+
+<p><sub>Built by the team behind <a href="https://knotie.ai"><strong>knotie.ai</strong></a> — where you can white-label and sell AI services.</sub></p>
