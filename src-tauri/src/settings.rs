@@ -538,6 +538,11 @@ pub struct AppSettings {
     /// stricter; the default is a good balance for the "hey flow" default phrase.
     #[serde(default = "default_wake_word_sensitivity")]
     pub wake_word_sensitivity: f32,
+    /// After the wake word is heard, how long (seconds) to keep the mic open for
+    /// the command. VAD trims trailing silence, so this is the MAX listen window
+    /// before the command is transcribed — set it long enough for a full thought.
+    #[serde(default = "default_wake_word_listen_seconds")]
+    pub wake_word_listen_seconds: u64,
 }
 
 fn default_model() -> String {
@@ -841,6 +846,10 @@ fn default_wake_word() -> String {
     "hey flow".to_string()
 }
 
+fn default_wake_word_listen_seconds() -> u64 {
+    20
+}
+
 fn default_wake_word_sensitivity() -> f32 {
     0.8
 }
@@ -1023,6 +1032,7 @@ pub fn get_default_settings() -> AppSettings {
         hands_free_enabled: false,
         wake_word: default_wake_word(),
         wake_word_sensitivity: default_wake_word_sensitivity(),
+        wake_word_listen_seconds: default_wake_word_listen_seconds(),
     }
 }
 

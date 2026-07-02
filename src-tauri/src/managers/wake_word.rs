@@ -38,7 +38,7 @@ const LISTEN_WINDOW_MS: u64 = 4000;
 
 /// How long the follow-up command window records when the wake phrase arrives
 /// with no substantive text after it.
-const COMMAND_WINDOW_MS: u64 = 6000;
+const _COMMAND_WINDOW_MS: u64 = 6000; // retained for reference; window is now configurable
 
 /// Inter-cycle sleep to avoid busy-spin and give the CPU a break between windows.
 const IDLE_SLEEP: Duration = Duration::from_millis(400);
@@ -224,8 +224,15 @@ fn handle_wake(
         return;
     }
 
-    // Nothing meaningful after the wake word: capture the next utterance.
-    let samples = match capture_window(rm, running, COMMAND_WINDOW_MS) {
+    // Nothing meaningful after the wake word: keep the mic open for the command.
+    // Use the user-configured max window (VAD Offline trims trailing silence, so
+    // a short command still transcribes clean; a long window just means we won't
+    // cut them off mid-thought). Clamped to a sane range.
+    let listen_ms = get_settings(app)
+        .wake_word_listen_seconds
+        .clamp(3, 120)
+        .saturating_mul(1000);
+    let samples = match capture_window(rm, running, listen_ms) {
         Some(s) if !s.is_empty() => s,
         _ => return,
     };

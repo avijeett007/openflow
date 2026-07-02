@@ -519,6 +519,18 @@ pub fn set_wake_word_sensitivity(app: AppHandle, value: f32) -> Result<(), Strin
     Ok(())
 }
 
+/// How long (seconds) to keep the mic open for the command after the wake word.
+/// Clamped to 3..=120. VAD trims trailing silence, so a longer value just avoids
+/// cutting the user off mid-thought.
+#[tauri::command]
+#[specta::specta]
+pub fn set_wake_word_listen_seconds(app: AppHandle, seconds: u64) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.wake_word_listen_seconds = seconds.clamp(3, 120);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_audio_feedback_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
