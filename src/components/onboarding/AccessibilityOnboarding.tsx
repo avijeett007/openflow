@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { platform } from "@tauri-apps/plugin-os";
+import { relaunch } from "@tauri-apps/plugin-process";
 import {
   checkAccessibilityPermission,
   requestAccessibilityPermission,
@@ -380,9 +381,23 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
                     {t("onboarding.permissions.granted")}
                   </div>
                 ) : permissions.accessibility === "waiting" ? (
-                  <div className="flex items-center gap-2 text-text/50 text-sm">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    {t("onboarding.permissions.waiting")}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-text/50 text-sm">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {t("onboarding.permissions.waiting")}
+                    </div>
+                    {/* macOS caches Accessibility trust per running process, so a
+                        grant made while the app is open often isn't picked up
+                        until it restarts. Offer that explicitly. */}
+                    <p className="text-xs text-text/40">
+                      {t("onboarding.permissions.accessibility.restartHint")}
+                    </p>
+                    <button
+                      onClick={() => relaunch()}
+                      className="self-start px-3 py-1.5 rounded-lg bg-logo-primary hover:bg-logo-primary/90 text-white text-xs font-medium transition-colors"
+                    >
+                      {t("onboarding.permissions.accessibility.restart")}
+                    </button>
                   </div>
                 ) : (
                   <button

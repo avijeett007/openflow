@@ -193,11 +193,19 @@ function App() {
 
         if (currentPlatform === "macos") {
           try {
-            const [hasAccessibility, hasMicrophone] = await Promise.all([
-              checkAccessibilityPermission(),
-              checkMicrophonePermission(),
-            ]);
-            if (!hasAccessibility || !hasMicrophone) {
+            // Use the actual Enigo initialization as the source of truth for
+            // Accessibility, NOT checkAccessibilityPermission(): macOS caches
+            // AXIsProcessTrusted() per running process, so a grant made while the
+            // app is open (or for an ad-hoc-signed build) isn't reflected until a
+            // restart — which left returning users stuck on the permission screen
+            // with the input system never initialized. initializeEnigo() succeeds
+            // only when input simulation is genuinely permitted, so it's reliable.
+            const enigoOk =
+              (await commands.initializeEnigo()).status === "ok";
+            const hasMicrophone = await checkMicrophonePermission().catch(
+              () => false,
+            );
+            if (!enigoOk || !hasMicrophone) {
               await revealMainWindowForPermissions();
               setOnboardingStep("accessibility");
               return;

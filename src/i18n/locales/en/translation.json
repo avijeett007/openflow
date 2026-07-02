@@ -110,7 +110,9 @@
       },
       "accessibility": {
         "title": "Accessibility Access",
-        "description": "Required to type transcribed text into your applications."
+        "description": "Required to type transcribed text into your applications.",
+        "restartHint": "Already granted it in System Settings? Restart OpenFlow to apply.",
+        "restart": "Restart OpenFlow"
       },
       "grant": "Grant Permission",
       "granted": "Granted",
