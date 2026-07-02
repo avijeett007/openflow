@@ -44,8 +44,29 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
+      # transcribe-cpp-sys's cmake build creates paths that exceed Windows'
+      # 260-char MAX_PATH. Enable long paths before checkout touches the tree.
+      - name: Enable long paths (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+          git config --system core.longpaths true
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Even with long paths enabled, keep the cargo target dir short (C:\t) so
+      # deep cmake artifact paths stay well under the limit.
+      - name: Shorten build path (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $drive = Split-Path -Qualifier $env:GITHUB_WORKSPACE
+          $targetDir = "$drive\t"
+          New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+          echo "CARGO_TARGET_DIR=$targetDir" >> $env:GITHUB_ENV
 
       - name: Install Rust toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -75,6 +96,16 @@ jobs:
           brew install onnxruntime
           echo "ORT_LIB_LOCATION=$(brew --prefix onnxruntime)/lib" >> "$GITHUB_ENV"
           echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
+
+      # Windows x64 builds transcribe-cpp with the `vulkan` GPU backend, which
+      # needs the Vulkan SDK (headers + glslc). Windows-on-ARM is CPU-only, so it
+      # is excluded. Not needed on macOS.
+      - name: Install Vulkan SDK (Windows x64)
+        if: runner.os == 'Windows' && !contains(matrix.target, 'aarch64')
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.4.309.0
+          cache: true
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -106,13 +137,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      # Windows bundles land under the shortened CARGO_TARGET_DIR (C:\t), not
+      # src-tauri/target, because of the "Shorten build path" step above.
       - name: Upload installers (Windows)
         if: contains(matrix.platform, 'windows')
         uses: actions/upload-artifact@v4
         with:
           name: openflow-${{ matrix.target }}
           path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
-            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.target }}/release/bundle/nsis/*.exe
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.target }}/release/bundle/msi/*.msi
           if-no-files-found: warn
           retention-days: 30
