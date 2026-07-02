@@ -454,7 +454,7 @@ pub struct AppSettings {
     pub post_process_models: HashMap<String, String>,
     #[serde(default = "default_post_process_prompts")]
     pub post_process_prompts: Vec<LLMPrompt>,
-    #[serde(default)]
+    #[serde(default = "default_post_process_selected_prompt_id")]
     pub post_process_selected_prompt_id: Option<String>,
     /// Per-app cleanup prompt overrides: active-app name (as returned by
     /// `active_app::current().app_name`, e.g. "Slack", "Visual Studio Code",
@@ -639,6 +639,13 @@ fn default_show_tray_icon() -> bool {
 
 fn default_post_process_provider_id() -> String {
     "openai".to_string()
+}
+
+/// Select the built-in "Improve Transcriptions" prompt by default so that once a
+/// user enables cleanup (in Model Setup), the main dictation hotkey actually
+/// runs it — otherwise post-processing silently skips with "no prompt selected".
+fn default_post_process_selected_prompt_id() -> Option<String> {
+    Some("default_improve_transcriptions".to_string())
 }
 
 fn default_stt_provider_id() -> String {
@@ -964,7 +971,7 @@ pub fn get_default_settings() -> AppSettings {
         post_process_api_keys: default_post_process_api_keys(),
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
-        post_process_selected_prompt_id: None,
+        post_process_selected_prompt_id: default_post_process_selected_prompt_id(),
         per_app_prompts: HashMap::new(),
         mute_while_recording: false,
         append_trailing_space: false,
