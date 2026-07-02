@@ -230,7 +230,12 @@ fn handle_wake(
         _ => return,
     };
 
-    let text = match tm.transcribe(samples.clone()) {
+    // Transcribe the command through the user's CONFIGURED STT backend, not the
+    // local model. Wake-word *detection* must be local (continuous listening),
+    // but the actual command benefits from a fast/accurate remote or self-hosted
+    // backend when one is configured — so hands-free honors "local wake word +
+    // remote STT". Falls back to the local engine in Local mode.
+    let text = match tauri::async_runtime::block_on(transcribe_command(app, tm, samples.clone())) {
         Ok(t) => t,
         Err(e) => {
             error!("Wake-word command transcription failed: {}", e);
@@ -254,6 +259,29 @@ fn handle_wake(
         None,
         cancel_generation,
     ));
+}
+
+/// Transcribe a captured command through the user's configured STT backend.
+/// Wake-word detection always runs on the local model, but the command itself
+/// goes to whatever STT the user picked — so a "local wake word + remote STT"
+/// (or self-hosted) combination works. Falls back to the local engine in Local
+/// mode or if the remote call fails.
+async fn transcribe_command(
+    app: &AppHandle,
+    tm: &Arc<TranscriptionManager>,
+    samples: Vec<f32>,
+) -> anyhow::Result<String> {
+    let settings = get_settings(app);
+    if settings.stt_backend_mode != crate::settings::SttBackendMode::Local {
+        match crate::backends::stt_http::transcribe(&settings, &samples).await {
+            Ok(outcome) => return Ok(outcome.text),
+            Err(e) => {
+                // Non-fatal: fall back to the local engine so the command is not lost.
+                debug!("Wake-word remote STT failed ({e}); falling back to local");
+            }
+        }
+    }
+    tm.transcribe(samples)
 }
 
 /// Normalize text for matching: lowercase, drop punctuation, collapse whitespace.
