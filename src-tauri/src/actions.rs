@@ -2,6 +2,8 @@
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
 use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error, VadPolicy};
+use crate::active_app;
+use crate::managers::analytics::{AnalyticsManager, DictationEvent};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::model::ModelManager;
@@ -433,6 +435,100 @@ pub(crate) async fn process_transcription_output(
     }
 }
 
+/// Resolve the STT backend label + model string for analytics from settings.
+fn stt_backend_fields(settings: &AppSettings) -> (String, String) {
+    use crate::settings::SttBackendMode;
+    match settings.stt_backend_mode {
+        SttBackendMode::Local => ("local".to_string(), settings.selected_model.clone()),
+        SttBackendMode::SelfHosted => (
+            "selfhosted".to_string(),
+            settings.stt_selfhosted_model.clone(),
+        ),
+        SttBackendMode::Remote => {
+            let model = settings
+                .stt_models
+                .get(&settings.stt_provider_id)
+                .cloned()
+                .filter(|m| !m.is_empty())
+                .or_else(|| {
+                    settings
+                        .stt_providers
+                        .iter()
+                        .find(|p| p.id == settings.stt_provider_id)
+                        .map(|p| p.default_model.clone())
+                })
+                .unwrap_or_default();
+            (format!("remote:{}", settings.stt_provider_id), model)
+        }
+    }
+}
+
+/// Resolve the cleanup backend label + model for analytics. Returns
+/// (`"none"`, "") when this dictation did not run post-processing.
+fn cleanup_backend_fields(settings: &AppSettings, post_process: bool) -> (String, String) {
+    if !post_process {
+        return ("none".to_string(), String::new());
+    }
+    match settings.active_post_process_provider() {
+        Some(provider) => {
+            let model = settings
+                .post_process_models
+                .get(&provider.id)
+                .cloned()
+                .unwrap_or_default();
+            (format!("cleanup:{}", provider.id), model)
+        }
+        None => ("none".to_string(), String::new()),
+    }
+}
+
+/// Build a [`DictationEvent`] from the pipeline outputs. `injected_ok` starts
+/// `false`; the caller flips it to `true` in the paste success branch.
+#[allow(clippy::too_many_arguments)]
+fn build_dictation_event(
+    settings: &AppSettings,
+    raw_text: String,
+    cleaned_text: Option<String>,
+    final_text: &str,
+    audio_ms: i64,
+    stt_latency_ms: i64,
+    cleanup_latency_ms: i64,
+    active: active_app::ActiveApp,
+    post_process: bool,
+) -> DictationEvent {
+    let word_count = final_text.split_whitespace().count() as i64;
+    let wpm = if audio_ms > 0 {
+        (word_count as f64) / (audio_ms as f64 / 60000.0)
+    } else {
+        0.0
+    };
+    let (stt_backend, stt_model) = stt_backend_fields(settings);
+    let (cleanup_backend, cleanup_model) = cleanup_backend_fields(settings, post_process);
+    let total_latency_ms = stt_latency_ms + cleanup_latency_ms;
+
+    DictationEvent {
+        ts: chrono::Utc::now().timestamp(),
+        duration_ms: total_latency_ms,
+        audio_ms,
+        word_count,
+        wpm,
+        raw_text: Some(raw_text),
+        cleaned_text,
+        active_app: active.app_name,
+        window_title: active.window_title,
+        detected_project: active.project,
+        language: settings.selected_language.clone(),
+        stt_backend,
+        stt_model,
+        cleanup_backend,
+        cleanup_model,
+        stt_latency_ms,
+        cleanup_latency_ms,
+        total_latency_ms,
+        injected_ok: false,
+    }
+}
+
 impl ShortcutAction for TranscribeAction {
     fn start(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         let start_time = Instant::now();
@@ -587,6 +683,7 @@ impl ShortcutAction for TranscribeAction {
         let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
         let tm = Arc::clone(&app.state::<Arc<TranscriptionManager>>());
         let hm = Arc::clone(&app.state::<Arc<HistoryManager>>());
+        let am = Arc::clone(&app.state::<Arc<AnalyticsManager>>());
 
         change_tray_icon(app, TrayIconState::Transcribing);
         // Stop should give immediate visual feedback. Live streaming can keep
@@ -728,6 +825,12 @@ impl ShortcutAction for TranscribeAction {
                                 transcription
                             );
 
+                            // Analytics (M4): capture STT latency and the raw
+                            // transcript before `transcription` is moved into the
+                            // history save below.
+                            let stt_latency_ms = transcription_time.elapsed().as_millis() as i64;
+                            let raw_text_for_analytics = transcription.clone();
+
                             if post_process {
                                 if style == OverlayStyle::Live {
                                     tm.emit_stream_working(StreamWorkKind::Polishing);
@@ -735,9 +838,16 @@ impl ShortcutAction for TranscribeAction {
                                     show_processing_overlay(&ah);
                                 }
                             }
+                            let cleanup_start = Instant::now();
                             let processed =
                                 process_transcription_output(&ah, &transcription, post_process)
                                     .await;
+                            let cleanup_latency_ms = if post_process {
+                                cleanup_start.elapsed().as_millis() as i64
+                            } else {
+                                0
+                            };
+                            let cleaned_for_analytics = processed.post_processed_text.clone();
 
                             if rm.was_cancelled_since(cancel_generation) {
                                 debug!("Transcription operation cancelled before paste");
@@ -767,6 +877,30 @@ impl ShortcutAction for TranscribeAction {
                                 let paste_time = Instant::now();
                                 let final_text = processed.final_text;
                                 let rm_for_paste = Arc::clone(&rm);
+
+                                // Build the analytics event on this async task
+                                // thread. The active-app lookup can shell out to
+                                // osascript, so it must never run on the main
+                                // (paste) thread. injected_ok is flipped to true
+                                // only when the paste succeeds. Off mode short-
+                                // circuits inside log_event.
+                                let settings_for_analytics = get_settings(&ah);
+                                let privacy = settings_for_analytics.analytics_privacy;
+                                let audio_ms = (sample_count as i64) * 1000 / 16_000;
+                                let active = active_app::current();
+                                let dictation_event = build_dictation_event(
+                                    &settings_for_analytics,
+                                    raw_text_for_analytics,
+                                    cleaned_for_analytics,
+                                    &final_text,
+                                    audio_ms,
+                                    stt_latency_ms,
+                                    cleanup_latency_ms,
+                                    active,
+                                    post_process,
+                                );
+                                let am_for_paste = Arc::clone(&am);
+
                                 ah.run_on_main_thread(move || {
                                     if rm_for_paste.was_cancelled_since(cancel_generation) {
                                         debug!("Transcription operation cancelled before paste");
@@ -776,10 +910,18 @@ impl ShortcutAction for TranscribeAction {
                                     }
 
                                     match utils::paste(final_text, ah_clone.clone()) {
-                                        Ok(()) => debug!(
-                                            "Text pasted successfully in {:?}",
-                                            paste_time.elapsed()
-                                        ),
+                                        Ok(()) => {
+                                            debug!(
+                                                "Text pasted successfully in {:?}",
+                                                paste_time.elapsed()
+                                            );
+                                            // Non-fatal analytics logging: never
+                                            // panics or blocks; errors are logged
+                                            // inside log_event.
+                                            let mut ev = dictation_event;
+                                            ev.injected_ok = true;
+                                            am_for_paste.log_event(ev, privacy);
+                                        }
                                         Err(e) => {
                                             error!("Failed to paste transcription: {}", e);
                                             let _ = ah_clone.emit("paste-error", ());

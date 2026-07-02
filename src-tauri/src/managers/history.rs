@@ -31,6 +31,33 @@ static MIGRATIONS: &[M] = &[
     M::up("ALTER TABLE transcription_history ADD COLUMN post_processed_text TEXT;"),
     M::up("ALTER TABLE transcription_history ADD COLUMN post_process_prompt TEXT;"),
     M::up("ALTER TABLE transcription_history ADD COLUMN post_process_requested BOOLEAN NOT NULL DEFAULT 0;"),
+    // OpenFlow analytics (M4): per-dictation events feeding the usage dashboard.
+    // Read/written by AnalyticsManager, which opens the same history.db file.
+    M::up(
+        "CREATE TABLE IF NOT EXISTS dictation_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER,
+            duration_ms INTEGER,
+            audio_ms INTEGER,
+            word_count INTEGER,
+            wpm REAL,
+            raw_text TEXT,
+            cleaned_text TEXT,
+            keywords TEXT,
+            active_app TEXT,
+            window_title TEXT,
+            detected_project TEXT,
+            language TEXT,
+            stt_backend TEXT,
+            stt_model TEXT,
+            cleanup_backend TEXT,
+            cleanup_model TEXT,
+            stt_latency_ms INTEGER,
+            cleanup_latency_ms INTEGER,
+            total_latency_ms INTEGER,
+            injected_ok INTEGER NOT NULL DEFAULT 1
+        );",
+    ),
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]

@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod audio;
 pub mod backends;
 pub mod history;

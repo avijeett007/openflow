@@ -1,4 +1,5 @@
 mod actions;
+mod active_app;
 mod backends;
 mod keychain;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -29,6 +30,7 @@ use specta_typescript::{BigIntExportBehavior, Typescript};
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 use env_filter::Builder as EnvFilterBuilder;
+use managers::analytics::AnalyticsManager;
 use managers::audio::AudioRecordingManager;
 use managers::history::HistoryManager;
 use managers::model::ModelManager;
@@ -169,6 +171,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     );
     let history_manager =
         Arc::new(HistoryManager::new(app_handle).expect("Failed to initialize history manager"));
+    // Analytics opens the same history.db that HistoryManager just migrated, so
+    // the dictation_events table already exists by the time queries run.
+    let analytics_manager = Arc::new(
+        AnalyticsManager::new(app_handle).expect("Failed to initialize analytics manager"),
+    );
 
     // Initialize the transcribe-cpp native backend (logging + backend module
     // registration) once, before any whisper model is loaded.
@@ -182,6 +189,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(history_manager.clone());
+    app_handle.manage(analytics_manager.clone());
 
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
@@ -650,6 +658,13 @@ pub fn run(cli_args: CliArgs) {
             commands::history::retry_history_entry_transcription,
             commands::history::update_history_limit,
             commands::history::update_recording_retention_period,
+            commands::analytics::get_analytics_summary,
+            commands::analytics::get_dictations_over_time,
+            commands::analytics::get_analytics_by_app,
+            commands::analytics::get_analytics_by_project,
+            commands::analytics::get_top_keywords,
+            commands::analytics::set_analytics_privacy,
+            commands::analytics::clear_analytics,
             helpers::clamshell::is_laptop,
         ])
         .events(collect_events![

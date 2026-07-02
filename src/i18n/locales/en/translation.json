@@ -11,6 +11,7 @@
   "sidebar": {
     "general": "General",
     "models": "Models",
+    "modelSetup": "Model Setup",
     "advanced": "Advanced",
     "postProcessing": "Post Process",
     "history": "History",
@@ -215,6 +216,122 @@
         "tooltip": "Rescan for models added to the models folder or Hugging Face cache outside Handy"
       },
       "noModelsMatch": "No models match this filter."
+    },
+    "modelSetup": {
+      "title": "Model Setup",
+      "description": "Configure where speech-to-text and text cleanup run: on-device, on your own endpoint, or through a hosted provider.",
+      "mode": {
+        "title": "Mode",
+        "description": "Choose where this backend runs.",
+        "local": "Local",
+        "selfHosted": "My Endpoint",
+        "remote": "Remote"
+      },
+      "apiKey": {
+        "save": "Save",
+        "saved": "Saved",
+        "delete": "Remove key",
+        "placeholder": "sk-..."
+      },
+      "test": {
+        "title": "Test",
+        "button": "Test",
+        "testing": "Testing…",
+        "speakNow": "Recording… speak now",
+        "resultOk": "\"{{text}}\" (~{{ms}} ms)",
+        "sttDescription": "Record a short clip and transcribe it through the backend configured above.",
+        "cleanupDescription": "Run a sample transcript through the cleanup backend configured above."
+      },
+      "stt": {
+        "title": "Speech-to-Text",
+        "local": {
+          "title": "On-Device",
+          "description": "On-device models are managed in the \"AI Models\" section.",
+          "currentModel": "Current model: {{model}}",
+          "noModel": "No model selected yet."
+        },
+        "selfHosted": {
+          "url": {
+            "title": "Endpoint URL",
+            "description": "Base URL of your speech-to-text server.",
+            "placeholder": "http://localhost:8000/v1"
+          },
+          "apiStyle": {
+            "title": "API Style",
+            "description": "The wire protocol your endpoint speaks.",
+            "options": {
+              "openaiCompatible": "OpenAI Compatible",
+              "deepgram": "Deepgram"
+            }
+          },
+          "apiKey": {
+            "title": "API Key (Optional)",
+            "description": "Only needed if your endpoint requires authentication.",
+            "placeholder": "sk-..."
+          },
+          "validate": "Validate & List Models",
+          "validating": "Validating…",
+          "model": {
+            "title": "Model",
+            "description": "Select a model returned by your endpoint.",
+            "placeholder": "Select a model"
+          }
+        },
+        "remote": {
+          "provider": {
+            "title": "Provider",
+            "description": "Choose a hosted speech-to-text provider."
+          },
+          "apiKey": {
+            "title": "API Key",
+            "description": "API key for the selected provider.",
+            "placeholder": "sk-..."
+          },
+          "model": {
+            "title": "Model",
+            "description": "Choose a model exposed by the selected provider.",
+            "placeholder": "Select a model"
+          }
+        }
+      },
+      "cleanup": {
+        "title": "Text Cleanup",
+        "enable": {
+          "label": "Enable Text Cleanup",
+          "description": "Run an AI pass to clean up transcriptions after speech-to-text."
+        },
+        "local": {
+          "title": "Local",
+          "description": "Uses a local Ollama server at {{url}}."
+        },
+        "selfHosted": {
+          "url": {
+            "title": "Endpoint URL",
+            "description": "OpenAI-compatible base URL for your self-hosted cleanup endpoint.",
+            "placeholder": "http://localhost:11434/v1"
+          }
+        },
+        "remote": {
+          "provider": {
+            "title": "Provider",
+            "description": "Choose a hosted cleanup provider."
+          }
+        },
+        "apiKey": {
+          "title": "API Key",
+          "description": "API key for the selected provider.",
+          "placeholder": "sk-..."
+        },
+        "model": {
+          "title": "Model",
+          "descriptionCustom": "Provide the model identifier expected by your endpoint.",
+          "descriptionDefault": "Choose a model exposed by the selected provider."
+        },
+        "appleIntelligence": {
+          "title": "Apple Intelligence",
+          "description": "Apple Intelligence runs on-device and needs no API key or model selection."
+        }
+      }
     },
     "sound": {
       "title": "Sound",

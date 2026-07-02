@@ -946,6 +946,62 @@ async updateRecordingRetentionPeriod(period: string) : Promise<Result<null, stri
     else return { status: "error", error: e  as any };
 }
 },
+async getAnalyticsSummary(rangeDays: number | null) : Promise<Result<AnalyticsSummary, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_analytics_summary", { rangeDays }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getDictationsOverTime(rangeDays: number | null) : Promise<Result<OverTimePoint[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_dictations_over_time", { rangeDays }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getAnalyticsByApp(rangeDays: number | null) : Promise<Result<AppUsage[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_analytics_by_app", { rangeDays }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getAnalyticsByProject(rangeDays: number | null) : Promise<Result<ProjectUsage[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_analytics_by_project", { rangeDays }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getTopKeywords(rangeDays: number | null, limit: number | null) : Promise<Result<KeywordCount[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_top_keywords", { rangeDays, limit }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setAnalyticsPrivacy(mode: AnalyticsPrivacy) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_analytics_privacy", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearAnalytics() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_analytics") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Checks if the Mac is a laptop by detecting battery presence
  * 
@@ -981,6 +1037,17 @@ streamTextEvent: "stream-text-event"
 
 /** user-defined types **/
 
+/**
+ * The wire protocol an HTTP STT endpoint speaks. Most providers and
+ * self-hosted servers (OpenAI, Groq, Speaches, whisper-server, LocalAI) use the
+ * OpenAI `/audio/transcriptions` multipart shape; Deepgram is different enough
+ * to need its own adapter.
+ * How much of each dictation the analytics backend persists. `Full` stores
+ * everything; `KeywordsOnly` keeps derived keywords but nulls raw/cleaned text
+ * and window titles; `Off` skips logging entirely.
+ */
+export type AnalyticsPrivacy = "full" | "keywords_only" | "off"
+export type AnalyticsSummary = { total_dictations: number; total_words: number; avg_wpm: number; time_saved_seconds: number; current_streak_days: number; active_apps_count: number }
 export type AppSettings = { 
 /**
  * Internal settings schema marker for one-time migrations. Fresh installs
@@ -1017,7 +1084,12 @@ stt_models?: Partial<{ [key in string]: string }>;
 /**
  * Self-hosted (Mode B) endpoint URL, e.g. a Speaches / whisper-server base.
  */
-stt_selfhosted_url?: string; stt_selfhosted_model?: string; stt_selfhosted_api_style?: SttApiStyle }
+stt_selfhosted_url?: string; stt_selfhosted_model?: string; stt_selfhosted_api_style?: SttApiStyle; 
+/**
+ * How much of each dictation the usage-analytics backend persists.
+ */
+analytics_privacy?: AnalyticsPrivacy }
+export type AppUsage = { app: string; dictations: number; words: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
 export type AvailableAccelerators = { transcribe: string[]; ort: string[]; gpu_devices: GpuDeviceOption[] }
@@ -1056,6 +1128,7 @@ export type ImplementationChangeResult = { success: boolean;
  */
 reset_bindings: string[] }
 export type KeyboardImplementation = "tauri" | "handy_keys"
+export type KeywordCount = { keyword: string; count: number }
 export type LLMPrompt = { id: string; name: string; prompt: string }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; source: ModelSource; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; supports_language_selection: boolean; is_custom: boolean; supports_streaming: boolean; supports_language_detection: boolean }
@@ -1086,6 +1159,7 @@ sha256: string | null } } |
 "Local"
 export type ModelUnloadTimeout = "never" | "immediately" | "min_2" | "min_5" | "min_10" | "min_15" | "hour_1" | "sec_15"
 export type OrtAcceleratorSetting = "auto" | "cpu" | "cuda" | "directml" | "rocm"
+export type OverTimePoint = { date: string; dictations: number; words: number }
 export type OverlayPosition = "top" | "bottom"
 /**
  * Which recording overlay to display. `Minimal` and `Live` share one base
@@ -1098,6 +1172,7 @@ export type PaginatedHistory = { entries: HistoryEntry[]; has_more: boolean }
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v" | "external_script"
 export type PermissionAccess = "allowed" | "denied" | "unknown"
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; models_endpoint?: string | null; supports_structured_output?: boolean }
+export type ProjectUsage = { project: string; dictations: number; words: number }
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
 export type SecretMap = Partial<{ [key in string]: string }>
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
@@ -1134,12 +1209,6 @@ export type StreamTextEvent = { committed: string; tentative: string }
  * Semantic kind of "working" phase, used to localize the spinner label.
  */
 export type StreamWorkKind = "transcribing" | "polishing"
-/**
- * The wire protocol an HTTP STT endpoint speaks. Most providers and
- * self-hosted servers (OpenAI, Groq, Speaches, whisper-server, LocalAI) use the
- * OpenAI `/audio/transcriptions` multipart shape; Deepgram is different enough
- * to need its own adapter.
- */
 export type SttApiStyle = "openai_compatible" | "deepgram"
 /**
  * Where speech-to-text runs. `Local` uses the bundled on-device engine

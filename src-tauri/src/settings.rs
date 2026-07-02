@@ -123,6 +123,18 @@ pub enum SttBackendMode {
 /// self-hosted servers (OpenAI, Groq, Speaches, whisper-server, LocalAI) use the
 /// OpenAI `/audio/transcriptions` multipart shape; Deepgram is different enough
 /// to need its own adapter.
+/// How much of each dictation the analytics backend persists. `Full` stores
+/// everything; `KeywordsOnly` keeps derived keywords but nulls raw/cleaned text
+/// and window titles; `Off` skips logging entirely.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AnalyticsPrivacy {
+    #[default]
+    Full,
+    KeywordsOnly,
+    Off,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SttApiStyle {
@@ -501,6 +513,11 @@ pub struct AppSettings {
     pub stt_selfhosted_model: String,
     #[serde(default)]
     pub stt_selfhosted_api_style: SttApiStyle,
+
+    // ---- OpenFlow: analytics (M4) ----
+    /// How much of each dictation the usage-analytics backend persists.
+    #[serde(default)]
+    pub analytics_privacy: AnalyticsPrivacy,
 }
 
 fn default_model() -> String {
@@ -966,6 +983,7 @@ pub fn get_default_settings() -> AppSettings {
         stt_selfhosted_url: default_stt_selfhosted_url(),
         stt_selfhosted_model: String::new(),
         stt_selfhosted_api_style: SttApiStyle::default(),
+        analytics_privacy: AnalyticsPrivacy::default(),
     }
 }
 
