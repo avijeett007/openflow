@@ -13,17 +13,11 @@ on:
       - "tsconfig*"
       - "tailwind.config.*"
       - ".github/workflows/**"
+  # Runs on EVERY PR into main (no path filter) so it can serve as a required
+  # status check — a path-filtered required check would hang PRs that don't touch
+  # these paths on "Expected". Branch protection requires this check to pass.
   pull_request:
-    paths:
-      - "src/**"
-      - "package.json"
-      - "bun.lock"
-      - ".eslintrc*"
-      - "eslint.config.*"
-      - ".prettierrc*"
-      - "tsconfig*"
-      - "tailwind.config.*"
-      - ".github/workflows/**"
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
