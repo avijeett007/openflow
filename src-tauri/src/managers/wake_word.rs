@@ -17,13 +17,14 @@
 //! ML model/dependency.
 //!
 //! Once the wake phrase is matched, the command that follows is captured with
-//! *smart, VAD-driven* timing ([`capture_until_silence`]): the mic stays open for
-//! a user-configurable minimum (`wake_word_listen_seconds`) and then keeps
-//! extending for as long as the user keeps speaking, stopping only after a
-//! configurable silence gap (`wake_word_silence_timeout_ms`). This replaces the
-//! old fixed-window capture that could cut the user off mid-thought. Note the
-//! *detection* windows are still fixed short cycles — a single always-open rolling
-//! stream for detection is the next refinement.
+//! *smart, VAD-driven* timing ([`capture_until_silence`]): it waits up to a
+//! user-configurable grace window (`wake_word_listen_seconds`) for the user to
+//! start talking, then keeps the mic open for as long as speech keeps arriving,
+//! stopping a configurable silence gap (`wake_word_silence_timeout_ms`) after they
+//! finish — so short commands submit promptly and long ones are never cut off
+//! mid-thought. This replaces the old fixed-window capture. Note the *detection*
+//! windows are still fixed short cycles — a single always-open rolling stream for
+//! detection is the next refinement.
 
 use crate::actions::finish_dictation;
 use crate::audio_toolkit::VadPolicy;
@@ -158,7 +159,11 @@ fn wake_word_loop(app: AppHandle, running: Arc<AtomicBool>) {
             continue;
         }
 
-        match match_wake_word(&transcript, &settings.wake_word, settings.wake_word_sensitivity) {
+        match match_wake_word(
+            &transcript,
+            &settings.wake_word,
+            settings.wake_word_sensitivity,
+        ) {
             Some(command) => {
                 debug!(
                     "Wake word matched in '{}' (phrase '{}'); command tail: '{}'",
@@ -208,15 +213,16 @@ fn capture_window(
 /// open based on live speech activity rather than a fixed window.
 ///
 /// Rules:
-/// 1. The mic stays open for **at least** `min_open_ms` (the user's configured
-///    floor), so a pause before the user starts talking never cuts them off.
-/// 2. Once that floor has passed and the user has actually spoken, capture ends
-///    after `silence_timeout_ms` of continuous silence — so short commands finish
-///    quickly and long ones keep the mic open for as long as speech continues.
-/// 3. If the floor passes and the user never spoke, capture ends immediately
-///    (nothing to transcribe).
-/// 4. An absolute cap (`min_open_ms` + [`HARD_MAX_EXTRA_SECS`]) guards against a
-///    noisy room holding the mic open forever.
+/// 1. **Before the user starts speaking:** keep the mic open, waiting up to
+///    `min_open_ms` for speech to begin. This is the pre-speech grace window —
+///    a pause after the wake word (while the user gathers their thought) never
+///    cuts them off. If nothing is spoken within it, capture ends (empty).
+/// 2. **Once the user has spoken:** keep extending for as long as speech keeps
+///    arriving, and end `silence_timeout_ms` after they go quiet — *regardless of
+///    the grace window*. So a short command submits promptly (it does not wait out
+///    the whole grace window) and a long one stays open as long as they talk.
+/// 3. An absolute cap (`min_open_ms` + [`HARD_MAX_EXTRA_SECS`]) guards against a
+///    noisy room (VAD false-positives) holding the mic open forever.
 ///
 /// End-of-speech is detected by polling [`AudioRecordingManager::voiced_sample_count`],
 /// which advances only while VAD-passed (voiced) audio is arriving.
@@ -256,24 +262,32 @@ fn capture_until_silence(
         }
 
         let elapsed = start.elapsed();
+        // Absolute safety cap first, so a noisy room can never hold the mic open.
         if elapsed >= hard_max {
             debug!("Wake-word command hit hard-max window ({:?})", hard_max);
             break;
         }
-        // Always honor the user's minimum-open floor.
-        if elapsed < min_open {
-            continue;
-        }
-        // Past the floor: nothing said → stop; otherwise stop on a silence gap.
-        if !saw_speech {
-            break;
-        }
-        if last_voiced_at.elapsed() >= silence_timeout {
-            debug!(
-                "Wake-word command ended after {:?} of silence",
-                silence_timeout
-            );
-            break;
+
+        if saw_speech {
+            // The user has spoken — end shortly after they go quiet, even if the
+            // grace window hasn't fully elapsed, so short commands submit promptly.
+            if last_voiced_at.elapsed() >= silence_timeout {
+                debug!(
+                    "Wake-word command ended after {:?} of silence",
+                    silence_timeout
+                );
+                break;
+            }
+        } else {
+            // No speech yet — keep waiting through the pre-speech grace window,
+            // then give up if the user still hasn't said anything.
+            if elapsed >= min_open {
+                debug!(
+                    "Wake-word command: no speech within {:?}; giving up",
+                    min_open
+                );
+                break;
+            }
         }
     }
 
@@ -314,8 +328,8 @@ fn handle_wake(
     }
 
     // Nothing meaningful after the wake word: keep the mic open for the command
-    // using smart, VAD-driven capture. The mic stays open at least
-    // `wake_word_listen_seconds` (so a thinking pause never cuts the user off),
+    // using smart, VAD-driven capture. It waits up to `wake_word_listen_seconds`
+    // for the user to start talking (so a thinking pause never cuts them off),
     // then keeps extending for as long as speech keeps arriving, and stops once
     // the user has been silent for `wake_word_silence_timeout_ms`. This fixes the
     // old "cut off after a few seconds" / fixed-window feel.

@@ -487,8 +487,7 @@ pub fn set_hands_free_enabled(app: AppHandle, enabled: bool) -> Result<(), Strin
     settings.hands_free_enabled = enabled;
     settings::write_settings(&app, settings);
 
-    if let Some(ww) =
-        app.try_state::<std::sync::Arc<crate::managers::wake_word::WakeWordManager>>()
+    if let Some(ww) = app.try_state::<std::sync::Arc<crate::managers::wake_word::WakeWordManager>>()
     {
         ww.set_enabled(enabled);
     }
@@ -519,9 +518,10 @@ pub fn set_wake_word_sensitivity(app: AppHandle, value: f32) -> Result<(), Strin
     Ok(())
 }
 
-/// Minimum time (seconds) to keep the mic open after the wake word before
-/// silence-detection may end the command. Clamped to 3..=120. Smart VAD extends
-/// this while the user keeps speaking, so it's a floor, not a hard cutoff.
+/// Pre-speech grace window (seconds): after the wake word, how long to wait for
+/// the user to START speaking before giving up. Clamped to 3..=120. Once they
+/// speak, capture extends while speech continues and ends on the silence timeout,
+/// so a short command isn't forced to wait out this whole window.
 #[tauri::command]
 #[specta::specta]
 pub fn set_wake_word_listen_seconds(app: AppHandle, seconds: u64) -> Result<(), String> {
@@ -532,9 +532,9 @@ pub fn set_wake_word_listen_seconds(app: AppHandle, seconds: u64) -> Result<(), 
 }
 
 /// How long (seconds) of continuous silence ends the command capture once the
-/// minimum window has passed and the user has spoken. Clamped to 1..=15s. This is
-/// the "smart" part: the mic stays open as long as speech keeps arriving and
-/// stops shortly after the user finishes.
+/// user has started speaking. Clamped to 1..=15s. This is the "smart" part: the
+/// mic stays open as long as speech keeps arriving and stops shortly after the
+/// user finishes.
 #[tauri::command]
 #[specta::specta]
 pub fn set_wake_word_silence_timeout_seconds(app: AppHandle, seconds: f32) -> Result<(), String> {

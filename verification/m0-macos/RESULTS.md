@@ -4,11 +4,11 @@
 
 **Done criterion — raw dictation lands in ≥3 apps on macOS: MET.** Verified by driving the real app (synthetic option+space hotkey via CGEvent, audio routed through BlackHole so `say` feeds the mic).
 
-| App | Category | Dictated → injected text | Evidence |
-|---|---|---|---|
-| TextEdit | native AppKit | "Testing dictation into a text editor. This is milestone 0 of OpenFlow" | m0-04-inject-textedit.png |
-| Google Chrome | browser (Blink `<textarea>`) | "Injecting dictated text into a browser text area works great" | m0-05-inject-chrome.png |
-| VS Code | Electron/Chromium editor | "Dictating a comment inside a code editor to finish milestone 0" | m0-06-inject-vscode.png |
+| App           | Category                     | Dictated → injected text                                                | Evidence                  |
+| ------------- | ---------------------------- | ----------------------------------------------------------------------- | ------------------------- |
+| TextEdit      | native AppKit                | "Testing dictation into a text editor. This is milestone 0 of OpenFlow" | m0-04-inject-textedit.png |
+| Google Chrome | browser (Blink `<textarea>`) | "Injecting dictated text into a browser text area works great"          | m0-05-inject-chrome.png   |
+| VS Code       | Electron/Chromium editor     | "Dictating a comment inside a code editor to finish milestone 0"        | m0-06-inject-vscode.png   |
 
 Injection path = clipboard save → write → Cmd+V → restore (app-agnostic). VS Code is Electron — the same runtime Slack/Discord use — so the mechanism is proven for that toolkit class too.
 

@@ -39,9 +39,13 @@ fn encode_wav_16k_mono(samples: &[f32]) -> Result<Vec<u8>, String> {
         for &s in samples {
             let clamped = s.clamp(-1.0, 1.0);
             let v = (clamped * i16::MAX as f32) as i16;
-            writer.write_sample(v).map_err(|e| format!("wav write: {e}"))?;
+            writer
+                .write_sample(v)
+                .map_err(|e| format!("wav write: {e}"))?;
         }
-        writer.finalize().map_err(|e| format!("wav finalize: {e}"))?;
+        writer
+            .finalize()
+            .map_err(|e| format!("wav finalize: {e}"))?;
     }
     Ok(buf.into_inner())
 }
@@ -49,9 +53,7 @@ fn encode_wav_16k_mono(samples: &[f32]) -> Result<Vec<u8>, String> {
 /// Which STT endpoint the current settings point at, and with what key.
 /// Returns `(provider, model, api_key)`. For `SelfHosted` the provider is a
 /// synthetic entry built from the user's URL.
-pub fn resolve_active_stt(
-    settings: &AppSettings,
-) -> Result<(SttProvider, String, String), String> {
+pub fn resolve_active_stt(settings: &AppSettings) -> Result<(SttProvider, String, String), String> {
     match settings.stt_backend_mode {
         SttBackendMode::Local => {
             Err("STT backend is Local; no HTTP endpoint to resolve".to_string())
@@ -60,7 +62,10 @@ pub fn resolve_active_stt(
             let provider = SttProvider {
                 id: "selfhosted".to_string(),
                 label: "My Endpoint".to_string(),
-                base_url: settings.stt_selfhosted_url.trim_end_matches('/').to_string(),
+                base_url: settings
+                    .stt_selfhosted_url
+                    .trim_end_matches('/')
+                    .to_string(),
                 allow_base_url_edit: true,
                 api_style: settings.stt_selfhosted_api_style,
                 default_model: String::new(),
@@ -154,18 +159,23 @@ async fn openai_transcribe(
     }
 
     let client = reqwest::Client::new();
-    let mut req = client.post(format!("{base}/audio/transcriptions")).multipart(form);
+    let mut req = client
+        .post(format!("{base}/audio/transcriptions"))
+        .multipart(form);
     if !api_key.is_empty() {
         req = req.bearer_auth(api_key);
     }
-    let resp = req.send().await.map_err(|e| format!("request failed: {e}"))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?;
     let status = resp.status();
     let body = resp.text().await.map_err(|e| format!("read body: {e}"))?;
     if !status.is_success() {
         return Err(format!("HTTP {status}: {}", truncate(&body, 300)));
     }
-    let json: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| format!("parse json: {e} (body: {})", truncate(&body, 200)))?;
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("parse json: {e} (body: {})", truncate(&body, 200)))?;
     json.get("text")
         .and_then(|t| t.as_str())
         .map(|s| s.to_string())

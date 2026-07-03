@@ -43,7 +43,9 @@ pub fn get_api_key(scope: &str, provider: &str) -> Option<String> {
 }
 
 pub fn has_api_key(scope: &str, provider: &str) -> bool {
-    get_api_key(scope, provider).map(|v| !v.is_empty()).unwrap_or(false)
+    get_api_key(scope, provider)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
 }
 
 pub fn delete_api_key(scope: &str, provider: &str) -> Result<()> {

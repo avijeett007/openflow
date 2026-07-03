@@ -42,7 +42,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Check translation consistency
+      # OpenFlow is an English-first solo fork: en/translation.json is the single
+      # source of truth and i18next falls back to English at runtime for any key a
+      # locale hasn't translated. Missing keys in the 18 inherited non-English
+      # locales are reported for visibility but must NOT block the pipeline
+      # (hand-translating every new key across 18 languages would just bake in
+      # stale strings). Lint + prettier below stay hard gates.
+      - name: Check translation consistency (informational)
+        continue-on-error: true
         run: bun run check:translations
 
       - name: Run ESLint

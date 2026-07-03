@@ -256,10 +256,7 @@ pub fn infer_project(title: &str) -> Option<String> {
     // component (a good proxy for a repo/project folder).
     for seg in &candidates {
         if seg.contains('/') || seg.contains('\\') {
-            let last = seg
-                .split(['/', '\\'])
-                .filter(|p| !p.is_empty())
-                .next_back();
+            let last = seg.split(['/', '\\']).filter(|p| !p.is_empty()).next_back();
             if let Some(name) = last {
                 let name = strip_app_suffixes(name);
                 if is_sensible_project(&name) {

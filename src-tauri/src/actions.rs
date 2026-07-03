@@ -1,8 +1,8 @@
+use crate::active_app;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
 use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error, VadPolicy};
-use crate::active_app;
 use crate::managers::analytics::{AnalyticsManager, DictationEvent};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
@@ -875,11 +875,11 @@ impl ShortcutAction for TranscribeAction {
         play_feedback_sound(app, SoundType::Stop);
 
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
-        // Cleanup is applied when either the dedicated post-processing binding was
-        // used (`self.post_process` forces it, even if the toggle is off) or the
-        // user has enabled cleanup globally for the main transcribe hotkey. The
-        // effective value drives the overlay "Polishing" state, the actual cleanup
-        // call, and the history entry's post_process flag alike.
+                                                 // Cleanup is applied when either the dedicated post-processing binding was
+                                                 // used (`self.post_process` forces it, even if the toggle is off) or the
+                                                 // user has enabled cleanup globally for the main transcribe hotkey. The
+                                                 // effective value drives the overlay "Polishing" state, the actual cleanup
+                                                 // call, and the history entry's post_process flag alike.
         let post_process = self.post_process || get_settings(app).post_process_enabled;
         let cancel_generation = rm.cancel_generation();
 
@@ -931,8 +931,7 @@ impl ShortcutAction for TranscribeAction {
                     // mode keeps Handy's stream-finalize-then-batch fallback.
                     let transcription_time = Instant::now();
                     let stt_mode = get_settings(&ah).stt_backend_mode;
-                    let transcription_result = if stt_mode
-                        != crate::settings::SttBackendMode::Local
+                    let transcription_result = if stt_mode != crate::settings::SttBackendMode::Local
                     {
                         let settings = get_settings(&ah);
                         match crate::backends::stt_http::transcribe(&settings, &samples).await {

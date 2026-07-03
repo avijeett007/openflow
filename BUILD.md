@@ -126,10 +126,10 @@ page/README does.
 
 ### Which machine builds which
 
-| Your machine | Native target | Command |
-|---|---|---|
-| **M4 / any M-series** | `aarch64-apple-darwin` | `bun run tauri build --target aarch64-apple-darwin` |
-| **Intel** | `x86_64-apple-darwin` | `ORT_LIB_LOCATION=$(brew --prefix onnxruntime)/lib ORT_PREFER_DYNAMIC_LINK=1 bun run tauri build --target x86_64-apple-darwin` |
+| Your machine          | Native target          | Command                                                                                                                        |
+| --------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **M4 / any M-series** | `aarch64-apple-darwin` | `bun run tauri build --target aarch64-apple-darwin`                                                                            |
+| **Intel**             | `x86_64-apple-darwin`  | `ORT_LIB_LOCATION=$(brew --prefix onnxruntime)/lib ORT_PREFER_DYNAMIC_LINK=1 bun run tauri build --target x86_64-apple-darwin` |
 
 The Intel build needs Homebrew's ONNX Runtime (`brew install onnxruntime`) and the
 two `ORT_*` env vars — the Apple-Silicon build does **not** (it uses a prebuilt

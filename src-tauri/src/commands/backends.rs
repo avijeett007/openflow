@@ -146,7 +146,10 @@ pub async fn list_stt_models(app: AppHandle, provider_id: String) -> Result<Vec<
     if !key.is_empty() {
         req = req.bearer_auth(&key);
     }
-    let resp = req.send().await.map_err(|e| format!("request failed: {e}"))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {} listing models", resp.status()));
     }
@@ -184,9 +187,7 @@ pub async fn test_stt_backend(app: AppHandle) -> Result<BackendTestResult, Strin
     rm.try_start_recording("openflow_test", crate::audio_toolkit::VadPolicy::Disabled)
         .map_err(|e| format!("Could not start microphone: {e}"))?;
     tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
-    let samples = rm
-        .stop_recording("openflow_test", gen)
-        .unwrap_or_default();
+    let samples = rm.stop_recording("openflow_test", gen).unwrap_or_default();
 
     if samples.is_empty() {
         return Ok(BackendTestResult {
@@ -251,7 +252,10 @@ pub async fn test_cleanup_backend(app: AppHandle) -> Result<BackendTestResult, S
         .cloned()
         .unwrap_or_default();
     if model.trim().is_empty() {
-        return Err(format!("No model set for cleanup provider '{}'", provider.label));
+        return Err(format!(
+            "No model set for cleanup provider '{}'",
+            provider.label
+        ));
     }
     let api_key = crate::keychain::get_api_key("cleanup", &provider.id)
         .or_else(|| settings.post_process_api_keys.get(&provider.id).cloned())

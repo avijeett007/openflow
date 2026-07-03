@@ -200,8 +200,7 @@ function App() {
             // restart — which left returning users stuck on the permission screen
             // with the input system never initialized. initializeEnigo() succeeds
             // only when input simulation is genuinely permitted, so it's reliable.
-            const enigoOk =
-              (await commands.initializeEnigo()).status === "ok";
+            const enigoOk = (await commands.initializeEnigo()).status === "ok";
             const hasMicrophone = await checkMicrophonePermission().catch(
               () => false,
             );

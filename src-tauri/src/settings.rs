@@ -538,12 +538,12 @@ pub struct AppSettings {
     /// stricter; the default is a good balance for the "hey flow" default phrase.
     #[serde(default = "default_wake_word_sensitivity")]
     pub wake_word_sensitivity: f32,
-    /// After the wake word is heard, the MINIMUM time (seconds) to keep the mic
-    /// open for the command before silence-detection is allowed to end it. The mic
-    /// is guaranteed to stay open at least this long — smart VAD then keeps
-    /// extending it for as long as the user keeps speaking (see
-    /// `wake_word_silence_timeout_ms`). Set it long enough to cover a thinking
-    /// pause before you start the command.
+    /// Pre-speech grace window (seconds): after the wake word, how long to wait
+    /// for the user to START speaking before giving up. A pause after the wake
+    /// word (while gathering a thought) never cuts them off. Once they DO speak,
+    /// capture keeps extending while speech continues and ends shortly after they
+    /// go quiet (see `wake_word_silence_timeout_ms`) — so a short command submits
+    /// promptly rather than waiting out this whole window.
     #[serde(default = "default_wake_word_listen_seconds")]
     pub wake_word_listen_seconds: u64,
     /// Once the minimum window has elapsed AND the user has spoken, how long

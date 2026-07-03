@@ -1,17 +1,17 @@
 mod actions;
 mod active_app;
-mod backends;
-mod keychain;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod apple_intelligence;
 mod audio_feedback;
 pub mod audio_toolkit;
+mod backends;
 mod catalog;
 pub mod cli;
 mod clipboard;
 mod commands;
 mod helpers;
 mod input;
+mod keychain;
 mod llm_client;
 mod managers;
 mod overlay;
@@ -186,8 +186,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
 
     // Hands-free wake-word listener. Constructed here (like the other managers)
     // and started later in this function if hands-free is enabled in settings.
-    let wake_word_manager =
-        Arc::new(managers::wake_word::WakeWordManager::new(app_handle));
+    let wake_word_manager = Arc::new(managers::wake_word::WakeWordManager::new(app_handle));
 
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());

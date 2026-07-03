@@ -13,6 +13,7 @@ Fork base: **Handy 0.9.0** (MIT, Tauri 2.10 + Rust + React/TS/Tailwind). Upstrea
 ## What OpenFlow adds/changes (the delta = our milestones)
 
 ### 1. Backend trait abstraction (M2 core)
+
 New module `src-tauri/src/backends/`:
 
 ```rust
@@ -34,6 +35,7 @@ pub trait CleanupBackend: Send + Sync {
 ```
 
 Implementations:
+
 - `LocalStt` — wraps Handy's existing `TranscriptionManager` (enum engines stay as-is inside).
 - `HttpStt` — OpenAI-compatible `POST /v1/audio/transcriptions` (multipart WAV). Covers Mode B (Speaches/whisper-server/self-hosted) AND Mode C (OpenAI, Groq; Deepgram gets its own small adapter, different API shape).
 - `HttpCleanup` — wraps existing `llm_client.rs` (Mode B Ollama/OpenAI-compatible + Mode C openai/anthropic/openrouter/groq/gemini).
@@ -42,24 +44,30 @@ Implementations:
 Config: `stt_backend_mode` ∈ {local, selfhosted, remote} × `cleanup_backend_mode` ∈ {local, selfhosted, remote, off} — independent, hot-swappable (a `BackendRegistry` rebuilds the active backend on settings change; no restart).
 
 ### 2. Keychain (M2)
+
 `keyring` crate (macOS Keychain / Windows Credential Manager). API keys move out of settings JSON; settings store only provider names + non-secret config. Migration shim reads legacy `SecretMap` once and moves values.
 
 ### 3. Model Setup UI (M2)
+
 New settings section "Model Setup": two cards (Speech-to-Text / Text Cleanup), each with Local | My Endpoint | Remote segmented toggle, provider/model pickers, endpoint URL + validate (lists models), keychain-backed key entry, and a **Test** button (records 2 s from mic OR uses a bundled sample WAV → runs the card's backend → shows result + measured latency). First-run wizard gains: hardware detection (RAM/CPU cores/GPU) → mode recommendation → per-mode setup → end-to-end test dictation before finish.
 
 ### 4. Cleanup layer default-on (M3)
+
 Make post-processing part of the main `transcribe` binding when a cleanup backend is configured (Handy gates it behind a second hotkey; we make cleanup the default path with per-app tone prompts). Per-app prompt map keyed by active app bundle id/exe name (detected at injection time), editable in settings.
 
 ### 5. Analytics (M4)
+
 New table `dictation_events` in history.db (kept separate from transcription_history):
 `id, ts, duration_ms, audio_ms, raw_text?, cleaned_text?, word_count, wpm, active_app, window_title?, detected_project?, language, stt_backend, stt_model, cleanup_backend?, cleanup_model?, stt_latency_ms, cleanup_latency_ms, total_latency_ms, injected_ok`
 Privacy mode `analytics_privacy` ∈ {full, keywords_only, off}: keywords_only stores only extracted keywords (`keywords` column, JSON) and nulls raw/cleaned text. Keyword extraction: Rust-side stopword-filtered tokenization (no extra model).
 Dashboard: new "Dashboard" sidebar section, React + recharts: totals/streaks, dictations+words over time, WPM + time-saved (vs 40 WPM typing baseline), by-app bars, by-project bars (project inferred from window title heuristics: git-repo-like tokens, "— ProjectName" suffixes), top keywords + trend.
 
 ### 6. Rebrand + packaging (M5)
+
 productName OpenFlow, identifier `care.hexai.openflow`, new icon (simple generated), macOS ad-hoc signing (already "-"), Windows: drop Azure signCommand → plain unsigned NSIS. GitHub Actions matrix (macos-13 x64, macos-14 arm64, windows-latest) building .dmg + .exe, uploading artifacts + Release. Updater endpoint stubbed to our repo's releases latest.json (keys generated, private key stored as Actions secret — documented). README: install + per-OS unblock + three modes + add-a-provider guide.
 
 ## M0 spike approach (risk first)
+
 1. Build + launch Handy fork debug app on this Mac (permissions inherited from VSCode).
 2. Route audio: set default input to BlackHole 2ch, play `say`-generated speech into it → app hears "mic" audio. (switchaudio-osx to flip devices; restore after.)
 3. Trigger dictation via synthetic hotkey (CGEvent option+space) with a target app focused.
@@ -67,4 +75,5 @@ productName OpenFlow, identifier `care.hexai.openflow`, new icon (simple generat
 5. Windows path: code-verified + CI build only (no Windows hardware here); live check deferred to user checklist.
 
 ## Verification method (every milestone)
+
 Screenshots via `screencapture` into `verification/mN-*/`, checked with vision; fresh-context verifier subagent drives the running app against the milestone's success criteria before I mark it done.

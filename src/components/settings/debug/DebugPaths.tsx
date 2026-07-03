@@ -26,7 +26,9 @@ export const DebugPaths: React.FC<DebugPathsProps> = ({
             {t("settings.debug.paths.appData")}
           </span>{" "}
           {/* eslint-disable-next-line i18next/no-literal-string */}
-          <span className="font-mono text-xs select-text">%APPDATA%/OpenFlow</span>
+          <span className="font-mono text-xs select-text">
+            %APPDATA%/OpenFlow
+          </span>
         </div>
         <div>
           <span className="font-medium">

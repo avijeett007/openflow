@@ -357,8 +357,8 @@
         "description": "Lower = fewer false triggers. Higher = easier to trigger."
       },
       "listenWindow": {
-        "label": "Keep mic open at least",
-        "description": "Minimum time to keep listening after the wake word before silence can end it. Smart VAD keeps extending this while you keep talking, so you're never cut off mid-thought.",
+        "label": "Wait for speech up to",
+        "description": "After the wake word, how long to wait for you to start talking before giving up. Once you start, the mic keeps extending while you speak and stops shortly after you finish — so short commands still submit promptly.",
         "unit": "{{count}}s"
       },
       "silenceTimeout": {
