@@ -1,6 +1,6 @@
 # Build Instructions
 
-This guide covers how to set up the development environment and build Handy from source across different platforms.
+This guide covers how to set up the development environment and build OpenFlow from source across different platforms.
 
 ## Prerequisites
 
@@ -76,8 +76,8 @@ ORT_LIB_LOCATION=$(brew --prefix onnxruntime)/lib ORT_PREFER_DYNAMIC_LINK=1 bun 
 ### 1. Clone the Repository
 
 ```bash
-git clone git@github.com:cjpais/Handy.git
-cd Handy
+git clone git@github.com:avijeett007/openflow.git
+cd openflow
 ```
 
 ### 2. Install Dependencies

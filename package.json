@@ -1,8 +1,13 @@
 {
-  "name": "handy-app",
+  "name": "openflow-app",
   "private": true,
   "version": "0.9.1",
   "type": "module",
+  "homepage": "https://openflow.computer",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/avijeett007/openflow.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

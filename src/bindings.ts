@@ -1245,7 +1245,7 @@ export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
 export type ModelInfo = { id: string; name: string; description: string; filename: string; source: ModelSource; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; supports_language_selection: boolean; is_custom: boolean; supports_streaming: boolean; supports_language_detection: boolean }
 export type ModelLoadStatus = { is_loaded: boolean; current_model: string | null }
 /**
- * Where a model comes from and how Handy obtains it — the routing discriminant
+ * Where a model comes from and how OpenFlow obtains it — the routing discriminant
  * for downloading and on-disk resolution.
  */
 export type ModelSource = 
@@ -1323,7 +1323,7 @@ export type StreamWorkKind = "transcribing" | "polishing"
 export type SttApiStyle = "openai_compatible" | "deepgram"
 /**
  * Where speech-to-text runs. `Local` uses the bundled on-device engine
- * (Handy's Parakeet/Whisper). `SelfHosted` and `Remote` both POST audio to an
+ * (OpenFlow's Parakeet/Whisper). `SelfHosted` and `Remote` both POST audio to an
  * HTTP endpoint — the only difference is UX (a user-typed URL vs. a named
  * provider) and where the key comes from.
  */

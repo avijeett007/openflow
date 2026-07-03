@@ -7,6 +7,10 @@
 <p align="center">Local-first voice dictation you actually control.</p>
 
 <p align="center">
+  <a href="https://openflow.computer"><strong>openflow.computer</strong></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey" alt="Platform: macOS | Windows"/>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"/>
   <img src="https://img.shields.io/badge/built%20with-Tauri-24C8DB" alt="Built with Tauri"/>
@@ -37,7 +41,7 @@ OpenFlow is a fork of **[Handy](https://github.com/cjpais/Handy)** (MIT). Huge c
 
 ## Install
 
-Download the latest installer from [GitHub Releases](https://github.com/avijeett007/openflow/releases/latest).
+Download the latest installer from **[openflow.computer](https://openflow.computer)** or from [GitHub Releases](https://github.com/avijeett007/openflow/releases/latest).
 
 > **Note:** builds are currently **unsigned** — this project is distributed personally, to technical friends, rather than through an App Store or notarized channel. Your OS will show a one-time warning; see below for the unblock steps.
 
@@ -120,7 +124,7 @@ Code signing and notarization (an Apple Developer ID certificate, Windows Authen
 
 > **Contributions are not being accepted right now.** OpenFlow is a solo project that I maintain alongside a full-time job and my own startup, **[knotie.ai](https://knotie.ai)**. I don't have the bandwidth to review and maintain incoming PRs at the moment.
 >
-> If you'd like to request a feature or report a bug, please **[open an issue](https://github.com/avijeett007/openflow/issues)** — I'll keep adding features over time, I just can't promise a fast turnaround.
+> If you'd like to request a feature or report a bug, please **[open an issue](https://github.com/avijeett007/openflow/issues)** — I'll keep adding features over time, I just can't promise a fast turnaround. You can also reach out at **[hello@openflow.computer](mailto:hello@openflow.computer)**.
 
 ## Support
 

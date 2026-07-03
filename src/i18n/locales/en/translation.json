@@ -773,6 +773,16 @@
         "description": "View source code and contribute",
         "button": "View on GitHub"
       },
+      "website": {
+        "title": "Website",
+        "description": "Visit openflow.computer",
+        "button": "Open Website"
+      },
+      "contact": {
+        "title": "Contact",
+        "description": "Questions or feedback? Email us",
+        "button": "hello@openflow.computer"
+      },
       "supportDevelopment": {
         "title": "Support Development",
         "description": "Help us continue building OpenFlow",

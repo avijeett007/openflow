@@ -1,11 +1,11 @@
 //! OpenFlow backend abstraction.
 //!
-//! Handy ships local-only STT (compiled-in engines) and a multi-provider
+//! OpenFlow ships local-only STT (compiled-in engines) and a multi-provider
 //! OpenAI-compatible cleanup client. OpenFlow adds the missing half — remote /
 //! self-hosted STT over HTTP — and unifies the three model-backend modes behind
 //! small, hot-swappable seams:
 //!
-//! - STT: `Local` keeps Handy's on-device engine; `SelfHosted` / `Remote` route
+//! - STT: `Local` keeps OpenFlow's on-device engine; `SelfHosted` / `Remote` route
 //!   recorded audio to an HTTP endpoint via [`stt_http`].
 //! - Cleanup already flows through `llm_client` (OpenAI-compatible), which covers
 //!   self-hosted (Ollama/OpenAI-compatible) and remote providers uniformly.

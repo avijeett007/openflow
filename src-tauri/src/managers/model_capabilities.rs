@@ -1,4 +1,4 @@
-//! Model capability probing — the seam between Handy's model UI and "what can
+//! Model capability probing — the seam between OpenFlow's model UI and "what can
 //! this GGUF actually do".
 //!
 //! Capabilities are canonical *in the GGUF itself*: transcribe-cpp reads them
@@ -66,7 +66,7 @@ const PROBE_KEYS: &[&str] = &[
     KEY_CAP_LANG_DETECT,
 ];
 
-/// How confident we are that Handy can run a given model, judged from its GGUF
+/// How confident we are that OpenFlow can run a given model, judged from its GGUF
 /// header alone (pre-download).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]

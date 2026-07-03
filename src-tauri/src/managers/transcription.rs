@@ -1233,7 +1233,7 @@ impl TranscriptionManager {
                             // Whisper-family long-form (>30s) decode degenerates into a
                             // repetition loop when an initial prompt is set AND timestamps
                             // are off — a shared whisper.cpp behavior (verified: whisper.cpp
-                            // collapses in the same prompt + no-timestamps cell). Handy runs
+                            // collapses in the same prompt + no-timestamps cell). OpenFlow runs
                             // whisper.cpp with timestamps on, so request segment timestamps
                             // here too for parity, which keeps multi-window decode stable.
                             // Only whisper advertises InitialPrompt; other arches keep None.
@@ -1742,7 +1742,7 @@ fn resolve_device_index(index: usize) -> Result<(Backend, i32)> {
     Ok((backend, gpu_device))
 }
 
-/// Map Handy's whisper accelerator setting to a transcribe-cpp [`Backend`].
+/// Map OpenFlow's whisper accelerator setting to a transcribe-cpp [`Backend`].
 ///
 /// `Auto` lets the library pick the best device (with CPU fallback). `Cpu` forces
 /// strict CPU. `Gpu` requests the platform GPU backend, but only if a device for

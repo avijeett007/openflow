@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Create a report to help us improve Handy
+about: Create a report to help us improve OpenFlow
 title: "[BUG] "
 labels: ["bug"]
 assignees: ""
@@ -8,7 +8,7 @@ assignees: ""
 
 ## Before You Submit
 
-**Please search [existing issues](https://github.com/cjpais/Handy/issues) to avoid duplicates.** Your bug may already be reported! Right now it's just me maintaining this project so many issues can be overwhelming! Help me out by checking first.
+**Please search [existing issues](https://github.com/avijeett007/openflow/issues) to avoid duplicates.** Your bug may already be reported! OpenFlow is maintained solo, so a lot of duplicate issues get overwhelming fast — checking first genuinely helps.
 
 ## Bug Description
 

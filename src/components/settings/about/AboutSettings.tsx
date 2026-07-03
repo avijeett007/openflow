@@ -69,9 +69,37 @@ export const AboutSettings: React.FC = () => {
           <Button
             variant="secondary"
             size="md"
-            onClick={() => openUrl("https://github.com/cjpais/Handy")}
+            onClick={() => openUrl("https://github.com/avijeett007/openflow")}
           >
             {t("settings.about.sourceCode.button")}
+          </Button>
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("settings.about.website.title")}
+          description={t("settings.about.website.description")}
+          grouped={true}
+        >
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => openUrl("https://openflow.computer")}
+          >
+            {t("settings.about.website.button")}
+          </Button>
+        </SettingContainer>
+
+        <SettingContainer
+          title={t("settings.about.contact.title")}
+          description={t("settings.about.contact.description")}
+          grouped={true}
+        >
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => openUrl("mailto:hello@openflow.computer")}
+          >
+            {t("settings.about.contact.button")}
           </Button>
         </SettingContainer>
 
