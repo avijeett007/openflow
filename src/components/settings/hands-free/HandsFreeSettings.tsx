@@ -1,22 +1,75 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check } from "lucide-react";
-import { commands } from "@/bindings";
+import { listen } from "@tauri-apps/api/event";
+import { AlertTriangle, Check } from "lucide-react";
+import { commands, type HandsFreeReadiness } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
+import { useNavigationStore } from "../../../stores/navigationStore";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
 import { Slider } from "../../ui/Slider";
 import { Input } from "../../ui/Input";
 import { Button } from "../../ui/Button";
+import { Alert } from "../../ui/Alert";
 
 export const HandsFreeSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings, refreshSettings } = useSettings();
+  const setCurrentSection = useNavigationStore(
+    (state) => state.setCurrentSection,
+  );
 
   const handsFreeEnabled = settings?.hands_free_enabled ?? false;
 
   const [isTogglingEnabled, setIsTogglingEnabled] = useState(false);
+
+  // Whether the selected local STT model is present on disk. Wake-word detection
+  // always needs one (even for remote-STT users), so we warn at the toggle when
+  // it's missing rather than failing silently in the background loop.
+  const [readiness, setReadiness] = useState<HandsFreeReadiness | null>(null);
+  // Latest runtime failure surfaced by the background loop's `hands-free-error`
+  // event (payload: "model" | "transcription" | "microphone").
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+
+  const refreshReadiness = async () => {
+    const result = await commands.getHandsFreeReadiness();
+    if (result.status === "ok") {
+      setReadiness(result.data);
+    }
+  };
+
+  // Check readiness on mount, and whenever the persisted enabled/model changes.
+  useEffect(() => {
+    void refreshReadiness();
+  }, [settings?.hands_free_enabled, settings?.selected_model]);
+
+  // Surface runtime failures from the background listener as an error banner.
+  useEffect(() => {
+    const unlisten = listen<string>("hands-free-error", (event) => {
+      setRuntimeError(event.payload);
+      // A runtime failure may reflect a newly-missing model — re-check so the
+      // model-missing banner stays accurate.
+      void refreshReadiness();
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  const modelMissing =
+    handsFreeEnabled && readiness !== null && !readiness.local_model_available;
+
+  const runtimeErrorMessage = (payload: string): string => {
+    switch (payload) {
+      case "model":
+        return t("settings.handsFree.runtimeError.model");
+      case "microphone":
+        return t("settings.handsFree.runtimeError.microphone");
+      default:
+        return t("settings.handsFree.runtimeError.transcription");
+    }
+  };
 
   const [wakeWordInput, setWakeWordInput] = useState("");
   const [isSavingWakeWord, setIsSavingWakeWord] = useState(false);
@@ -45,9 +98,14 @@ export const HandsFreeSettings: React.FC = () => {
 
   const handleToggleEnabled = async (enabled: boolean) => {
     setIsTogglingEnabled(true);
+    // Disabling stops the listener, so any stale runtime error no longer applies.
+    if (!enabled) {
+      setRuntimeError(null);
+    }
     try {
       await commands.setHandsFreeEnabled(enabled);
       await refreshSettings();
+      await refreshReadiness();
     } finally {
       setIsTogglingEnabled(false);
     }
@@ -116,6 +174,31 @@ export const HandsFreeSettings: React.FC = () => {
           {t("settings.handsFree.description")}
         </p>
       </div>
+
+      {modelMissing && (
+        <div className="flex items-start gap-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-yellow-500" />
+          <div className="flex-1 space-y-2">
+            <p className="text-sm font-semibold text-yellow-400">
+              {t("settings.handsFree.modelMissing.title")}
+            </p>
+            <p className="text-sm text-yellow-400/90">
+              {t("settings.handsFree.modelMissing.body")}
+            </p>
+            <Button
+              onClick={() => setCurrentSection("models")}
+              variant="secondary"
+              size="sm"
+            >
+              {t("settings.handsFree.modelMissing.cta")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {runtimeError && !(modelMissing && runtimeError === "model") && (
+        <Alert variant="error">{runtimeErrorMessage(runtimeError)}</Alert>
+      )}
 
       <SettingsGroup>
         <ToggleSwitch

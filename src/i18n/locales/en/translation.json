@@ -366,7 +366,17 @@
         "description": "Once you've started speaking, end the command this long after you go quiet. Lower feels snappier; higher tolerates longer pauses.",
         "unit": "{{count}}s"
       },
-      "tapToToggleHint": "Tip: even without hands-free, tapping the hotkey once (with Push-To-Talk off) starts listening hands-free until you tap it again — no holding required."
+      "tapToToggleHint": "Tip: even without hands-free, tapping the hotkey once (with Push-To-Talk off) starts listening hands-free until you tap it again — no holding required.",
+      "modelMissing": {
+        "title": "Local model required",
+        "body": "Wake-word detection needs a downloaded local speech model, even when you dictate with remote STT. Your selected model isn't on disk, so hands-free dictation can't work until you download one.",
+        "cta": "Go to Models"
+      },
+      "runtimeError": {
+        "model": "Hands-free stopped: the local speech model couldn't be loaded. Download or reselect a model, and if it persists try switching the accelerator to CPU under Settings → Advanced, then re-enable hands-free.",
+        "transcription": "Hands-free hit a transcription error while listening for the wake word. Check your model and microphone, then try again.",
+        "microphone": "Hands-free couldn't start the microphone. Check that no other app is using it and that microphone access is granted."
+      }
     },
     "sound": {
       "title": "Sound",

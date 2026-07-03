@@ -1748,10 +1748,27 @@ fn resolve_device_index(index: usize) -> Result<(Backend, i32)> {
 /// strict CPU. `Gpu` requests the platform GPU backend, but only if a device for
 /// it is actually registered — otherwise it falls back to `Auto` so the load
 /// never fails outright on a machine without that GPU backend.
+///
+/// Intel-Mac exception: on `x86_64` macOS, `Auto` resolves to `Cpu` instead of
+/// `Backend::Auto`. transcribe-cpp's Auto (and Metal) pick the Metal backend on
+/// Intel Macs, where loading a gguf model fails deterministically every cycle
+/// with "gguf load error (status 4)" (observed with parakeet-unified Q8_0) —
+/// which is exactly what silently broke hands-free. CPU there runs ~7x realtime
+/// and works end-to-end. Apple-silicon Macs keep Metal via `Auto`, and an
+/// explicit `Gpu`/Metal selection is still honored below.
 fn select_transcribe_backend(setting: TranscribeAcceleratorSetting) -> Backend {
     match setting {
         TranscribeAcceleratorSetting::Cpu => Backend::Cpu,
-        TranscribeAcceleratorSetting::Auto => Backend::Auto,
+        TranscribeAcceleratorSetting::Auto => {
+            #[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
+            {
+                Backend::Cpu
+            }
+            #[cfg(not(all(target_os = "macos", not(target_arch = "aarch64"))))]
+            {
+                Backend::Auto
+            }
+        }
         TranscribeAcceleratorSetting::Gpu => {
             #[cfg(target_os = "macos")]
             let candidates = [Backend::Metal];
@@ -1925,6 +1942,26 @@ mod tests {
         assert!(matches!(plan.task, Task::Transcribe));
         assert_eq!(plan.language.as_deref(), Some("es"));
         assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn select_backend_cpu_is_always_strict_cpu() {
+        assert_eq!(
+            select_transcribe_backend(TranscribeAcceleratorSetting::Cpu),
+            Backend::Cpu
+        );
+    }
+
+    #[test]
+    fn select_backend_auto_is_cpu_on_intel_mac_else_auto() {
+        // Intel Macs: Auto must resolve to Cpu (Metal gguf loads fail there,
+        // "gguf load error (status 4)"). Everywhere else Auto stays Backend::Auto
+        // (which yields Metal on Apple silicon, CUDA/Vulkan/CPU elsewhere).
+        let resolved = select_transcribe_backend(TranscribeAcceleratorSetting::Auto);
+        #[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
+        assert_eq!(resolved, Backend::Cpu);
+        #[cfg(not(all(target_os = "macos", not(target_arch = "aarch64"))))]
+        assert_eq!(resolved, Backend::Auto);
     }
 }
 

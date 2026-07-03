@@ -25,6 +25,15 @@
 //! mid-thought. This replaces the old fixed-window capture. Note the *detection*
 //! windows are still fixed short cycles — a single always-open rolling stream for
 //! detection is the next refinement.
+//!
+//! Failure handling: wake-word detection ALWAYS needs a local STT model (even for
+//! users who dictate via a remote backend). When the selected local model is
+//! missing/unloadable the loop would otherwise fail every cycle in silence, so we
+//! surface the problem: on the first failure of a streak we emit a
+//! `hands-free-error` Tauri event (payload `"model"` / `"transcription"` /
+//! `"microphone"`) the UI turns into a banner, and after a few consecutive
+//! failures we back off hard ([`PERSISTENT_ERROR_SLEEP`]) so a hopeless loop stops
+//! reopening the mic every few seconds forever.
 
 use crate::actions::finish_dictation;
 use crate::audio_toolkit::VadPolicy;
@@ -35,7 +44,7 @@ use log::{debug, error, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Synthetic binding id used when the wake-word loop drives the shared recorder,
 /// so it never collides with a real user hotkey binding.
@@ -59,6 +68,36 @@ const IDLE_SLEEP: Duration = Duration::from_millis(400);
 
 /// Longer backoff after an error (e.g. no local model loaded) to avoid log spam.
 const ERROR_SLEEP: Duration = Duration::from_millis(1500);
+
+/// Number of consecutive per-cycle failures that flips the loop from the normal
+/// [`ERROR_SLEEP`] back-off to the much longer [`PERSISTENT_ERROR_SLEEP`].
+const PERSISTENT_ERROR_THRESHOLD: u32 = 3;
+
+/// Back-off once a failure looks persistent (e.g. the selected local model is
+/// missing and every `transcribe` fails). Far longer than [`ERROR_SLEEP`] so a
+/// hopeless loop stops reopening the mic every ~5s forever until the user fixes
+/// the underlying problem (which restarts the listener fresh).
+const PERSISTENT_ERROR_SLEEP: Duration = Duration::from_secs(30);
+
+/// Emit the `hands-free-error` event the settings UI turns into a banner. `kind`
+/// is one of `"model"`, `"transcription"`, or `"microphone"`. Matches the plain
+/// string-payload emit pattern used elsewhere (e.g. `actions.rs`
+/// `"transcription-error"`).
+fn emit_hands_free_error(app: &AppHandle, kind: &str) {
+    let _ = app.emit("hands-free-error", kind);
+}
+
+/// Classify a transcription error string into the `hands-free-error` payload the
+/// UI maps to a message. A missing/unloadable local model surfaces as `"model"`
+/// (the common hands-free failure — detection always needs a local model); any
+/// other failure is a generic `"transcription"` error.
+fn classify_wake_error(err: &str) -> &'static str {
+    if err.to_lowercase().contains("model") {
+        "model"
+    } else {
+        "transcription"
+    }
+}
 
 pub struct WakeWordManager {
     app: AppHandle,
@@ -112,6 +151,15 @@ impl WakeWordManager {
 }
 
 fn wake_word_loop(app: AppHandle, running: Arc<AtomicBool>) {
+    // Failure-streak state. Declared here (not persisted) so a fresh listener
+    // start always begins with a clean slate: no lingering error banner cause and
+    // the normal back-off. `*_emitted` flags de-dupe the `hands-free-error` event
+    // so a persistent failure emits once per streak, not every cycle.
+    let mut transcription_failures: u32 = 0;
+    let mut transcription_error_emitted = false;
+    let mut mic_failures: u32 = 0;
+    let mut mic_error_emitted = false;
+
     while running.load(Ordering::SeqCst) {
         let settings = get_settings(&app);
         // The setting is the source of truth; honor an out-of-band disable.
@@ -136,20 +184,59 @@ fn wake_word_loop(app: AppHandle, running: Arc<AtomicBool>) {
 
         // Capture one listening window and transcribe it.
         let samples = match capture_window(&rm, &running, LISTEN_WINDOW_MS) {
-            Some(s) if !s.is_empty() => s,
-            _ => {
+            // Recorder started and produced audio — clear any mic-failure streak.
+            Some(s) if !s.is_empty() => {
+                mic_failures = 0;
+                mic_error_emitted = false;
+                s
+            }
+            // Recorder started but the window was silence — not a mic failure.
+            Some(_) => {
+                mic_failures = 0;
+                mic_error_emitted = false;
+                std::thread::sleep(IDLE_SLEEP);
+                continue;
+            }
+            // Recorder could not start. A one-off is usually benign contention (a
+            // manual dictation grabbed it), so only surface it once the failure
+            // looks persistent — then emit "microphone" a single time per streak.
+            None => {
+                mic_failures = mic_failures.saturating_add(1);
+                if mic_failures >= PERSISTENT_ERROR_THRESHOLD && !mic_error_emitted {
+                    emit_hands_free_error(&app, "microphone");
+                    mic_error_emitted = true;
+                }
                 std::thread::sleep(IDLE_SLEEP);
                 continue;
             }
         };
 
         let transcript = match tm.transcribe(samples.clone()) {
-            Ok(t) => t,
+            Ok(t) => {
+                // Success — clear the failure streak so the next error emits again
+                // and the loop returns to the normal cadence/back-off.
+                transcription_failures = 0;
+                transcription_error_emitted = false;
+                t
+            }
             Err(e) => {
-                // Non-fatal: log and back off. Most common cause is no local model
-                // loaded (e.g. user only configured a remote STT backend).
+                // Non-fatal per cycle, but the common cause is a missing/unloadable
+                // local model (wake-word detection always needs one, even for
+                // remote-STT users), which fails every cycle. Surface it once per
+                // streak and back off harder once it looks persistent so we stop
+                // reopening the mic every ~5s in vain.
+                transcription_failures = transcription_failures.saturating_add(1);
+                if !transcription_error_emitted {
+                    emit_hands_free_error(&app, classify_wake_error(&e.to_string()));
+                    transcription_error_emitted = true;
+                }
                 debug!("Wake-word listen transcription failed: {}", e);
-                std::thread::sleep(ERROR_SLEEP);
+                let backoff = if transcription_failures >= PERSISTENT_ERROR_THRESHOLD {
+                    PERSISTENT_ERROR_SLEEP
+                } else {
+                    ERROR_SLEEP
+                };
+                std::thread::sleep(backoff);
                 continue;
             }
         };
@@ -486,5 +573,26 @@ mod tests {
     fn empty_inputs_do_not_match() {
         assert!(match_wake_word("", "hey flow", 0.8).is_none());
         assert!(match_wake_word("hey flow", "", 0.8).is_none());
+    }
+
+    #[test]
+    fn classify_wake_error_flags_model_failures() {
+        // The real-world missing-model failure string.
+        assert_eq!(
+            classify_wake_error("model load failed: gguf load error (status 4)"),
+            "model"
+        );
+        // Case-insensitive.
+        assert_eq!(classify_wake_error("MODEL not found"), "model");
+        assert_eq!(classify_wake_error("Failed to load Model file"), "model");
+    }
+
+    #[test]
+    fn classify_wake_error_defaults_to_transcription() {
+        assert_eq!(
+            classify_wake_error("engine returned empty output"),
+            "transcription"
+        );
+        assert_eq!(classify_wake_error(""), "transcription");
     }
 }
