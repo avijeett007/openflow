@@ -201,8 +201,10 @@ jobs:
         run: |
           set -euxo pipefail
           APP="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/OpenFlow.app"
-          # The exact onnxruntime path the binary references (resolve robustly).
-          CUR="$(otool -L "$APP/Contents/MacOS/openflow" | grep -oE '[^ ]*libonnxruntime[^ ]*\.dylib' | head -1)"
+          # The exact onnxruntime path the binary references. `otool -L` prints
+          # tab-indented "<path> (compatibility ...)" lines; awk's $1 gives the
+          # clean path without the leading tab.
+          CUR="$(otool -L "$APP/Contents/MacOS/openflow" | awk '/libonnxruntime/ {print $1; exit}')"
           echo "linked onnxruntime: $CUR"
           mkdir -p "$APP/Contents/Frameworks"
           cp -L "$CUR" "$APP/Contents/Frameworks/libonnxruntime.1.dylib"
