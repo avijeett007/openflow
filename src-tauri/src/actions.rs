@@ -928,7 +928,7 @@ impl ShortcutAction for TranscribeAction {
                     // backend is remote/self-hosted, POST the audio to the HTTP
                     // endpoint instead of running the local engine (streaming is not
                     // started for those modes, so there is nothing to finalize). Local
-                    // mode keeps Handy's stream-finalize-then-batch fallback.
+                    // mode keeps OpenFlow's stream-finalize-then-batch fallback.
                     let transcription_time = Instant::now();
                     let stt_mode = get_settings(&ah).stt_backend_mode;
                     let transcription_result = if stt_mode != crate::settings::SttBackendMode::Local

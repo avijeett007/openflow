@@ -7,7 +7,7 @@
 //! bytes of a remote file fetched with an HTTP Range request: a too-short
 //! buffer surfaces cleanly as [`GgufError::Truncated`] instead of panicking.
 //!
-//! This is intentionally not a full GGUF library — it reads what Handy needs to
+//! This is intentionally not a full GGUF library — it reads what OpenFlow needs to
 //! display a model's capabilities before download. Format reference: GGUF v2/v3,
 //! little-endian. v1 (32-bit lengths) is not supported; every transcribe-cpp
 //! model is v3.
@@ -40,7 +40,7 @@ const MAX_ARRAY_LEN: u64 = 16 * 1024 * 1024;
 const MAX_STORED_ARRAY_LEN: u64 = 4096;
 const MAX_KV_COUNT: u64 = 1_000_000;
 
-/// A parsed GGUF metadata value. Only the shapes Handy consumes are given
+/// A parsed GGUF metadata value. Only the shapes OpenFlow consumes are given
 /// accessors; unrequested values are skipped without materializing them.
 #[derive(Debug, Clone, PartialEq)]
 pub enum GgufValue {
@@ -96,7 +96,7 @@ impl GgufValue {
 
 /// The parsed front-of-file metadata of a GGUF model. Only the key/value block
 /// is retained — the version is validated during parsing and the tensor count is
-/// skipped, since Handy reads capabilities purely from the KV pairs.
+/// skipped, since OpenFlow reads capabilities purely from the KV pairs.
 #[derive(Debug, Clone)]
 pub struct GgufMetadata {
     /// Requested key/value metadata pairs, keyed by their GGUF key.
@@ -308,7 +308,7 @@ fn skip_value(cur: &mut ByteCursor, value_type: u32) -> Result<(), GgufError> {
 ///
 /// Only keys listed in `wanted_keys` are materialized. Other values are skipped
 /// with checked cursor movement so large tokenizer metadata arrays do not become
-/// Handy allocations while probing a few capability fields.
+/// OpenFlow allocations while probing a few capability fields.
 pub fn parse_header(bytes: &[u8], wanted_keys: &[&str]) -> Result<GgufMetadata, GgufError> {
     let mut cur = ByteCursor::new(bytes);
 

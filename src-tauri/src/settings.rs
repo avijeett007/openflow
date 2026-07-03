@@ -107,7 +107,7 @@ pub struct PostProcessProvider {
 }
 
 /// Where speech-to-text runs. `Local` uses the bundled on-device engine
-/// (Handy's Parakeet/Whisper). `SelfHosted` and `Remote` both POST audio to an
+/// (OpenFlow's Parakeet/Whisper). `SelfHosted` and `Remote` both POST audio to an
 /// HTTP endpoint — the only difference is UX (a user-typed URL vs. a named
 /// provider) and where the key comes from.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
