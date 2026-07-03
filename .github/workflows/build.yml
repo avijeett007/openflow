@@ -94,7 +94,10 @@ jobs:
           - platform: "macos-14" # Apple Silicon (arm64) — prebuilt `ort` binary.
             target: "aarch64-apple-darwin"
             args: "--target aarch64-apple-darwin"
-          - platform: "macos-13" # Intel (x64) — no prebuilt `ort`, needs onnxruntime.
+          - platform: "macos-14" # Intel (x64) — CROSS-COMPILED on Apple Silicon.
+            # The `macos-13` Intel runner is retired (jobs sit queued forever), so
+            # we cross-compile x86_64 on the arm64 runner instead (see the ONNX +
+            # bundling steps below).
             target: "x86_64-apple-darwin"
             args: "--target x86_64-apple-darwin"
           - platform: "windows-latest" # x64 — prebuilt `ort` binary.
@@ -144,17 +147,28 @@ jobs:
         with:
           bun-version: latest
 
-      # The `ort` crate has no prebuilt binary for x86_64-apple-darwin. Install
-      # ONNX Runtime via Homebrew and link it dynamically. These env vars MUST be
-      # exported BEFORE the "Build with Tauri" step so the Rust build (`ort`
-      # build script) picks them up.
-      - name: Install ONNX Runtime (Intel macOS)
+      # Cross-compile x86_64 on the Apple-Silicon runner. The `ort` crate has no
+      # prebuilt x86_64-apple-darwin binary, so we dynamically link an x86_64 ONNX
+      # Runtime. To get the SAME onnxruntime version the project expects, install
+      # an x86_64 Homebrew under Rosetta and `brew install onnxruntime` there.
+      # CMAKE_OSX_ARCHITECTURES forces transcribe-cpp's native (ggml/Metal) cmake
+      # build to target x86_64. All env vars are exported BEFORE "Build with Tauri".
+      - name: Install x86_64 ONNX Runtime via Rosetta Homebrew (Intel cross-compile)
         if: matrix.target == 'x86_64-apple-darwin'
         shell: bash
         run: |
-          brew install onnxruntime
-          echo "ORT_LIB_LOCATION=$(brew --prefix onnxruntime)/lib" >> "$GITHUB_ENV"
-          echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
+          set -euxo pipefail
+          sudo softwareupdate --install-rosetta --agree-to-license
+          # Install an x86_64 Homebrew at /usr/local (the Intel prefix) by running
+          # the installer under Rosetta; NONINTERACTIVE avoids the prompt.
+          arch -x86_64 /bin/bash -c 'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+          arch -x86_64 /usr/local/bin/brew install onnxruntime
+          {
+            echo "ORT_LIB_LOCATION=/usr/local/opt/onnxruntime/lib"
+            echo "ORT_PREFER_DYNAMIC_LINK=1"
+            echo "CMAKE_OSX_ARCHITECTURES=x86_64"
+            echo "MACOSX_DEPLOYMENT_TARGET=10.15"
+          } >> "$GITHUB_ENV"
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
@@ -173,6 +187,42 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # The Intel .app links ONNX Runtime at an absolute Homebrew path, so the
+      # tauri-action dmg would crash on a clean Intel Mac. Bundle the dylib into
+      # Contents/Frameworks, repoint it to @executable_path, re-sign (the
+      # entitlements already carry disable-library-validation), rebuild the dmg,
+      # and on tag builds replace the broken asset tauri-action uploaded.
+      - name: Bundle ONNX Runtime into Intel .app and rebuild dmg
+        if: matrix.target == 'x86_64-apple-darwin'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          APP="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/OpenFlow.app"
+          # The exact onnxruntime path the binary references (resolve robustly).
+          CUR="$(otool -L "$APP/Contents/MacOS/openflow" | grep -oE '[^ ]*libonnxruntime[^ ]*\.dylib' | head -1)"
+          echo "linked onnxruntime: $CUR"
+          mkdir -p "$APP/Contents/Frameworks"
+          cp -L "$CUR" "$APP/Contents/Frameworks/libonnxruntime.1.dylib"
+          chmod u+w "$APP/Contents/Frameworks/libonnxruntime.1.dylib"
+          install_name_tool -id "@executable_path/../Frameworks/libonnxruntime.1.dylib" "$APP/Contents/Frameworks/libonnxruntime.1.dylib"
+          install_name_tool -change "$CUR" "@executable_path/../Frameworks/libonnxruntime.1.dylib" "$APP/Contents/MacOS/openflow"
+          codesign --force -s - "$APP/Contents/Frameworks/libonnxruntime.1.dylib"
+          codesign --force -s - --entitlements src-tauri/Entitlements.plist "$APP"
+          codesign --verify --deep --strict "$APP"
+          otool -L "$APP/Contents/MacOS/openflow" | grep onnxruntime
+          VER="$(node -p "require('./package.json').version")"
+          DMG="src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/OpenFlow_${VER}_x64.dmg"
+          STAGE="$(mktemp -d)"
+          ditto "$APP" "$STAGE/OpenFlow.app"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "OpenFlow" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          ls -lh "$DMG"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            gh release upload "${GITHUB_REF#refs/tags/}" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
+          fi
 
       # Always upload the installers as workflow run artifacts (for both manual
       # dispatch and tag builds). macOS -> .dmg, Windows -> .exe (NSIS) + .msi.
