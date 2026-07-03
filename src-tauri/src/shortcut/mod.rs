@@ -545,6 +545,44 @@ pub fn set_wake_word_silence_timeout_seconds(app: AppHandle, seconds: f32) -> Re
     Ok(())
 }
 
+/// Readiness of the hands-free wake-word listener: whether the currently selected
+/// local STT model is downloaded on disk. Wake-word *detection* always needs a
+/// local model, even for users who dictate via a remote STT backend, so the UI
+/// warns when it's missing (detection — and therefore dictation — can't work).
+#[derive(Serialize, Type)]
+pub struct HandsFreeReadiness {
+    /// Whether the selected model exists on disk and can drive detection.
+    local_model_available: bool,
+    /// The currently selected model id, or `None` if nothing is selected.
+    selected_model: Option<String>,
+}
+
+/// Report whether hands-free wake-word detection can actually run: it needs the
+/// selected local STT model present on disk. Reuses [`ModelManager`]'s existing
+/// on-disk `is_downloaded` view rather than probing files here.
+#[tauri::command]
+#[specta::specta]
+pub fn get_hands_free_readiness(app: AppHandle) -> Result<HandsFreeReadiness, String> {
+    let selected = get_settings(&app).selected_model.trim().to_string();
+    let selected_model = if selected.is_empty() {
+        None
+    } else {
+        Some(selected)
+    };
+
+    let model_manager = app.state::<std::sync::Arc<crate::managers::model::ModelManager>>();
+    let local_model_available = selected_model
+        .as_ref()
+        .and_then(|id| model_manager.get_model_info(id))
+        .map(|info| info.is_downloaded)
+        .unwrap_or(false);
+
+    Ok(HandsFreeReadiness {
+        local_model_available,
+        selected_model,
+    })
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_audio_feedback_setting(app: AppHandle, enabled: bool) -> Result<(), String> {

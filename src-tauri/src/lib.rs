@@ -562,6 +562,7 @@ pub fn run(cli_args: CliArgs) {
             shortcut::set_wake_word_sensitivity,
             shortcut::set_wake_word_listen_seconds,
             shortcut::set_wake_word_silence_timeout_seconds,
+            shortcut::get_hands_free_readiness,
             shortcut::change_audio_feedback_setting,
             shortcut::change_audio_feedback_volume_setting,
             shortcut::change_sound_theme_setting,
