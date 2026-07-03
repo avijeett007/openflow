@@ -14,6 +14,58 @@ pub enum SoundType {
     Stop,
 }
 
+/// Spoken acknowledgment cues for hands-free v2. Bundled WAVs generated with
+/// macOS `say` + `afconvert`. The `Ack` cue is deliberately short (≤400ms) — the
+/// command mic opens only after it finishes, so its length is dead-zone time.
+pub enum VoiceCue {
+    /// "Got it" — played (blocking) after a wake match, before the command mic
+    /// opens, to cue the user to speak.
+    Ack,
+    /// "Now typing" — played just before the transcribed text is injected.
+    Typing,
+}
+
+impl VoiceCue {
+    fn resource_file(&self) -> &'static str {
+        match self {
+            VoiceCue::Ack => "resources/hands_free_ack.wav",
+            VoiceCue::Typing => "resources/hands_free_typing.wav",
+        }
+    }
+}
+
+fn resolve_voice_cue_path(app: &AppHandle, cue: &VoiceCue) -> Option<PathBuf> {
+    app.path()
+        .resolve(cue.resource_file(), tauri::path::BaseDirectory::Resource)
+        .ok()
+}
+
+/// Play a hands-free voice cue asynchronously. Gated by the
+/// `hands_free_voice_feedback` setting; reuses the audio-feedback volume and
+/// selected output device via [`play_sound_at_path`].
+pub fn play_voice_cue(app: &AppHandle, cue: VoiceCue) {
+    let settings = settings::get_settings(app);
+    if !settings.hands_free_voice_feedback {
+        return;
+    }
+    if let Some(path) = resolve_voice_cue_path(app, &cue) {
+        play_sound_async(app, path);
+    }
+}
+
+/// Play a hands-free voice cue and block until it finishes. Used for the "Got it"
+/// ack so playback completes before the command mic opens (the cue physically
+/// cannot leak into the capture).
+pub fn play_voice_cue_blocking(app: &AppHandle, cue: VoiceCue) {
+    let settings = settings::get_settings(app);
+    if !settings.hands_free_voice_feedback {
+        return;
+    }
+    if let Some(path) = resolve_voice_cue_path(app, &cue) {
+        play_sound_blocking(app, &path);
+    }
+}
+
 fn resolve_sound_path(
     app: &AppHandle,
     settings: &AppSettings,

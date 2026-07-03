@@ -558,6 +558,7 @@ pub fn run(cli_args: CliArgs) {
             shortcut::reset_binding,
             shortcut::change_ptt_setting,
             shortcut::set_hands_free_enabled,
+            shortcut::set_hands_free_voice_feedback,
             shortcut::set_wake_word,
             shortcut::set_wake_word_sensitivity,
             shortcut::set_wake_word_listen_seconds,

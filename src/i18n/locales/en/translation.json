@@ -344,6 +344,10 @@
         "label": "Enable hands-free",
         "description": "Listen continuously for a wake word — no hotkey needed. Say your wake word, then speak your text. Needs a local STT model and uses more CPU while listening."
       },
+      "voiceFeedback": {
+        "label": "Voice acknowledgment",
+        "description": "Play a short spoken cue when a wake word is recognized (\"Got it\") and just before your text is typed (\"Now typing\"). Uses your audio-feedback volume and output device."
+      },
       "wakeWord": {
         "label": "Wake word",
         "description": "The phrase that starts a dictation, e.g. \"hey flow\".",

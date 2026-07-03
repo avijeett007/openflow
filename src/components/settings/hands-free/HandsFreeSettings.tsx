@@ -21,8 +21,10 @@ export const HandsFreeSettings: React.FC = () => {
   );
 
   const handsFreeEnabled = settings?.hands_free_enabled ?? false;
+  const voiceFeedbackEnabled = settings?.hands_free_voice_feedback ?? true;
 
   const [isTogglingEnabled, setIsTogglingEnabled] = useState(false);
+  const [isTogglingVoiceFeedback, setIsTogglingVoiceFeedback] = useState(false);
 
   // Whether the selected local STT model is present on disk. Wake-word detection
   // always needs one (even for remote-STT users), so we warn at the toggle when
@@ -108,6 +110,16 @@ export const HandsFreeSettings: React.FC = () => {
       await refreshReadiness();
     } finally {
       setIsTogglingEnabled(false);
+    }
+  };
+
+  const handleToggleVoiceFeedback = async (enabled: boolean) => {
+    setIsTogglingVoiceFeedback(true);
+    try {
+      await commands.setHandsFreeVoiceFeedback(enabled);
+      await refreshSettings();
+    } finally {
+      setIsTogglingVoiceFeedback(false);
     }
   };
 
@@ -209,6 +221,16 @@ export const HandsFreeSettings: React.FC = () => {
           description={t("settings.handsFree.enable.description")}
           descriptionMode="inline"
           grouped
+        />
+        <ToggleSwitch
+          checked={voiceFeedbackEnabled}
+          onChange={handleToggleVoiceFeedback}
+          isUpdating={isTogglingVoiceFeedback}
+          label={t("settings.handsFree.voiceFeedback.label")}
+          description={t("settings.handsFree.voiceFeedback.description")}
+          descriptionMode="inline"
+          grouped
+          disabled={!handsFreeEnabled}
         />
       </SettingsGroup>
 

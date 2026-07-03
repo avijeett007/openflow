@@ -22,6 +22,12 @@ use crate::audio_toolkit::{
 enum Cmd {
     Start(VadPolicy),
     Stop(mpsc::Sender<Vec<f32>>),
+    /// Begin always-open wake-word monitoring (orthogonal to a recording
+    /// session). VAD-passed frames are forwarded to `wake_cb` WITHOUT being
+    /// accumulated into `processed_samples`.
+    StartMonitor(VadPolicy),
+    /// Stop wake-word monitoring. A manual recording session is unaffected.
+    StopMonitor,
     Shutdown,
 }
 
@@ -74,6 +80,13 @@ pub struct AudioRecorder {
     vad: Option<VadConfig>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
     audio_cb: Option<AudioFrameCallback>,
+    /// Callback for always-open wake-word monitoring. Receives VAD-passed frames
+    /// while monitoring is active and no manual recording session is in progress.
+    wake_cb: Option<AudioFrameCallback>,
+    /// Whether always-open wake-word monitoring is active. Orthogonal to a manual
+    /// recording session (which always takes per-frame precedence). Shared with the
+    /// consumer thread so `start_monitor`/`stop_monitor` gate frame delivery.
+    monitor: Arc<AtomicBool>,
     /// Monotonic count of VAD-passed (voiced) samples emitted since this recorder
     /// was created. It only advances while speech is being captured, so a caller
     /// polling it can detect end-of-speech in real time (the counter goes flat
@@ -91,6 +104,8 @@ impl AudioRecorder {
             vad: None,
             level_cb: None,
             audio_cb: None,
+            wake_cb: None,
+            monitor: Arc::new(AtomicBool::new(false)),
             voiced_samples: Arc::new(AtomicU64::new(0)),
         })
     }
@@ -141,6 +156,18 @@ impl AudioRecorder {
         self
     }
 
+    /// Register a callback that receives real-time 16 kHz VAD-passed frames while
+    /// always-open wake-word monitoring is active (see `start_monitor`). Frames
+    /// arrive on the recorder's consumer thread; keep the callback cheap (forward
+    /// to a channel). Suppressed while a manual recording session is in progress.
+    pub fn with_wake_callback<F>(mut self, cb: F) -> Self
+    where
+        F: Fn(&[f32]) + Send + Sync + 'static,
+    {
+        self.wake_cb = Some(Arc::new(cb));
+        self
+    }
+
     pub fn open(&mut self, device: Option<Device>) -> Result<(), Box<dyn std::error::Error>> {
         if self.worker_handle.is_some() {
             return Ok(()); // already open
@@ -164,6 +191,10 @@ impl AudioRecorder {
         let level_cb = self.level_cb.clone();
         // Move the optional real-time audio frame callback into the worker thread
         let audio_cb = self.audio_cb.clone();
+        // Move the optional wake-word monitor callback + its enable flag into the
+        // worker thread so always-open monitoring can forward frames.
+        let wake_cb = self.wake_cb.clone();
+        let monitor = self.monitor.clone();
         // Share the voiced-sample counter with the consumer thread so callers can
         // poll live end-of-speech state.
         let voiced_samples = self.voiced_samples.clone();
@@ -250,6 +281,8 @@ impl AudioRecorder {
                         cmd_rx,
                         level_cb,
                         audio_cb,
+                        wake_cb,
+                        monitor,
                         stop_flag,
                         voiced_samples,
                     );
@@ -300,6 +333,26 @@ impl AudioRecorder {
             tx.send(Cmd::Stop(resp_tx))?;
         }
         Ok(resp_rx.recv()?) // wait for the samples
+    }
+
+    /// Begin always-open wake-word monitoring. Orthogonal to `start()`: a manual
+    /// recording session (if any) always takes per-frame precedence, so monitor
+    /// delivery is auto-suppressed while recording. Monitored frames are
+    /// VAD-passed and forwarded to `wake_cb` WITHOUT being accumulated.
+    pub fn start_monitor(&self, vad_policy: VadPolicy) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(tx) = &self.cmd_tx {
+            tx.send(Cmd::StartMonitor(vad_policy))?;
+        }
+        Ok(())
+    }
+
+    /// Stop always-open wake-word monitoring. Any manual recording session is
+    /// unaffected.
+    pub fn stop_monitor(&self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(tx) = &self.cmd_tx {
+            tx.send(Cmd::StopMonitor)?;
+        }
+        Ok(())
     }
 
     pub fn close(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -443,7 +496,194 @@ pub fn is_no_input_device_error(error_message: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use super::{is_microphone_access_denied, is_no_input_device_error};
+    use crate::audio_toolkit::vad::{
+        VadFrame, VoiceActivityDetector, VAD_OFFLINE_HANGOVER_FRAMES, VAD_STREAMING_HANGOVER_FRAMES,
+    };
+    use anyhow::Result;
+    use std::sync::atomic::AtomicUsize;
+
+    /// Test VAD that classifies a frame as Speech when its first sample is
+    /// non-zero, Noise otherwise. Lets a unit test drive `handle_frame`'s VAD
+    /// branch deterministically without an audio device.
+    struct TestVad {
+        pushes: AtomicUsize,
+    }
+
+    impl TestVad {
+        fn new() -> Self {
+            Self {
+                pushes: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl VoiceActivityDetector for TestVad {
+        fn push_frame<'a>(&'a mut self, frame: &'a [f32]) -> Result<VadFrame<'a>> {
+            self.pushes.fetch_add(1, Ordering::Relaxed);
+            if frame.first().copied().unwrap_or(0.0) != 0.0 {
+                Ok(VadFrame::Speech(frame))
+            } else {
+                Ok(VadFrame::Noise)
+            }
+        }
+    }
+
+    fn test_vad_config() -> VadConfig {
+        VadConfig {
+            detector: Arc::new(Mutex::new(Box::new(TestVad::new()))),
+            offline_hangover_frames: VAD_OFFLINE_HANGOVER_FRAMES,
+            streaming_hangover_frames: VAD_STREAMING_HANGOVER_FRAMES,
+        }
+    }
+
+    /// Monitor mode: a voiced frame advances `voiced_samples` and reaches the
+    /// wake callback, but MUST NOT be accumulated into `processed_samples`.
+    #[test]
+    fn monitor_frame_forwards_to_wake_cb_without_accumulating() {
+        let vad = Some(test_vad_config());
+        let voiced = Arc::new(AtomicU64::new(0));
+        let mut out_buf = Vec::<f32>::new();
+
+        let wake_hits = Arc::new(AtomicU64::new(0));
+        let wake_cb: Option<AudioFrameCallback> = {
+            let wake_hits = wake_hits.clone();
+            Some(Arc::new(move |buf: &[f32]| {
+                wake_hits.fetch_add(buf.len() as u64, Ordering::Relaxed);
+            }))
+        };
+
+        let voiced_frame = vec![0.5f32; 480]; // 30ms @ 16kHz, first sample != 0
+                                              // Simulate a monitor period: several voiced frames, no recording.
+        for _ in 0..10 {
+            handle_frame(
+                &voiced_frame,
+                false, // recording
+                true,  // monitoring
+                VadPolicy::Offline,
+                &vad,
+                &None, // audio_cb
+                &wake_cb,
+                &mut out_buf,
+                &voiced,
+            );
+        }
+
+        assert!(
+            out_buf.is_empty(),
+            "monitor mode must never append to processed_samples"
+        );
+        assert_eq!(
+            voiced.load(Ordering::Relaxed),
+            4800,
+            "voiced_samples must advance on monitored voiced frames"
+        );
+        assert_eq!(
+            wake_hits.load(Ordering::Relaxed),
+            4800,
+            "wake_cb must receive every voiced frame"
+        );
+    }
+
+    /// Monitor mode drops non-voiced frames (VAD Noise): no counter/cb/buffer.
+    #[test]
+    fn monitor_drops_silence_frames() {
+        let vad = Some(test_vad_config());
+        let voiced = Arc::new(AtomicU64::new(0));
+        let mut out_buf = Vec::<f32>::new();
+        let wake_hits = Arc::new(AtomicU64::new(0));
+        let wake_cb: Option<AudioFrameCallback> = {
+            let wake_hits = wake_hits.clone();
+            Some(Arc::new(move |buf: &[f32]| {
+                wake_hits.fetch_add(buf.len() as u64, Ordering::Relaxed);
+            }))
+        };
+
+        let silence_frame = vec![0.0f32; 480]; // first sample == 0 => Noise
+        for _ in 0..5 {
+            handle_frame(
+                &silence_frame,
+                false,
+                true,
+                VadPolicy::Offline,
+                &vad,
+                &None,
+                &wake_cb,
+                &mut out_buf,
+                &voiced,
+            );
+        }
+
+        assert!(out_buf.is_empty());
+        assert_eq!(voiced.load(Ordering::Relaxed), 0);
+        assert_eq!(wake_hits.load(Ordering::Relaxed), 0);
+    }
+
+    /// Recording mode is unchanged: a voiced frame accumulates into the output
+    /// buffer AND advances the voiced counter (the verbatim manual path).
+    #[test]
+    fn recording_frame_still_accumulates() {
+        let vad = Some(test_vad_config());
+        let voiced = Arc::new(AtomicU64::new(0));
+        let mut out_buf = Vec::<f32>::new();
+
+        let voiced_frame = vec![0.5f32; 480];
+        handle_frame(
+            &voiced_frame,
+            true,  // recording
+            false, // monitoring
+            VadPolicy::Offline,
+            &vad,
+            &None,
+            &None,
+            &mut out_buf,
+            &voiced,
+        );
+
+        assert_eq!(
+            out_buf.len(),
+            480,
+            "recording must accumulate voiced frames"
+        );
+        assert_eq!(voiced.load(Ordering::Relaxed), 480);
+    }
+
+    /// Recording takes precedence over monitoring when both flags are set, so a
+    /// manual dictation is never starved by the monitor branch.
+    #[test]
+    fn recording_takes_precedence_over_monitoring() {
+        let vad = Some(test_vad_config());
+        let voiced = Arc::new(AtomicU64::new(0));
+        let mut out_buf = Vec::<f32>::new();
+        let wake_hits = Arc::new(AtomicU64::new(0));
+        let wake_cb: Option<AudioFrameCallback> = {
+            let wake_hits = wake_hits.clone();
+            Some(Arc::new(move |buf: &[f32]| {
+                wake_hits.fetch_add(buf.len() as u64, Ordering::Relaxed);
+            }))
+        };
+
+        let voiced_frame = vec![0.5f32; 480];
+        handle_frame(
+            &voiced_frame,
+            true, // recording
+            true, // monitoring (should be ignored)
+            VadPolicy::Offline,
+            &vad,
+            &None,
+            &wake_cb,
+            &mut out_buf,
+            &voiced,
+        );
+
+        assert_eq!(out_buf.len(), 480, "recording path must run");
+        assert_eq!(
+            wake_hits.load(Ordering::Relaxed),
+            0,
+            "wake_cb must not fire while recording"
+        );
+    }
 
     #[test]
     fn detects_access_is_denied() {
@@ -492,6 +732,8 @@ fn run_consumer(
     cmd_rx: mpsc::Receiver<Cmd>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
     audio_cb: Option<AudioFrameCallback>,
+    wake_cb: Option<AudioFrameCallback>,
+    monitor: Arc<AtomicBool>,
     stop_flag: Arc<AtomicBool>,
     voiced_samples: Arc<AtomicU64>,
 ) {
@@ -526,47 +768,6 @@ fn run_consumer(
         4000.0, // vocal_max_hz
     );
 
-    fn handle_frame(
-        samples: &[f32],
-        recording: bool,
-        vad_policy: VadPolicy,
-        vad: &Option<VadConfig>,
-        audio_cb: &Option<AudioFrameCallback>,
-        out_buf: &mut Vec<f32>,
-        voiced_samples: &Arc<AtomicU64>,
-    ) {
-        if !recording {
-            return;
-        }
-
-        let mut emit = |buf: &[f32]| {
-            out_buf.extend_from_slice(buf);
-            // Advance the live voiced-sample counter so hands-free capture can
-            // detect that speech is (still) arriving. Only VAD-passed frames reach
-            // here under the Offline/Streaming policies, so the counter goes flat
-            // during real silence.
-            voiced_samples.fetch_add(buf.len() as u64, Ordering::Relaxed);
-            if let Some(cb) = audio_cb {
-                cb(buf);
-            }
-        };
-
-        if vad_policy == VadPolicy::Disabled {
-            emit(samples);
-            return;
-        }
-
-        if let Some(cfg) = vad {
-            let mut det = cfg.detector.lock().unwrap();
-            match det.push_frame(samples).unwrap_or(VadFrame::Speech(samples)) {
-                VadFrame::Speech(buf) => emit(buf),
-                VadFrame::Noise => {}
-            }
-        } else {
-            emit(samples);
-        }
-    }
-
     // Runs until the stream closes and `recv` returns `Err`.
     while let Ok(chunk) = sample_rx.recv() {
         let raw = match chunk {
@@ -582,13 +783,19 @@ fn run_consumer(
         }
 
         // ---------- existing pipeline ------------------------------------ //
+        // Read the always-open monitor flag once per chunk (cheap). When set and no
+        // manual recording is in progress, VAD-passed frames are forwarded to
+        // `wake_cb` without being accumulated.
+        let monitoring = monitor.load(Ordering::Relaxed);
         frame_resampler.push(&raw, &mut |frame: &[f32]| {
             handle_frame(
                 frame,
                 recording,
+                monitoring,
                 vad_policy,
                 &vad,
                 &audio_cb,
+                &wake_cb,
                 &mut processed_samples,
                 &voiced_samples,
             )
@@ -629,9 +836,11 @@ fn run_consumer(
                                     handle_frame(
                                         frame,
                                         true,
+                                        false,
                                         vad_policy,
                                         &vad,
                                         &audio_cb,
+                                        &wake_cb,
                                         &mut processed_samples,
                                         &voiced_samples,
                                     )
@@ -649,9 +858,11 @@ fn run_consumer(
                         handle_frame(
                             frame,
                             true,
+                            false,
                             vad_policy,
                             &vad,
                             &audio_cb,
+                            &wake_cb,
                             &mut processed_samples,
                             &voiced_samples,
                         )
@@ -662,12 +873,128 @@ fn run_consumer(
                     // Resume the audio callback so the consumer loop can continue
                     // receiving chunks (important for always-on microphone mode).
                     stop_flag.store(false, Ordering::Relaxed);
+
+                    // A manual session may have used the Streaming policy; if
+                    // always-open monitoring is active, restore the Offline
+                    // hangover tail and reset the detector so monitoring resumes
+                    // with a clean, offline-tuned VAD (see design point 4).
+                    if monitor.load(Ordering::Relaxed) {
+                        if let Some(cfg) = &vad {
+                            let mut det = cfg.detector.lock().unwrap();
+                            det.set_hangover_frames(cfg.offline_hangover_frames);
+                            det.reset();
+                        }
+                    }
+                }
+                Cmd::StartMonitor(policy) => {
+                    monitor.store(true, Ordering::Relaxed);
+                    // Configure the single VAD engine for offline-tuned monitoring
+                    // and clear its smoothing + recurrent state (same reset block as
+                    // Cmd::Start). Skipped if a recording session is currently
+                    // driving the detector — the next Cmd::Start/Cmd::Stop restores
+                    // the appropriate hangover, and monitoring is suppressed while
+                    // recording anyway.
+                    if !recording {
+                        if let Some(cfg) = &vad {
+                            let mut det = cfg.detector.lock().unwrap();
+                            det.set_hangover_frames(cfg.hangover_for(policy));
+                            det.reset();
+                        }
+                    }
+                }
+                Cmd::StopMonitor => {
+                    monitor.store(false, Ordering::Relaxed);
                 }
                 Cmd::Shutdown => {
                     stop_flag.store(true, Ordering::Relaxed);
                     return;
                 }
             }
+        }
+    }
+}
+
+/// Route one 16 kHz mono frame according to the recorder's current mode.
+///
+/// Precedence is strict: a manual recording session (`recording == true`) always
+/// wins, so wake-word monitoring auto-suppresses while dictating. Extracted from
+/// `run_consumer` (was a nested fn) so it can be unit-tested directly.
+///
+/// - `recording`: the VERBATIM manual-dictation path — accumulates into `out_buf`
+///   (`processed_samples`), advances `voiced_samples`, and feeds `audio_cb`
+///   (StreamRouter). Its behavior must not change.
+/// - else `monitoring`: VAD-gate the frame, advance `voiced_samples`, and forward
+///   voiced frames to `wake_cb`. NEVER appends to `out_buf` — continuous
+///   monitoring would otherwise leak memory unbounded.
+/// - else: drop the frame.
+#[allow(clippy::too_many_arguments)]
+fn handle_frame(
+    samples: &[f32],
+    recording: bool,
+    monitoring: bool,
+    vad_policy: VadPolicy,
+    vad: &Option<VadConfig>,
+    audio_cb: &Option<AudioFrameCallback>,
+    wake_cb: &Option<AudioFrameCallback>,
+    out_buf: &mut Vec<f32>,
+    voiced_samples: &Arc<AtomicU64>,
+) {
+    if recording {
+        // ===================================================================
+        // VERBATIM recording branch — behavior identical to pre-monitor code.
+        // Do not modify: manual dictation, StreamRouter streaming, and the
+        // voiced_sample_count primitive all depend on it byte-for-byte.
+        // ===================================================================
+        let mut emit = |buf: &[f32]| {
+            out_buf.extend_from_slice(buf);
+            // Advance the live voiced-sample counter so hands-free capture can
+            // detect that speech is (still) arriving. Only VAD-passed frames reach
+            // here under the Offline/Streaming policies, so the counter goes flat
+            // during real silence.
+            voiced_samples.fetch_add(buf.len() as u64, Ordering::Relaxed);
+            if let Some(cb) = audio_cb {
+                cb(buf);
+            }
+        };
+
+        if vad_policy == VadPolicy::Disabled {
+            emit(samples);
+            return;
+        }
+
+        if let Some(cfg) = vad {
+            let mut det = cfg.detector.lock().unwrap();
+            match det.push_frame(samples).unwrap_or(VadFrame::Speech(samples)) {
+                VadFrame::Speech(buf) => emit(buf),
+                VadFrame::Noise => {}
+            }
+        } else {
+            emit(samples);
+        }
+        return;
+    }
+
+    if monitoring {
+        // Always-open wake-word monitoring: VAD-gate the frame, advance the voiced
+        // counter, and forward voiced frames to `wake_cb`. Crucially it NEVER
+        // touches `out_buf` (processed_samples) — a continuously-open monitor would
+        // otherwise grow it without bound.
+        let forward = |buf: &[f32]| {
+            voiced_samples.fetch_add(buf.len() as u64, Ordering::Relaxed);
+            if let Some(cb) = wake_cb {
+                cb(buf);
+            }
+        };
+
+        if let Some(cfg) = vad {
+            let mut det = cfg.detector.lock().unwrap();
+            match det.push_frame(samples).unwrap_or(VadFrame::Speech(samples)) {
+                VadFrame::Speech(buf) => forward(buf),
+                VadFrame::Noise => {}
+            }
+        } else {
+            // No VAD configured (test/diagnostic recorders only): forward raw.
+            forward(samples);
         }
     }
 }
