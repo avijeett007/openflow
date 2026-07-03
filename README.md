@@ -126,10 +126,7 @@ Code signing and notarization (an Apple Developer ID certificate, Windows Authen
 
 If OpenFlow saves you time, consider supporting its development:
 
-- [GitHub Sponsors](https://github.com/sponsors/avijeett007)
-- [Buy Me a Coffee](https://buymeacoffee.com/)
-
-<!-- Maintainer: please confirm/replace these donation links before publicizing them. -->
+- [Buy Me a Coffee](https://buymeacoffee.com/kno2gether)
 
 ## Adding a provider
 
