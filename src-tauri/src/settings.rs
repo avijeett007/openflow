@@ -552,6 +552,12 @@ pub struct AppSettings {
     /// mic open as long as speech continues. Clamped to a sane range at the command.
     #[serde(default = "default_wake_word_silence_timeout_ms")]
     pub wake_word_silence_timeout_ms: u64,
+    /// When true, hands-free plays short spoken acknowledgment cues: "Got it"
+    /// after a wake match (before the command mic opens) and "Now typing" just
+    /// before the transcribed text is injected. Reuses the audio-feedback volume
+    /// and selected output device. Default on.
+    #[serde(default = "default_hands_free_voice_feedback")]
+    pub hands_free_voice_feedback: bool,
 }
 
 fn default_model() -> String {
@@ -872,6 +878,10 @@ fn default_wake_word_sensitivity() -> f32 {
     0.8
 }
 
+fn default_hands_free_voice_feedback() -> bool {
+    true
+}
+
 fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
     let mut changed = false;
     for provider in default_post_process_providers() {
@@ -1052,6 +1062,7 @@ pub fn get_default_settings() -> AppSettings {
         wake_word_sensitivity: default_wake_word_sensitivity(),
         wake_word_listen_seconds: default_wake_word_listen_seconds(),
         wake_word_silence_timeout_ms: default_wake_word_silence_timeout_ms(),
+        hands_free_voice_feedback: default_hands_free_voice_feedback(),
     }
 }
 

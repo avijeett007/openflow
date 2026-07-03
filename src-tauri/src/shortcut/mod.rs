@@ -494,6 +494,18 @@ pub fn set_hands_free_enabled(app: AppHandle, enabled: bool) -> Result<(), Strin
     Ok(())
 }
 
+/// Enable/disable spoken hands-free acknowledgment cues ("Got it" / "Now
+/// typing"). Persists the setting; the running listener reads it per segment, so
+/// no restart is needed.
+#[tauri::command]
+#[specta::specta]
+pub fn set_hands_free_voice_feedback(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.hands_free_voice_feedback = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 /// Set the wake phrase the listener matches (rejects an empty value).
 #[tauri::command]
 #[specta::specta]

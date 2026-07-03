@@ -11,8 +11,8 @@ use crate::managers::transcription::StreamRouter;
 use crate::settings::{get_settings, AppSettings};
 use crate::utils;
 use log::{debug, error, info};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 
@@ -131,6 +131,7 @@ fn create_audio_recorder(
     vad_path: &str,
     app_handle: &tauri::AppHandle,
     stream_router: Arc<StreamRouter>,
+    wake_tx: mpsc::Sender<Vec<f32>>,
 ) -> Result<AudioRecorder, anyhow::Error> {
     // A single Silero engine covers both the offline and streaming policies (never
     // active at once within a recording), so the recorder reconfigures its
@@ -165,6 +166,13 @@ fn create_audio_recorder(
             move |frame| {
                 router.feed(frame);
             }
+        })
+        // Always-open wake-word monitoring taps a separate callback that forwards
+        // VAD-passed frames to the WakeWordManager's segmenter via a channel. Only
+        // fires while monitoring is active AND no manual recording is in progress
+        // (the recorder gates it), so manual dictation is never disturbed.
+        .with_wake_callback(move |frame| {
+            let _ = wake_tx.send(frame.to_vec());
         });
 
     Ok(recorder)
@@ -185,6 +193,18 @@ pub struct AudioRecordingManager {
     close_generation: Arc<AtomicU64>,
     cancel_generation: Arc<AtomicU64>,
     stream_router: Arc<StreamRouter>,
+
+    // ---- always-open wake-word monitoring (hands-free v2) ----
+    /// Sender handed to the recorder's wake callback (via `create_audio_recorder`).
+    /// Cloned per recorder open so a fresh recorder re-uses the same channel.
+    wake_tx: mpsc::Sender<Vec<f32>>,
+    /// Receiver end of the wake-frame channel. Taken by the WakeWordManager's
+    /// segmenter thread while monitoring, and returned on stop so re-enabling
+    /// hands-free can take it again.
+    wake_rx: Arc<Mutex<Option<mpsc::Receiver<Vec<f32>>>>>,
+    /// Whether always-open monitoring is active. Used to pin the microphone stream
+    /// open (defeating lazy-close) while hands-free is enabled.
+    is_monitoring: Arc<AtomicBool>,
 }
 
 impl AudioRecordingManager {
@@ -201,6 +221,12 @@ impl AudioRecordingManager {
             MicrophoneMode::OnDemand
         };
 
+        // Wake-frame channel: the Sender is cloned into every recorder's wake
+        // callback; the Receiver is taken by the WakeWordManager's segmenter while
+        // monitoring. Created up-front so the recorder (built lazily in
+        // `preload_vad`) can always be wired to it.
+        let (wake_tx, wake_rx) = mpsc::channel::<Vec<f32>>();
+
         let manager = Self {
             state: Arc::new(Mutex::new(RecordingState::Idle)),
             mode: Arc::new(Mutex::new(mode.clone())),
@@ -213,6 +239,9 @@ impl AudioRecordingManager {
             close_generation: Arc::new(AtomicU64::new(0)),
             cancel_generation: Arc::new(AtomicU64::new(0)),
             stream_router,
+            wake_tx,
+            wake_rx: Arc::new(Mutex::new(Some(wake_rx))),
+            is_monitoring: Arc::new(AtomicBool::new(false)),
         };
 
         // Always-on?  Open immediately.
@@ -264,6 +293,9 @@ impl AudioRecordingManager {
             let state = rm.state.lock().unwrap();
             if rm.close_generation.load(Ordering::SeqCst) == gen
                 && matches!(*state, RecordingState::Idle)
+                // Never close the stream out from under active wake-word
+                // monitoring — hands-free pins it open while enabled.
+                && !rm.is_monitoring()
             {
                 // stop_microphone_stream does not acquire the state lock,
                 // so holding it here is safe (no deadlock).
@@ -315,6 +347,7 @@ impl AudioRecordingManager {
                 vad_path.to_str().unwrap(),
                 &self.app_handle,
                 Arc::clone(&self.stream_router),
+                self.wake_tx.clone(),
             )?);
         }
         Ok(())
@@ -456,6 +489,66 @@ impl AudioRecordingManager {
         }
     }
 
+    /* ---------- always-open wake-word monitoring --------------------------- */
+
+    /// Begin always-open wake-word monitoring. Ensures the microphone stream is
+    /// open and pinned (defeating lazy-close), then starts the recorder's monitor
+    /// mode. Monitoring lives OUTSIDE `RecordingState` (state stays `Idle`), so a
+    /// manual dictation always preempts it with zero changes. Returns an error if
+    /// the microphone stream can't be opened (surfaced by the caller as a
+    /// "microphone" hands-free error).
+    pub fn start_monitoring(&self) -> Result<(), anyhow::Error> {
+        // Cancel any pending lazy close and pin the stream open for monitoring.
+        self.close_generation.fetch_add(1, Ordering::SeqCst);
+        self.is_monitoring.store(true, Ordering::SeqCst);
+
+        if let Err(e) = self.start_microphone_stream() {
+            // Couldn't open the mic — unpin and propagate so hands-free surfaces it.
+            self.is_monitoring.store(false, Ordering::SeqCst);
+            return Err(e);
+        }
+
+        if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+            rec.start_monitor(VadPolicy::Offline)
+                .map_err(|e| anyhow::anyhow!("Failed to start monitor: {}", e))?;
+        }
+        info!("Wake-word monitoring started");
+        Ok(())
+    }
+
+    /// Stop always-open wake-word monitoring. Unpins the microphone stream; in
+    /// on-demand mode it is allowed to lazy-close once idle (the lazy close only
+    /// fires from the `Idle` state, so it never interrupts a manual recording).
+    pub fn stop_monitoring(&self) {
+        self.is_monitoring.store(false, Ordering::SeqCst);
+
+        if let Some(rec) = self.recorder.lock().unwrap().as_ref() {
+            let _ = rec.stop_monitor();
+        }
+
+        if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
+            self.schedule_lazy_close();
+        }
+        info!("Wake-word monitoring stopped");
+    }
+
+    /// Whether always-open monitoring is currently active.
+    pub fn is_monitoring(&self) -> bool {
+        self.is_monitoring.load(Ordering::SeqCst)
+    }
+
+    /// Take the wake-frame receiver for the segmenter thread. Returns `None` if it
+    /// has already been taken (e.g. monitoring is already running).
+    pub fn take_wake_receiver(&self) -> Option<mpsc::Receiver<Vec<f32>>> {
+        self.wake_rx.lock().unwrap().take()
+    }
+
+    /// Return the wake-frame receiver when the segmenter thread exits, so a later
+    /// re-enable of hands-free can take it again.
+    pub fn return_wake_receiver(&self, rx: mpsc::Receiver<Vec<f32>>) {
+        *self.wake_rx.lock().unwrap() = Some(rx);
+    }
+
     pub fn update_selected_device(&self) -> Result<(), anyhow::Error> {
         // If currently open, restart the microphone stream to use the new device
         if *self.is_open.lock().unwrap() {
@@ -522,8 +615,13 @@ impl AudioRecordingManager {
                 *self.is_recording.lock().unwrap() = false;
                 *self.state.lock().unwrap() = RecordingState::Idle;
 
-                // In on-demand mode, close the mic (lazily if the setting is enabled)
-                if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
+                // In on-demand mode, close the mic (lazily if the setting is
+                // enabled) — UNLESS wake-word monitoring is active, which pins the
+                // stream open. Monitoring resumes automatically after the manual
+                // session's Cmd::Stop (the recorder keeps its monitor flag set).
+                if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand)
+                    && !self.is_monitoring()
+                {
                     if get_settings(&self.app_handle).lazy_stream_close {
                         self.schedule_lazy_close();
                     } else {
@@ -587,8 +685,13 @@ impl AudioRecordingManager {
 
                 *self.is_recording.lock().unwrap() = false;
 
-                // In on-demand mode, close the mic (lazily if the setting is enabled)
-                if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand) {
+                // In on-demand mode, close the mic (lazily if the setting is
+                // enabled) — UNLESS wake-word monitoring is active, which pins the
+                // stream open. Monitoring resumes automatically after the manual
+                // session's Cmd::Stop (the recorder keeps its monitor flag set).
+                if matches!(*self.mode.lock().unwrap(), MicrophoneMode::OnDemand)
+                    && !self.is_monitoring()
+                {
                     if get_settings(&self.app_handle).lazy_stream_close {
                         self.schedule_lazy_close();
                     } else {

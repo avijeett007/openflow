@@ -42,6 +42,19 @@ async setHandsFreeEnabled(enabled: boolean) : Promise<Result<null, string>> {
 }
 },
 /**
+ * Enable/disable spoken hands-free acknowledgment cues ("Got it" / "Now
+ * typing"). Persists the setting; the running listener reads it per segment, so
+ * no restart is needed.
+ */
+async setHandsFreeVoiceFeedback(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_hands_free_voice_feedback", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Set the wake phrase the listener matches (rejects an empty value).
  */
 async setWakeWord(wakeWord: string) : Promise<Result<null, string>> {
@@ -1207,7 +1220,14 @@ wake_word_listen_seconds?: number;
  * Once the minimum window has elapsed AND the user has spoken, how long
  * (milliseconds) of continuous silence ends the command capture.
  */
-wake_word_silence_timeout_ms?: number }
+wake_word_silence_timeout_ms?: number;
+/**
+ * When true, hands-free plays short spoken acknowledgment cues: "Got it"
+ * after a wake match (before the command mic opens) and "Now typing" just
+ * before the transcribed text is injected. Reuses the audio-feedback volume
+ * and selected output device. Default on.
+ */
+hands_free_voice_feedback?: boolean }
 export type AppUsage = { app: string; dictations: number; words: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
