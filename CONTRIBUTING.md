@@ -20,6 +20,8 @@ only way to keep the project sustainable for me right now.
   I just can't promise a timeline.
 - 🍴 **Want to change something yourself?** OpenFlow is **MIT-licensed** — fork it
   and make it your own. That's encouraged.
+- ✉️ **Anything else?** Email **[hello@openflow.computer](mailto:hello@openflow.computer)**
+  or visit **[openflow.computer](https://openflow.computer)**.
 
 If you open a PR anyway, note that `main` is a **protected branch**: every PR must
 pass CI (`rust-tests` + `code-quality`) and needs an approving review from a

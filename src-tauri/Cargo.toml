@@ -5,6 +5,8 @@ description = "OpenFlow"
 authors = ["cjpais", "OpenFlow"]
 edition = "2021"
 license = "MIT"
+homepage = "https://openflow.computer"
+repository = "https://github.com/avijeett007/openflow"
 default-run = "openflow"
 
 [profile.dev]
