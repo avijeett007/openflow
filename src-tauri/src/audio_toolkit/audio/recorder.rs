@@ -1,7 +1,7 @@
 use std::{
     io::Error,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc, Mutex,
     },
     time::Duration,
@@ -74,6 +74,12 @@ pub struct AudioRecorder {
     vad: Option<VadConfig>,
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
     audio_cb: Option<AudioFrameCallback>,
+    /// Monotonic count of VAD-passed (voiced) samples emitted since this recorder
+    /// was created. It only advances while speech is being captured, so a caller
+    /// polling it can detect end-of-speech in real time (the counter goes flat
+    /// once the speaker stops and the VAD hangover tail drains). Never reset; use
+    /// deltas rather than absolute values.
+    voiced_samples: Arc<AtomicU64>,
 }
 
 impl AudioRecorder {
@@ -85,7 +91,17 @@ impl AudioRecorder {
             vad: None,
             level_cb: None,
             audio_cb: None,
+            voiced_samples: Arc::new(AtomicU64::new(0)),
         })
+    }
+
+    /// Current count of voiced (VAD-passed) samples captured so far. Advances only
+    /// while the speaker is talking; goes flat during silence. Used by the
+    /// hands-free listener to keep the mic open while speech continues and stop
+    /// after a configurable silence gap. Delta-based — the absolute value is not
+    /// meaningful across recordings.
+    pub fn voiced_sample_count(&self) -> u64 {
+        self.voiced_samples.load(Ordering::Relaxed)
     }
 
     /// Attach a single VAD engine, reconfigured per session for the offline vs
@@ -148,6 +164,9 @@ impl AudioRecorder {
         let level_cb = self.level_cb.clone();
         // Move the optional real-time audio frame callback into the worker thread
         let audio_cb = self.audio_cb.clone();
+        // Share the voiced-sample counter with the consumer thread so callers can
+        // poll live end-of-speech state.
+        let voiced_samples = self.voiced_samples.clone();
 
         let worker = std::thread::spawn(move || {
             let stop_flag = Arc::new(AtomicBool::new(false));
@@ -232,6 +251,7 @@ impl AudioRecorder {
                         level_cb,
                         audio_cb,
                         stop_flag,
+                        voiced_samples,
                     );
                     drop(stream);
                 }
@@ -473,6 +493,7 @@ fn run_consumer(
     level_cb: Option<Arc<dyn Fn(Vec<f32>) + Send + Sync + 'static>>,
     audio_cb: Option<AudioFrameCallback>,
     stop_flag: Arc<AtomicBool>,
+    voiced_samples: Arc<AtomicU64>,
 ) {
     let mut frame_resampler = FrameResampler::new(
         in_sample_rate as usize,
@@ -512,6 +533,7 @@ fn run_consumer(
         vad: &Option<VadConfig>,
         audio_cb: &Option<AudioFrameCallback>,
         out_buf: &mut Vec<f32>,
+        voiced_samples: &Arc<AtomicU64>,
     ) {
         if !recording {
             return;
@@ -519,6 +541,11 @@ fn run_consumer(
 
         let mut emit = |buf: &[f32]| {
             out_buf.extend_from_slice(buf);
+            // Advance the live voiced-sample counter so hands-free capture can
+            // detect that speech is (still) arriving. Only VAD-passed frames reach
+            // here under the Offline/Streaming policies, so the counter goes flat
+            // during real silence.
+            voiced_samples.fetch_add(buf.len() as u64, Ordering::Relaxed);
             if let Some(cb) = audio_cb {
                 cb(buf);
             }
@@ -563,6 +590,7 @@ fn run_consumer(
                 &vad,
                 &audio_cb,
                 &mut processed_samples,
+                &voiced_samples,
             )
         });
 
@@ -605,6 +633,7 @@ fn run_consumer(
                                         &vad,
                                         &audio_cb,
                                         &mut processed_samples,
+                                        &voiced_samples,
                                     )
                                 });
                             }
@@ -624,6 +653,7 @@ fn run_consumer(
                             &vad,
                             &audio_cb,
                             &mut processed_samples,
+                            &voiced_samples,
                         )
                     });
 

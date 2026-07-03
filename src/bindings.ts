@@ -63,6 +63,27 @@ async setWakeWordSensitivity(value: number) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * How long (seconds) to keep the mic open for the command after the wake word.
+ * Clamped to 3..=120. VAD trims trailing silence, so a longer value just avoids
+ * cutting the user off mid-thought.
+ */
+async setWakeWordListenSeconds(seconds: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_wake_word_listen_seconds", { seconds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setWakeWordSilenceTimeoutSeconds(seconds: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_wake_word_silence_timeout_seconds", { seconds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async changeAudioFeedbackSetting(enabled: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("change_audio_feedback_setting", { enabled }) };
@@ -1167,7 +1188,18 @@ wake_word?: string;
  * Similarity threshold (0.0..=1.0) for the fuzzy wake-word match. Higher is
  * stricter; the default is a good balance for the "hey flow" default phrase.
  */
-wake_word_sensitivity?: number }
+wake_word_sensitivity?: number; 
+/**
+ * After the wake word is heard, how long (seconds) to keep the mic open for
+ * the command. VAD trims trailing silence, so this is the MAX listen window
+ * before the command is transcribed — set it long enough for a full thought.
+ */
+wake_word_listen_seconds?: number;
+/**
+ * Once the minimum window has elapsed AND the user has spoken, how long
+ * (milliseconds) of continuous silence ends the command capture.
+ */
+wake_word_silence_timeout_ms?: number }
 export type AppUsage = { app: string; dictations: number; words: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"

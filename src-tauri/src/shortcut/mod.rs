@@ -519,14 +519,28 @@ pub fn set_wake_word_sensitivity(app: AppHandle, value: f32) -> Result<(), Strin
     Ok(())
 }
 
-/// How long (seconds) to keep the mic open for the command after the wake word.
-/// Clamped to 3..=120. VAD trims trailing silence, so a longer value just avoids
-/// cutting the user off mid-thought.
+/// Minimum time (seconds) to keep the mic open after the wake word before
+/// silence-detection may end the command. Clamped to 3..=120. Smart VAD extends
+/// this while the user keeps speaking, so it's a floor, not a hard cutoff.
 #[tauri::command]
 #[specta::specta]
 pub fn set_wake_word_listen_seconds(app: AppHandle, seconds: u64) -> Result<(), String> {
     let mut settings = get_settings(&app);
     settings.wake_word_listen_seconds = seconds.clamp(3, 120);
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+/// How long (seconds) of continuous silence ends the command capture once the
+/// minimum window has passed and the user has spoken. Clamped to 1..=15s. This is
+/// the "smart" part: the mic stays open as long as speech keeps arriving and
+/// stops shortly after the user finishes.
+#[tauri::command]
+#[specta::specta]
+pub fn set_wake_word_silence_timeout_seconds(app: AppHandle, seconds: f32) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    let clamped = seconds.clamp(1.0, 15.0);
+    settings.wake_word_silence_timeout_ms = (clamped * 1000.0).round() as u64;
     settings::write_settings(&app, settings);
     Ok(())
 }

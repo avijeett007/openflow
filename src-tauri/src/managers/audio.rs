@@ -557,6 +557,20 @@ impl AudioRecordingManager {
         )
     }
 
+    /// Live count of voiced (VAD-passed) samples captured so far. Advances only
+    /// while the speaker is talking and goes flat during silence, so the
+    /// hands-free listener can keep the mic open while speech continues and stop
+    /// once the speaker has been quiet for a configured gap. Delta-based; the
+    /// absolute value carries no meaning across recordings.
+    pub fn voiced_sample_count(&self) -> u64 {
+        self.recorder
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|rec| rec.voiced_sample_count())
+            .unwrap_or(0)
+    }
+
     /// Cancel any ongoing recording without returning audio samples
     pub fn cancel_recording(&self) {
         self.cancel_generation.fetch_add(1, Ordering::AcqRel);

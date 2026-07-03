@@ -15,6 +15,15 @@
 //! lightweight wake-word model (openWakeWord / Porcupine) would be far cheaper
 //! and is the obvious future optimization — left out here to avoid adding a new
 //! ML model/dependency.
+//!
+//! Once the wake phrase is matched, the command that follows is captured with
+//! *smart, VAD-driven* timing ([`capture_until_silence`]): the mic stays open for
+//! a user-configurable minimum (`wake_word_listen_seconds`) and then keeps
+//! extending for as long as the user keeps speaking, stopping only after a
+//! configurable silence gap (`wake_word_silence_timeout_ms`). This replaces the
+//! old fixed-window capture that could cut the user off mid-thought. Note the
+//! *detection* windows are still fixed short cycles — a single always-open rolling
+//! stream for detection is the next refinement.
 
 use crate::actions::finish_dictation;
 use crate::audio_toolkit::VadPolicy;
@@ -36,9 +45,13 @@ const WAKE_BINDING_ID: &str = "__wake_word__";
 /// command; VAD Offline trims surrounding silence.
 const LISTEN_WINDOW_MS: u64 = 4000;
 
-/// How long the follow-up command window records when the wake phrase arrives
-/// with no substantive text after it.
-const _COMMAND_WINDOW_MS: u64 = 6000; // retained for reference; window is now configurable
+/// How often the smart command capture polls the live voiced-sample counter to
+/// decide whether the user is still speaking.
+const POLL_MS: u64 = 100;
+
+/// Absolute safety cap added on top of the user's minimum window, so a noisy room
+/// (VAD seeing "speech" indefinitely) can never hold the mic open forever.
+const HARD_MAX_EXTRA_SECS: u64 = 180;
 
 /// Inter-cycle sleep to avoid busy-spin and give the CPU a break between windows.
 const IDLE_SLEEP: Duration = Duration::from_millis(400);
@@ -191,6 +204,82 @@ fn capture_window(
     rm.stop_recording(WAKE_BINDING_ID, cancel_generation)
 }
 
+/// Smart command capture: drive the shared recorder with VAD Offline and keep it
+/// open based on live speech activity rather than a fixed window.
+///
+/// Rules:
+/// 1. The mic stays open for **at least** `min_open_ms` (the user's configured
+///    floor), so a pause before the user starts talking never cuts them off.
+/// 2. Once that floor has passed and the user has actually spoken, capture ends
+///    after `silence_timeout_ms` of continuous silence — so short commands finish
+///    quickly and long ones keep the mic open for as long as speech continues.
+/// 3. If the floor passes and the user never spoke, capture ends immediately
+///    (nothing to transcribe).
+/// 4. An absolute cap (`min_open_ms` + [`HARD_MAX_EXTRA_SECS`]) guards against a
+///    noisy room holding the mic open forever.
+///
+/// End-of-speech is detected by polling [`AudioRecordingManager::voiced_sample_count`],
+/// which advances only while VAD-passed (voiced) audio is arriving.
+fn capture_until_silence(
+    rm: &Arc<AudioRecordingManager>,
+    running: &Arc<AtomicBool>,
+    min_open_ms: u64,
+    silence_timeout_ms: u64,
+) -> Option<Vec<f32>> {
+    let cancel_generation = rm.cancel_generation();
+    if let Err(e) = rm.try_start_recording(WAKE_BINDING_ID, VadPolicy::Offline) {
+        debug!("Wake-word could not start command window: {}", e);
+        return None;
+    }
+
+    let start = Instant::now();
+    let min_open = Duration::from_millis(min_open_ms);
+    let silence_timeout = Duration::from_millis(silence_timeout_ms);
+    let hard_max = min_open + Duration::from_secs(HARD_MAX_EXTRA_SECS);
+
+    let mut last_voiced_count = rm.voiced_sample_count();
+    let mut last_voiced_at = Instant::now();
+    let mut saw_speech = false;
+
+    loop {
+        std::thread::sleep(Duration::from_millis(POLL_MS));
+        if !running.load(Ordering::SeqCst) {
+            break;
+        }
+
+        // Speech is arriving whenever the voiced-sample counter advances.
+        let count = rm.voiced_sample_count();
+        if count > last_voiced_count {
+            last_voiced_count = count;
+            last_voiced_at = Instant::now();
+            saw_speech = true;
+        }
+
+        let elapsed = start.elapsed();
+        if elapsed >= hard_max {
+            debug!("Wake-word command hit hard-max window ({:?})", hard_max);
+            break;
+        }
+        // Always honor the user's minimum-open floor.
+        if elapsed < min_open {
+            continue;
+        }
+        // Past the floor: nothing said → stop; otherwise stop on a silence gap.
+        if !saw_speech {
+            break;
+        }
+        if last_voiced_at.elapsed() >= silence_timeout {
+            debug!(
+                "Wake-word command ended after {:?} of silence",
+                silence_timeout
+            );
+            break;
+        }
+    }
+
+    rm.stop_recording(WAKE_BINDING_ID, cancel_generation)
+}
+
 /// On a wake-word hit, either dictate the text that already followed the phrase in
 /// the same utterance, or capture the NEXT utterance and dictate that. Runs the
 /// shared finish tail so cleanup/injection/analytics match the hotkey path.
@@ -224,15 +313,19 @@ fn handle_wake(
         return;
     }
 
-    // Nothing meaningful after the wake word: keep the mic open for the command.
-    // Use the user-configured max window (VAD Offline trims trailing silence, so
-    // a short command still transcribes clean; a long window just means we won't
-    // cut them off mid-thought). Clamped to a sane range.
-    let listen_ms = get_settings(app)
+    // Nothing meaningful after the wake word: keep the mic open for the command
+    // using smart, VAD-driven capture. The mic stays open at least
+    // `wake_word_listen_seconds` (so a thinking pause never cuts the user off),
+    // then keeps extending for as long as speech keeps arriving, and stops once
+    // the user has been silent for `wake_word_silence_timeout_ms`. This fixes the
+    // old "cut off after a few seconds" / fixed-window feel.
+    let settings = get_settings(app);
+    let min_open_ms = settings
         .wake_word_listen_seconds
         .clamp(3, 120)
         .saturating_mul(1000);
-    let samples = match capture_window(rm, running, listen_ms) {
+    let silence_ms = settings.wake_word_silence_timeout_ms.clamp(1000, 15000);
+    let samples = match capture_until_silence(rm, running, min_open_ms, silence_ms) {
         Some(s) if !s.is_empty() => s,
         _ => return,
     };

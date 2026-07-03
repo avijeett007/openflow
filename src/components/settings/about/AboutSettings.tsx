@@ -30,7 +30,7 @@ export const AboutSettings: React.FC = () => {
 
   const handleDonateClick = async () => {
     try {
-      await openUrl("https://handy.computer/donate");
+      await openUrl("https://buymeacoffee.com/kno2gether");
     } catch (error) {
       console.error("Failed to open donate link:", error);
     }

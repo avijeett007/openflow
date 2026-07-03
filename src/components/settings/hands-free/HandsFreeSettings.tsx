@@ -24,6 +24,8 @@ export const HandsFreeSettings: React.FC = () => {
   const [wakeWordError, setWakeWordError] = useState<string | null>(null);
 
   const [sensitivity, setSensitivity] = useState(0.8);
+  const [listenSeconds, setListenSeconds] = useState(10);
+  const [silenceSeconds, setSilenceSeconds] = useState(2.5);
 
   // Keep local editable state in sync with the persisted settings whenever
   // they change (initial load, or an update from elsewhere).
@@ -31,8 +33,15 @@ export const HandsFreeSettings: React.FC = () => {
     if (settings) {
       setWakeWordInput(settings.wake_word ?? "");
       setSensitivity(settings.wake_word_sensitivity ?? 0.8);
+      setListenSeconds(settings.wake_word_listen_seconds ?? 10);
+      setSilenceSeconds((settings.wake_word_silence_timeout_ms ?? 2500) / 1000);
     }
-  }, [settings?.wake_word, settings?.wake_word_sensitivity]);
+  }, [
+    settings?.wake_word,
+    settings?.wake_word_sensitivity,
+    settings?.wake_word_listen_seconds,
+    settings?.wake_word_silence_timeout_ms,
+  ]);
 
   const handleToggleEnabled = async (enabled: boolean) => {
     setIsTogglingEnabled(true);
@@ -74,6 +83,26 @@ export const HandsFreeSettings: React.FC = () => {
     } catch {
       // Keep the optimistic local value; the slider will re-sync once
       // settings are refreshed elsewhere.
+    }
+  };
+
+  const handleListenSecondsChange = async (value: number) => {
+    setListenSeconds(value);
+    try {
+      await commands.setWakeWordListenSeconds(value);
+      await refreshSettings();
+    } catch {
+      // Keep the optimistic value; re-syncs on the next settings refresh.
+    }
+  };
+
+  const handleSilenceSecondsChange = async (value: number) => {
+    setSilenceSeconds(value);
+    try {
+      await commands.setWakeWordSilenceTimeoutSeconds(value);
+      await refreshSettings();
+    } catch {
+      // Keep the optimistic value; re-syncs on the next settings refresh.
     }
   };
 
@@ -157,6 +186,38 @@ export const HandsFreeSettings: React.FC = () => {
           grouped
           disabled={!handsFreeEnabled}
           formatValue={(v) => v.toFixed(2)}
+        />
+
+        <Slider
+          value={listenSeconds}
+          onChange={handleListenSecondsChange}
+          min={3}
+          max={60}
+          step={1}
+          label={t("settings.handsFree.listenWindow.label")}
+          description={t("settings.handsFree.listenWindow.description")}
+          descriptionMode="inline"
+          grouped
+          disabled={!handsFreeEnabled}
+          formatValue={(v) =>
+            t("settings.handsFree.listenWindow.unit", { count: v })
+          }
+        />
+
+        <Slider
+          value={silenceSeconds}
+          onChange={handleSilenceSecondsChange}
+          min={1}
+          max={10}
+          step={0.5}
+          label={t("settings.handsFree.silenceTimeout.label")}
+          description={t("settings.handsFree.silenceTimeout.description")}
+          descriptionMode="inline"
+          grouped
+          disabled={!handsFreeEnabled}
+          formatValue={(v) =>
+            t("settings.handsFree.silenceTimeout.unit", { count: v })
+          }
         />
       </SettingsGroup>
 

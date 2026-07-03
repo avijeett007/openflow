@@ -1,16 +1,26 @@
 name: "Build"
 
-# OpenFlow release/build pipeline (milestone M5).
+# OpenFlow release/build pipeline.
 #
-# Builds UNSIGNED / ad-hoc installers for macOS (arm64 + x64) and Windows.
-# No Apple Developer cert, no notarization, no Windows Authenticode — the
-# pipeline runs with zero signing credentials. Signing / notarization is
-# deferred to a future public-distribution phase (see README).
+# Flow:  test  ->  build (macOS arm64 + macOS x64 + Windows)  ->  publish
+#
+#   1. test    Runs the Rust test suite and a frontend typecheck/build as a gate.
+#              Nothing builds or ships unless this passes.
+#   2. build   Builds UNSIGNED / ad-hoc installers for all three targets. On a
+#              `v*` tag it uploads them to a *draft* GitHub Release; on manual
+#              dispatch it only uploads run artifacts.
+#   3. publish On a `v*` tag, once every platform has built successfully, flips
+#              the draft Release to PUBLISHED so the download links go live. If
+#              any build fails the release stays a draft (nothing half-shipped).
+#
+# No Apple Developer cert, notarization, or Windows Authenticode is used — the
+# pipeline runs with zero signing credentials. See SIGNING.md (kept in the parent
+# project root, not in the repo) for the step-by-step process to sign locally
+# once Apple/Windows certificates are available.
 #
 # Triggers:
-#   - workflow_dispatch : manual build, uploads installers as run artifacts.
-#   - push tag v*       : builds and attaches installers to a GitHub Release
-#                         (created as a draft) in addition to run artifacts.
+#   - workflow_dispatch : manual test + build, uploads installers as run artifacts.
+#   - push tag v*       : test + build + PUBLISH a GitHub Release with installers.
 
 on:
   workflow_dispatch:
@@ -23,7 +33,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Test gate — must pass before anything is built or shipped.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          # libvulkan-dev + glslc + spirv-headers let transcribe-cpp-sys build
+          # ggml's Vulkan backend (the Linux `vulkan` feature).
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            libasound2-dev libssl-dev libgtk-layer-shell-dev \
+            libvulkan-dev glslc spirv-headers
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          key: test-ubuntu
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      # Typecheck + build the frontend so a broken UI fails the pipeline early
+      # (cheap, runs in seconds).
+      - name: Frontend typecheck & build
+        run: bun run build
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
+  # ---------------------------------------------------------------------------
+  # 2. Build — one job per target. Gated on `test`.
+  # ---------------------------------------------------------------------------
   build:
+    name: Build (${{ matrix.target }})
+    needs: test
     permissions:
       # Needed for tauri-action to create/upload the GitHub Release on tags.
       contents: write
@@ -87,8 +147,7 @@ jobs:
       # The `ort` crate has no prebuilt binary for x86_64-apple-darwin. Install
       # ONNX Runtime via Homebrew and link it dynamically. These env vars MUST be
       # exported BEFORE the "Build with Tauri" step so the Rust build (`ort`
-      # build script) picks them up. Writing to $GITHUB_ENV makes them available
-      # to all subsequent steps in this job.
+      # build script) picks them up.
       - name: Install ONNX Runtime (Intel macOS)
         if: matrix.target == 'x86_64-apple-darwin'
         shell: bash
@@ -100,10 +159,10 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
-      # tauri-action runs `bun run tauri build` (via the configured
-      # beforeBuildCommand) and bundles the app. When `tagName` is set (tag
-      # builds) it also creates a draft GitHub Release and uploads the bundles to
-      # it. No signing secrets are provided — builds are unsigned/ad-hoc.
+      # tauri-action runs `bun run tauri build` and bundles the app. On tag builds
+      # it creates/uploads to a DRAFT GitHub Release (published later by the
+      # `publish` job once all platforms succeed). No signing secrets are provided
+      # — builds are unsigned/ad-hoc.
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
@@ -139,3 +198,33 @@ jobs:
             ${{ env.CARGO_TARGET_DIR }}/${{ matrix.target }}/release/bundle/msi/*.msi
           if-no-files-found: warn
           retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # 3. Publish — flip the draft Release to published, only after ALL platforms
+  #    built successfully and only on a `v*` tag. Keeps a failed matrix from
+  #    shipping a half-populated release.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # tauri-action created the release as a draft (coalesced onto the same tag).
+      # Publish it now that every installer is attached.
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Publishing release ${GITHUB_REF_NAME}"
+          gh release edit "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --draft=false \
+            --latest
+          echo "Release ${GITHUB_REF_NAME} is now public:"
+          gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json url --jq .url

@@ -100,6 +100,86 @@ bun run tauri build
 
 This compiles a release binary and generates platform-specific bundles (deb, rpm, AppImage on Linux; dmg on macOS; msi on Windows).
 
+## Building & releasing from your own Macs (Intel vs Apple Silicon)
+
+Short answer: **yes, each machine produces a `.dmg`** — but an Intel Mac and an
+Apple-Silicon (M-series) Mac produce **different, architecture-specific** DMGs,
+and you should name them so they can't be confused.
+
+### Why there are two DMGs
+
+A `.dmg` built on a machine contains a **native binary for that machine's CPU
+architecture** unless you cross-compile:
+
+- An **Intel** Mac (x86_64) builds an **`x86_64`** app.
+- An **M-series** Mac (M1/M2/M3/M4 = arm64) builds an **`aarch64`** app.
+
+An arm64 DMG will **not** run natively on an Intel Mac, and vice versa (Intel apps
+run on Apple Silicon only via Rosetta 2, and this app's local ONNX/Metal paths are
+best native). So you ship **both** and let users pick — exactly what the download
+page/README does.
+
+> OpenFlow does **not** ship a "Universal" (fat) binary. It could
+> (`--target universal-apple-darwin`), but the Intel half needs the Homebrew
+> onnxruntime dylib bundled, which complicates a fat build — so we keep two
+> clean per-arch DMGs instead.
+
+### Which machine builds which
+
+| Your machine | Native target | Command |
+|---|---|---|
+| **M4 / any M-series** | `aarch64-apple-darwin` | `bun run tauri build --target aarch64-apple-darwin` |
+| **Intel** | `x86_64-apple-darwin` | `ORT_LIB_LOCATION=$(brew --prefix onnxruntime)/lib ORT_PREFER_DYNAMIC_LINK=1 bun run tauri build --target x86_64-apple-darwin` |
+
+The Intel build needs Homebrew's ONNX Runtime (`brew install onnxruntime`) and the
+two `ORT_*` env vars — the Apple-Silicon build does **not** (it uses a prebuilt
+`ort` binary). See the Intel Mac section above.
+
+Output lands at:
+
+```
+src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/OpenFlow_<ver>_aarch64.dmg   # M-series
+src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/OpenFlow_<ver>_x64.dmg        # Intel
+```
+
+### How to differentiate them (naming — do this before uploading)
+
+Tauri names both DMGs after the version, so **rename by architecture** before
+attaching them to a release so nobody downloads the wrong one:
+
+```bash
+# On the M-series Mac
+mv OpenFlow_0.9.0_aarch64.dmg  OpenFlow_0.9.0_macos_aarch64.dmg      # "Apple Silicon"
+
+# On the Intel Mac
+mv OpenFlow_0.9.0_x64.dmg      OpenFlow_0.9.0_macos_x64_intel.dmg    # "Intel"
+```
+
+Verify what a DMG/app actually contains before shipping:
+
+```bash
+# Mount the DMG, then check the app binary's architecture:
+lipo -archs "/Volumes/OpenFlow/OpenFlow.app/Contents/MacOS/openflow"
+# -> "arm64"  (M-series)   or   "x86_64"  (Intel)
+```
+
+Tip for users who aren't sure which Mac they have: **Apple menu → About This Mac**.
+"Apple M1/M2/M3/M4" → the Apple-Silicon DMG; "Intel Core…" → the Intel DMG.
+
+### Releasing them
+
+- **Preferred:** just push a `v*` tag and let CI (`.github/workflows/build.yml`)
+  build **both** macOS DMGs + Windows installers and publish the release — no
+  manual per-machine building needed.
+- **Manual (from your own Macs):** build on each machine, rename by arch as above,
+  then attach to the release:
+  ```bash
+  gh release upload v0.9.0 OpenFlow_0.9.0_macos_aarch64.dmg OpenFlow_0.9.0_macos_x64_intel.dmg
+  ```
+
+Both DMGs are **unsigned** unless you follow `SIGNING.md`; users unblock with
+`xattr -dr com.apple.quarantine /Applications/OpenFlow.app` on first launch.
+
 ## Linux Install (from source)
 
 The raw binary (`src-tauri/target/release/handy`) cannot run standalone — it needs Tauri resource files (tray icons, sounds, VAD model) to be co-located at the expected path.

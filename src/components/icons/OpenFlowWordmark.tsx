@@ -11,7 +11,9 @@ const OpenFlowWordmark: React.FC<{ width?: number; className?: string }> = ({
     style={{ fontSize: Math.round(width / 4.2) }}
     aria-label="OpenFlow"
   >
+    {/* eslint-disable-next-line i18next/no-literal-string -- brand wordmark, never translated */}
     <span className="text-logo-primary">Open</span>
+    {/* eslint-disable-next-line i18next/no-literal-string -- brand wordmark, never translated */}
     <span className="text-text">Flow</span>
   </div>
 );

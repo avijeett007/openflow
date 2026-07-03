@@ -538,11 +538,20 @@ pub struct AppSettings {
     /// stricter; the default is a good balance for the "hey flow" default phrase.
     #[serde(default = "default_wake_word_sensitivity")]
     pub wake_word_sensitivity: f32,
-    /// After the wake word is heard, how long (seconds) to keep the mic open for
-    /// the command. VAD trims trailing silence, so this is the MAX listen window
-    /// before the command is transcribed — set it long enough for a full thought.
+    /// After the wake word is heard, the MINIMUM time (seconds) to keep the mic
+    /// open for the command before silence-detection is allowed to end it. The mic
+    /// is guaranteed to stay open at least this long — smart VAD then keeps
+    /// extending it for as long as the user keeps speaking (see
+    /// `wake_word_silence_timeout_ms`). Set it long enough to cover a thinking
+    /// pause before you start the command.
     #[serde(default = "default_wake_word_listen_seconds")]
     pub wake_word_listen_seconds: u64,
+    /// Once the minimum window has elapsed AND the user has spoken, how long
+    /// (milliseconds) of continuous silence ends the command capture. This is what
+    /// makes hands-free "smart": short commands finish quickly, long ones keep the
+    /// mic open as long as speech continues. Clamped to a sane range at the command.
+    #[serde(default = "default_wake_word_silence_timeout_ms")]
+    pub wake_word_silence_timeout_ms: u64,
 }
 
 fn default_model() -> String {
@@ -847,7 +856,16 @@ fn default_wake_word() -> String {
 }
 
 fn default_wake_word_listen_seconds() -> u64 {
-    20
+    // Minimum guaranteed listen window after the wake word. Short enough that a
+    // quick command doesn't feel laggy, long enough to survive a brief pause
+    // before the user starts talking; smart VAD extends it while speech continues.
+    10
+}
+
+fn default_wake_word_silence_timeout_ms() -> u64 {
+    // End the command after ~2.5s of silence once the user has spoken. Comfortably
+    // longer than the VAD hangover tail so natural mid-sentence pauses don't cut off.
+    2500
 }
 
 fn default_wake_word_sensitivity() -> f32 {
@@ -1033,6 +1051,7 @@ pub fn get_default_settings() -> AppSettings {
         wake_word: default_wake_word(),
         wake_word_sensitivity: default_wake_word_sensitivity(),
         wake_word_listen_seconds: default_wake_word_listen_seconds(),
+        wake_word_silence_timeout_ms: default_wake_word_silence_timeout_ms(),
     }
 }
 

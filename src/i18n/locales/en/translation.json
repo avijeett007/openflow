@@ -356,6 +356,16 @@
         "label": "Sensitivity",
         "description": "Lower = fewer false triggers. Higher = easier to trigger."
       },
+      "listenWindow": {
+        "label": "Keep mic open at least",
+        "description": "Minimum time to keep listening after the wake word before silence can end it. Smart VAD keeps extending this while you keep talking, so you're never cut off mid-thought.",
+        "unit": "{{count}}s"
+      },
+      "silenceTimeout": {
+        "label": "Stop after silence",
+        "description": "Once you've started speaking, end the command this long after you go quiet. Lower feels snappier; higher tolerates longer pauses.",
+        "unit": "{{count}}s"
+      },
       "tapToToggleHint": "Tip: even without hands-free, tapping the hotkey once (with Push-To-Talk off) starts listening hands-free until you tap it again — no holding required."
     },
     "sound": {
