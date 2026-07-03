@@ -1,4 +1,5 @@
-github: cjpais
-custom: ["https://handy.computer/donate", "https://www.paypal.me/cjpais"]
-buy_me_a_coffee: cjpais
-ko_fi: cjpais
+# OpenFlow funding. The repo "Sponsor" button reads this file (not your GitHub
+# Sponsors settings), so it must list OpenFlow's own links — not the upstream
+# Handy author's. avijeett007 has no GitHub Sponsors listing, so no `github:`
+# entry (it would render a broken link); add one here if that changes.
+buy_me_a_coffee: kno2gether
