@@ -162,7 +162,9 @@ pub async fn transcribe_with(
         SttApiStyle::OpenaiCompatible => {
             openai_transcribe(base, model, api_key, wav, language, &words).await?
         }
-        SttApiStyle::Deepgram => deepgram_transcribe(base, model, api_key, wav, &words).await?,
+        SttApiStyle::Deepgram => {
+            deepgram_transcribe(base, model, api_key, wav, &words, dictionary).await?
+        }
     };
 
     let backend = if provider.id == "selfhosted" {
@@ -298,12 +300,36 @@ pub(crate) fn deepgram_biasing_style(model: &str) -> DeepgramBiasingStyle {
     }
 }
 
+/// Words considered for Deepgram `keyterm` biasing: canonical `word`s *plus*
+/// their `sounds_like` aliases. Unlike the cleanup-prompt vocabulary block (see
+/// `actions::dictionary_vocabulary_block`) or the legacy `keywords`/OpenAI
+/// `prompt` paths, `keyterm` biases the ASR's own acoustic matching rather than
+/// asking a downstream text model to prefer a spelling — so surfacing the
+/// misheard/alternate forms here increases the odds Deepgram actually emits
+/// something close to one of them, which the alias-exact/fuzzy correction pass
+/// can then resolve to the canonical spelling. Blank words/aliases are dropped.
+fn deepgram_keyterm_words(dictionary: &[DictionaryEntry]) -> Vec<String> {
+    let mut out = Vec::new();
+    for entry in dictionary {
+        if !entry.word.trim().is_empty() {
+            out.push(entry.word.clone());
+        }
+        for alias in &entry.sounds_like {
+            if !alias.trim().is_empty() {
+                out.push(alias.clone());
+            }
+        }
+    }
+    out
+}
+
 async fn deepgram_transcribe(
     base: &str,
     model: &str,
     api_key: &str,
     wav: Vec<u8>,
     dictionary_words: &[&str],
+    dictionary: &[DictionaryEntry],
 ) -> Result<(String, bool), String> {
     if api_key.is_empty() {
         return Err("Deepgram requires an API key".to_string());
@@ -323,11 +349,16 @@ async fn deepgram_transcribe(
     let mut prompted = false;
     match deepgram_biasing_style(model) {
         DeepgramBiasingStyle::Keyterm => {
-            let pairs: Vec<(&str, &str)> = dictionary_words
+            // keyterm-only: canonical words AND sounds_like aliases (see
+            // `deepgram_keyterm_words`). Legacy `keywords` below stays
+            // canonical-words-only, matching the OpenAI-compatible `prompt`.
+            let keyterm_words = deepgram_keyterm_words(dictionary);
+            let pairs: Vec<(&str, &str)> = keyterm_words
                 .iter()
+                .map(|w| w.as_str())
                 .filter(|w| !w.trim().is_empty())
                 .take(DEEPGRAM_KEYTERM_MAX_COUNT)
-                .map(|w| ("keyterm", *w))
+                .map(|w| ("keyterm", w))
                 .collect();
             if !pairs.is_empty() {
                 prompted = true;
@@ -458,6 +489,42 @@ mod tests {
             deepgram_biasing_style("Nova-3-Medical"),
             DeepgramBiasingStyle::Keyterm
         );
+    }
+
+    fn dict_entry(word: &str, sounds_like: &[&str]) -> DictionaryEntry {
+        DictionaryEntry {
+            word: word.to_string(),
+            sounds_like: sounds_like.iter().map(|s| s.to_string()).collect(),
+            replace_exact: false,
+            case_sensitive: false,
+        }
+    }
+
+    #[test]
+    fn deepgram_keyterm_words_includes_canonical_and_aliases() {
+        // Keyterm-only: unlike the cleanup vocabulary block, sounds_like
+        // aliases are wanted here since keyterm biases the ASR's acoustic
+        // matching rather than a text model's word choice.
+        let dict = vec![
+            dict_entry("ChargeBee", &["charge bee", "charge b"]),
+            dict_entry("Kubernetes", &[]),
+        ];
+        let words = deepgram_keyterm_words(&dict);
+        assert_eq!(
+            words,
+            vec!["ChargeBee", "charge bee", "charge b", "Kubernetes"]
+        );
+    }
+
+    #[test]
+    fn deepgram_keyterm_words_drops_blank_entries() {
+        let dict = vec![dict_entry("", &["", "  "]), dict_entry("OK", &[""])];
+        assert_eq!(deepgram_keyterm_words(&dict), vec!["OK".to_string()]);
+    }
+
+    #[test]
+    fn deepgram_keyterm_words_empty_for_empty_dictionary() {
+        assert!(deepgram_keyterm_words(&[]).is_empty());
     }
 
     #[test]

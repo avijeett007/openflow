@@ -142,7 +142,11 @@ fn find_best_fuzzy<'a>(
     targets: &'a [FuzzyTarget],
     threshold: f64,
 ) -> Option<&'a FuzzyTarget> {
-    if candidate.is_empty() || candidate.len() > 50 {
+    // Char counts, not byte lengths — a non-ASCII word (e.g. "café", "kübernetes")
+    // has fewer chars than bytes, so gating on `.len()` would mis-judge its size
+    // and either wrongly reject it outright or apply the wrong length-diff budget.
+    let candidate_len = candidate.chars().count();
+    if candidate.is_empty() || candidate_len > 50 {
         return None;
     }
 
@@ -151,11 +155,12 @@ fn find_best_fuzzy<'a>(
 
     for target in targets {
         let compare = &target.compare;
+        let compare_len = compare.chars().count();
         // Skip if lengths are too different (optimization + prevents over-matching)
         // Use percentage-based check: max 25% length difference (prevents n-grams from
         // matching significantly shorter targets, e.g., "openaigpt" vs "openai")
-        let len_diff = (candidate.len() as i32 - compare.len() as i32).abs() as f64;
-        let max_len = candidate.len().max(compare.len()) as f64;
+        let len_diff = (candidate_len as i32 - compare_len as i32).abs() as f64;
+        let max_len = candidate_len.max(compare_len) as f64;
         let max_allowed_diff = (max_len * 0.25).max(2.0); // At least 2 chars difference allowed
         if len_diff > max_allowed_diff {
             continue;
@@ -367,23 +372,37 @@ fn preserve_case_pattern(original: &str, replacement: &str) -> String {
     }
 }
 
-/// Extracts punctuation prefix and suffix from a word
+/// Extracts punctuation prefix and suffix from a word.
+///
+/// `prefix_end`/`suffix_start` must be BYTE offsets, not char counts — the word
+/// can contain multi-byte punctuation (¿ ¡ « » 。 、 「 」 …), and slicing a
+/// `&str` at a char count that doesn't fall on a char boundary panics. Byte
+/// offsets are derived directly from `char_indices()` so every slice below
+/// lands on a boundary.
 fn extract_punctuation(word: &str) -> (&str, &str) {
-    let prefix_end = word.chars().take_while(|c| !c.is_alphanumeric()).count();
-    let suffix_start = word
-        .char_indices()
-        .rev()
-        .take_while(|(_, c)| !c.is_alphanumeric())
-        .count();
+    let mut prefix_end = 0;
+    for (byte_idx, c) in word.char_indices() {
+        if c.is_alphanumeric() {
+            break;
+        }
+        prefix_end = byte_idx + c.len_utf8();
+    }
+
+    let mut suffix_start = word.len();
+    for (byte_idx, c) in word.char_indices().rev() {
+        if c.is_alphanumeric() {
+            break;
+        }
+        suffix_start = byte_idx;
+    }
 
     let prefix = if prefix_end > 0 {
         &word[..prefix_end]
     } else {
         ""
     };
-
-    let suffix = if suffix_start > 0 {
-        &word[word.len() - suffix_start..]
+    let suffix = if suffix_start < word.len() {
+        &word[suffix_start..]
     } else {
         ""
     };
@@ -876,5 +895,41 @@ mod tests {
     fn test_dictionary_empty_entries_noop() {
         let result = apply_dictionary("hello world", &[], 0.5);
         assert_eq!(result, "hello world");
+    }
+
+    // ---- Unicode-safe extract_punctuation (multi-byte punctuation must not panic) ----
+
+    #[test]
+    fn test_extract_punctuation_multibyte_prefix_does_not_panic() {
+        // "¿" is 2 bytes but 1 char — a char-count byte slice would land
+        // mid-codepoint and panic.
+        assert_eq!(extract_punctuation("¿hola"), ("¿", ""));
+    }
+
+    #[test]
+    fn test_extract_punctuation_multibyte_suffix_does_not_panic() {
+        assert_eq!(extract_punctuation("hola¿"), ("", "¿"));
+    }
+
+    #[test]
+    fn test_extract_punctuation_cjk_brackets_do_not_panic() {
+        // "「" and "」" are 3-byte UTF-8 characters each.
+        assert_eq!(extract_punctuation("「テスト」"), ("「", "」"));
+    }
+
+    #[test]
+    fn test_extract_punctuation_multibyte_both_sides() {
+        assert_eq!(extract_punctuation("¡hola!"), ("¡", "!"));
+        assert_eq!(extract_punctuation("«hola»"), ("«", "»"));
+    }
+
+    #[test]
+    fn test_apply_dictionary_alias_preserves_multibyte_punctuation() {
+        // End-to-end: an alias fires inside a sentence with a multi-byte
+        // leading punctuation mark on the matched word, and the punctuation
+        // must survive around the replacement without panicking.
+        let entries = vec![entry("Hola", &["hola"])];
+        let result = apply_dictionary("dice ¿hola mundo", &entries, 0.5);
+        assert_eq!(result, "dice ¿Hola mundo");
     }
 }

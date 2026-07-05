@@ -453,6 +453,15 @@ pub struct AppSettings {
     /// User dictionary: canonical spellings + "sounds like" alias rules.
     #[serde(default)]
     pub dictionary: Vec<DictionaryEntry>,
+    /// One-shot marker for the legacy `custom_words` → `dictionary` migration
+    /// (see `apply_settings_migrations`). Missing/`false` means the migration
+    /// hasn't run yet; once it runs (whether or not there was anything to
+    /// migrate) this is set `true` forever, so a user who later deletes every
+    /// dictionary entry doesn't get `custom_words` silently re-migrated back in
+    /// on the next settings read. Fresh installs start `true` since there is
+    /// nothing to migrate.
+    #[serde(default)]
+    pub dictionary_migrated: bool,
     #[serde(default)]
     pub model_unload_timeout: ModelUnloadTimeout,
     #[serde(default = "default_word_correction_threshold")]
@@ -1044,6 +1053,8 @@ pub fn get_default_settings() -> AppSettings {
         log_level: default_log_level(),
         custom_words: Vec::new(),
         dictionary: Vec::new(),
+        // Nothing to migrate on a fresh install.
+        dictionary_migrated: true,
         model_unload_timeout: ModelUnloadTimeout::default(),
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),
@@ -1247,20 +1258,25 @@ fn apply_settings_migrations(
 
     // Dictionary migration: fold the legacy flat `custom_words` list into the
     // richer `dictionary` (one entry per word, no aliases) so existing users keep
-    // their vocabulary. Idempotent: once `dictionary` is populated it never
-    // re-runs, and `custom_words` is left intact for back-compat. `dictionary` is
-    // the source of truth everywhere else.
-    if settings.dictionary.is_empty() && !settings.custom_words.is_empty() {
-        settings.dictionary = settings
-            .custom_words
-            .iter()
-            .map(|word| DictionaryEntry {
-                word: word.clone(),
-                sounds_like: Vec::new(),
-                replace_exact: false,
-                case_sensitive: false,
-            })
-            .collect();
+    // their vocabulary. One-shot via `dictionary_migrated`, NOT re-derived from
+    // `settings.dictionary.is_empty()` — a user who migrates and then deletes
+    // every dictionary entry must stay empty, not have custom_words resurrected
+    // on the next read. `custom_words` is left intact for back-compat; `dictionary`
+    // is the source of truth everywhere else.
+    if !settings.dictionary_migrated {
+        if settings.dictionary.is_empty() && !settings.custom_words.is_empty() {
+            settings.dictionary = settings
+                .custom_words
+                .iter()
+                .map(|word| DictionaryEntry {
+                    word: word.clone(),
+                    sounds_like: Vec::new(),
+                    replace_exact: false,
+                    case_sensitive: false,
+                })
+                .collect();
+        }
+        settings.dictionary_migrated = true;
         updated = true;
     }
 
@@ -1434,6 +1450,8 @@ mod tests {
         let mut settings = get_default_settings();
         settings.custom_words = vec!["ChargeBee".to_string(), "OpenFlow".to_string()];
         settings.dictionary = Vec::new();
+        // Simulate a legacy store that predates the one-shot marker.
+        settings.dictionary_migrated = false;
 
         let raw = serde_json::json!({
             "settings_schema_version": CURRENT_SETTINGS_SCHEMA_VERSION,
@@ -1452,6 +1470,84 @@ mod tests {
         assert_eq!(settings.dictionary[1].word, "OpenFlow");
         // Legacy list is preserved for back-compat.
         assert_eq!(settings.custom_words.len(), 2);
+        // The one-shot marker is now set so this never runs again.
+        assert!(settings.dictionary_migrated);
+    }
+
+    #[test]
+    fn dictionary_migration_runs_only_once_via_marker() {
+        // A second read of the same (already-migrated) settings must not touch
+        // dictionary/custom_words again, and must report no further update.
+        let mut settings = get_default_settings();
+        settings.custom_words = vec!["ChargeBee".to_string()];
+        settings.dictionary = vec![DictionaryEntry {
+            word: "ChargeBee".to_string(),
+            sounds_like: Vec::new(),
+            replace_exact: false,
+            case_sensitive: false,
+        }];
+        settings.dictionary_migrated = true;
+
+        let raw = serde_json::json!({
+            "settings_schema_version": CURRENT_SETTINGS_SCHEMA_VERSION,
+            "onboarding_completed": false,
+            "whats_new_last_seen_version": default_whats_new_last_seen_version(),
+            "overlay_style": "live",
+            "custom_words": ["ChargeBee"],
+            "dictionary": [{ "word": "ChargeBee" }],
+            "dictionary_migrated": true
+        });
+
+        assert!(!apply_settings_migrations(&mut settings, &raw));
+        assert_eq!(settings.dictionary.len(), 1);
+    }
+
+    #[test]
+    fn deleting_all_dictionary_entries_does_not_resurrect_custom_words() {
+        // FIX 2 regression test: a user who already migrated (marker set) and
+        // then deleted every dictionary entry must stay empty across a re-read,
+        // even though the legacy custom_words list still has old data sitting
+        // around for back-compat.
+        let mut settings = get_default_settings();
+        settings.custom_words = vec!["ChargeBee".to_string(), "OpenFlow".to_string()];
+        settings.dictionary = Vec::new();
+        settings.dictionary_migrated = true;
+
+        let raw = serde_json::json!({
+            "settings_schema_version": CURRENT_SETTINGS_SCHEMA_VERSION,
+            "onboarding_completed": false,
+            "whats_new_last_seen_version": default_whats_new_last_seen_version(),
+            "overlay_style": "live",
+            "custom_words": ["ChargeBee", "OpenFlow"],
+            "dictionary": [],
+            "dictionary_migrated": true
+        });
+
+        assert!(!apply_settings_migrations(&mut settings, &raw));
+        assert!(settings.dictionary.is_empty());
+        assert!(settings.dictionary_migrated);
+    }
+
+    #[test]
+    fn dictionary_migrated_flag_serializes() {
+        // Fresh installs persist `dictionary_migrated: true` (nothing to migrate).
+        let default_settings = get_default_settings();
+        let value = serde_json::to_value(&default_settings).unwrap();
+        assert_eq!(
+            value.get("dictionary_migrated"),
+            Some(&serde_json::json!(true))
+        );
+
+        // A legacy store missing the key entirely deserializes it as `false`,
+        // so the one-shot migration still fires exactly once for it.
+        let legacy = serde_json::json!({
+            "bindings": {},
+            "push_to_talk": true,
+            "audio_feedback": false,
+            "external_script_path": null
+        });
+        let parsed: AppSettings = serde_json::from_value(legacy).unwrap();
+        assert!(!parsed.dictionary_migrated);
     }
 
     #[test]

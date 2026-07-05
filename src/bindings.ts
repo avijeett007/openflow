@@ -1169,7 +1169,17 @@ custom_words?: string[];
 /**
  * User dictionary: canonical spellings + "sounds like" alias rules.
  */
-dictionary?: DictionaryEntry[]; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; 
+dictionary?: DictionaryEntry[];
+/**
+ * One-shot marker for the legacy `custom_words` → `dictionary` migration
+ * (see `apply_settings_migrations`). Missing/`false` means the migration
+ * hasn't run yet; once it runs (whether or not there was anything to
+ * migrate) this is set `true` forever, so a user who later deletes every
+ * dictionary entry doesn't get `custom_words` silently re-migrated back in
+ * on the next settings read. Fresh installs start `true` since there is
+ * nothing to migrate.
+ */
+dictionary_migrated?: boolean; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; 
 /**
  * Per-app cleanup prompt overrides: active-app name (as returned by
  * `active_app::current().app_name`, e.g. "Slack", "Visual Studio Code",

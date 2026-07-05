@@ -368,6 +368,34 @@ export const DictionarySettings: React.FC = () => {
   const [newWord, setNewWord] = useState("");
   const [newAliases, setNewAliases] = useState<string[]>([]);
 
+  // Stable row ids for React `key`s, keyed by normalized word rather than
+  // array index or the word itself. `dictionary` is a fresh array/object on
+  // every settings read, so identity-based keys aren't an option; keying by
+  // word directly (the previous approach) forced a remount on every rename,
+  // dropping focus and closing the row's open Options panel. Ids are never
+  // persisted into settings — this map is purely local UI bookkeeping.
+  const rowIdsRef = useRef<Map<string, number>>(new Map());
+  const nextRowIdRef = useRef(0);
+  const getRowId = (word: string): number => {
+    const key = normalize(word);
+    let id = rowIdsRef.current.get(key);
+    if (id === undefined) {
+      id = nextRowIdRef.current++;
+      rowIdsRef.current.set(key, id);
+    }
+    return id;
+  };
+  // Carries a row's id forward from its old word to its new word so a rename
+  // keeps the same React key instead of minting a fresh one.
+  const renameRowId = (oldWord: string, updatedWord: string) => {
+    const oldKey = normalize(oldWord);
+    const id = rowIdsRef.current.get(oldKey);
+    if (id !== undefined) {
+      rowIdsRef.current.delete(oldKey);
+      rowIdsRef.current.set(normalize(updatedWord), id);
+    }
+  };
+
   const dictionary = getSetting("dictionary") ?? [];
   const disabled = isUpdating("dictionary");
 
@@ -407,6 +435,10 @@ export const DictionarySettings: React.FC = () => {
     if (wordExists(word, index)) {
       toast.error(t("settings.dictionary.duplicate", { word }));
       return false;
+    }
+    const oldWord = dictionary[index]?.word;
+    if (oldWord !== undefined) {
+      renameRowId(oldWord, word);
     }
     persist(
       dictionary.map((entry, i) => (i === index ? { ...entry, word } : entry)),
@@ -579,7 +611,7 @@ export const DictionarySettings: React.FC = () => {
           <div className="bg-background border border-mid-gray/20 rounded-lg divide-y divide-mid-gray/20">
             {dictionary.map((entry, index) => (
               <EntryRow
-                key={entry.word}
+                key={getRowId(entry.word)}
                 entry={entry}
                 disabled={disabled}
                 onCommitWord={(word) => commitWord(index, word)}
