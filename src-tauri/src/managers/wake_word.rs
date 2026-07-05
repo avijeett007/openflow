@@ -597,7 +597,22 @@ async fn transcribe_command(
     let settings = get_settings(app);
     if settings.stt_backend_mode != crate::settings::SttBackendMode::Local {
         match crate::backends::stt_http::transcribe(&settings, &samples).await {
-            Ok(outcome) => return Ok(outcome.text),
+            Ok(outcome) => {
+                // Remote STT bypassed dictionary correction entirely until now —
+                // run the same post-processing hook the local engine applies
+                // internally in `TranscriptionManager::transcribe`/`finalize_stream`.
+                // `outcome.prompted` mirrors whisper's local `initial_prompt` gate:
+                // when the dictionary words were already sent to the engine as a
+                // biasing hint, skip the redundant fuzzy pass but still run
+                // deterministic aliases.
+                return Ok(
+                    crate::managers::transcription::post_process_transcription_text(
+                        outcome.text,
+                        &settings,
+                        outcome.prompted,
+                    ),
+                );
+            }
             Err(e) => {
                 // Non-fatal: fall back to the local engine so the command is not lost.
                 debug!("Wake-word remote STT failed ({e}); falling back to local");

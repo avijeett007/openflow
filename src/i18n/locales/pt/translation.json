@@ -13,6 +13,7 @@
     "models": "Modelos",
     "advanced": "Avançado",
     "postProcessing": "Pós-Processamento",
+    "dictionary": "Dicionário",
     "history": "Histórico",
     "debug": "Depuração",
     "about": "Sobre"
@@ -421,6 +422,38 @@
         "cancel": "Cancelar",
         "selectToEdit": "Selecione um prompt acima para visualizar e editar seus detalhes.",
         "createFirst": "Clique em 'Criar Novo Prompt' acima para criar seu primeiro prompt de pós-processamento."
+      }
+    },
+    "dictionary": {
+      "title": "Dicionário",
+      "intro": "Palavras, nomes e jargões que você usa — o OpenFlow vai escrevê-los do seu jeito.",
+      "emptyState": "Ainda sem palavras. Adicione a primeira acima para começar.",
+      "add": "Adicionar",
+      "delete": "Excluir",
+      "removeAlias": "Remover {{alias}}",
+      "duplicate": "\"{{word}}\" já está no seu dicionário",
+      "emptyWord": "Digite uma palavra primeiro",
+      "word": {
+        "placeholder": "ex.: MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "Soa como… (pressione Enter)"
+      },
+      "columns": {
+        "word": "Palavra",
+        "aliases": "Soa como"
+      },
+      "options": {
+        "title": "Opções",
+        "caseSensitive": "Respeitar exatamente minhas maiúsculas",
+        "replaceExact": "Substituir apenas correspondências exatas"
+      },
+      "importExport": {
+        "import": "Importar",
+        "export": "Exportar",
+        "importSuccess": "{{count}} entradas importadas",
+        "importError": "Não foi possível ler esse arquivo. Use um JSON de dicionário ou uma lista de palavras simples.",
+        "nothingToExport": "Seu dicionário está vazio — nada para exportar."
       }
     },
     "history": {

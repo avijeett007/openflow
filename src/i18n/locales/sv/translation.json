@@ -13,6 +13,7 @@
     "models": "Modeller",
     "advanced": "Avancerat",
     "postProcessing": "Efterbearbetning",
+    "dictionary": "Ordlista",
     "history": "Historik",
     "debug": "Felsökning",
     "about": "Om"
@@ -421,6 +422,38 @@
         "cancel": "Avbryt",
         "selectToEdit": "Välj en prompt ovan för att visa och redigera dess detaljer.",
         "createFirst": "Klicka på 'Skapa ny prompt' ovan för att skapa din första prompt för efterbearbetning."
+      }
+    },
+    "dictionary": {
+      "title": "Ordlista",
+      "intro": "Ord, namn och facktermer du använder — OpenFlow stavar dem på ditt sätt.",
+      "emptyState": "Inga ord ännu. Lägg till ditt första ovan för att komma igång.",
+      "add": "Lägg till",
+      "delete": "Ta bort",
+      "removeAlias": "Ta bort {{alias}}",
+      "duplicate": "”{{word}}” finns redan i din ordlista",
+      "emptyWord": "Ange ett ord först",
+      "word": {
+        "placeholder": "t.ex. MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "Låter som… (tryck Enter)"
+      },
+      "columns": {
+        "word": "Ord",
+        "aliases": "Låter som"
+      },
+      "options": {
+        "title": "Alternativ",
+        "caseSensitive": "Matcha exakt min versalisering",
+        "replaceExact": "Ersätt endast exakta träffar"
+      },
+      "importExport": {
+        "import": "Importera",
+        "export": "Exportera",
+        "importSuccess": "Importerade {{count}} poster",
+        "importError": "Kunde inte läsa filen. Använd en ordliste-JSON eller en enkel ordlista.",
+        "nothingToExport": "Din ordlista är tom — inget att exportera."
       }
     },
     "history": {

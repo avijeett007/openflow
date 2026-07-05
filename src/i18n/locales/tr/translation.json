@@ -13,6 +13,7 @@
     "models": "Modeller",
     "advanced": "Gelişmiş",
     "postProcessing": "Son İşlem",
+    "dictionary": "Sözlük",
     "history": "Geçmiş",
     "debug": "Hata Ayıklama",
     "about": "Hakkında"
@@ -421,6 +422,38 @@
         "cancel": "İptal",
         "selectToEdit": "Ayrıntılarını görüntülemek ve düzenlemek için yukarıdan bir prompt seçin.",
         "createFirst": "İlk son işlem prompt'unuzu oluşturmak için yukarıdaki “Yeni Prompt Oluştur” seçeneğine tıklayın."
+      }
+    },
+    "dictionary": {
+      "title": "Sözlük",
+      "intro": "Kullandığın kelimeler, isimler ve terimler — OpenFlow bunları senin yazdığın gibi yazar.",
+      "emptyState": "Henüz kelime yok. Başlamak için ilkini yukarıya ekle.",
+      "add": "Ekle",
+      "delete": "Sil",
+      "removeAlias": "{{alias}} öğesini kaldır",
+      "duplicate": "\"{{word}}\" zaten sözlüğünde var",
+      "emptyWord": "Önce bir kelime gir",
+      "word": {
+        "placeholder": "örn. MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "Şuna benziyor… (Enter'a bas)"
+      },
+      "columns": {
+        "word": "Kelime",
+        "aliases": "Şuna benziyor"
+      },
+      "options": {
+        "title": "Seçenekler",
+        "caseSensitive": "Büyük/küçük harfimi tam olarak koru",
+        "replaceExact": "Yalnızca tam eşleşmeleri değiştir"
+      },
+      "importExport": {
+        "import": "İçe aktar",
+        "export": "Dışa aktar",
+        "importSuccess": "{{count}} kayıt içe aktarıldı",
+        "importError": "Bu dosya okunamadı. Bir sözlük JSON'ı veya düz bir kelime listesi kullan.",
+        "nothingToExport": "Sözlüğün boş — dışa aktarılacak bir şey yok."
       }
     },
     "history": {

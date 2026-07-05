@@ -13,6 +13,7 @@
     "models": "מודלים",
     "advanced": "מתקדם",
     "postProcessing": "עיבוד משלים",
+    "dictionary": "מילון",
     "history": "היסטוריה",
     "debug": "ניפוי שגיאות",
     "about": "אודות"
@@ -421,6 +422,38 @@
         "cancel": "ביטול",
         "selectToEdit": "בחר פרומפט למעלה כדי לצפות בפרטים שלו ולערוך אותם.",
         "createFirst": "לחץ על 'צור פרומפט חדש' למעלה כדי ליצור את פרומפט העיבוד הראשון שלך."
+      }
+    },
+    "dictionary": {
+      "title": "מילון",
+      "intro": "מילים, שמות ומונחים שאתה משתמש בהם — OpenFlow יאיית אותם בדיוק כפי שאתה רוצה.",
+      "emptyState": "עדיין אין מילים. הוסף את הראשונה למעלה כדי להתחיל.",
+      "add": "הוסף",
+      "delete": "מחק",
+      "removeAlias": "הסר את {{alias}}",
+      "duplicate": "\"{{word}}\" כבר נמצאת במילון שלך",
+      "emptyWord": "הזן קודם מילה",
+      "word": {
+        "placeholder": "לדוגמה: MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "נשמע כמו… (הקש Enter)"
+      },
+      "columns": {
+        "word": "מילה",
+        "aliases": "נשמע כמו"
+      },
+      "options": {
+        "title": "אפשרויות",
+        "caseSensitive": "שמור בדיוק על אותיות רישיות שלי",
+        "replaceExact": "החלף רק התאמות מדויקות"
+      },
+      "importExport": {
+        "import": "ייבוא",
+        "export": "ייצוא",
+        "importSuccess": "יובאו {{count}} רשומות",
+        "importError": "לא ניתן לקרוא את הקובץ. השתמש ב-JSON של מילון או ברשימת מילים פשוטה.",
+        "nothingToExport": "המילון שלך ריק — אין מה לייצא."
       }
     },
     "history": {

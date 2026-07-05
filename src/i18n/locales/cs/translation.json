@@ -13,6 +13,7 @@
     "models": "Modely",
     "advanced": "Pokročilé",
     "postProcessing": "Následné zpracování",
+    "dictionary": "Slovník",
     "history": "Historie",
     "debug": "Ladění",
     "about": "O aplikaci"
@@ -421,6 +422,38 @@
         "cancel": "Zrušit",
         "selectToEdit": "Vyberte výše prompt, abyste zobrazili a upravili jeho podrobnosti.",
         "createFirst": "Klikněte nahoře na 'Vytvořit nový prompt' a vytvořte svůj první prompt pro následné zpracování."
+      }
+    },
+    "dictionary": {
+      "title": "Slovník",
+      "intro": "Slova, jména a žargon, která používáš — OpenFlow je napíše po tvém.",
+      "emptyState": "Zatím žádná slova. Přidej první výše a začni.",
+      "add": "Přidat",
+      "delete": "Smazat",
+      "removeAlias": "Odebrat {{alias}}",
+      "duplicate": "„{{word}}“ už je ve tvém slovníku",
+      "emptyWord": "Nejprve zadej slovo",
+      "word": {
+        "placeholder": "např. MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "Zní jako… (stiskni Enter)"
+      },
+      "columns": {
+        "word": "Slovo",
+        "aliases": "Zní jako"
+      },
+      "options": {
+        "title": "Možnosti",
+        "caseSensitive": "Přesně zachovat mou velikost písmen",
+        "replaceExact": "Nahrazovat pouze přesné shody"
+      },
+      "importExport": {
+        "import": "Importovat",
+        "export": "Exportovat",
+        "importSuccess": "Importováno záznamů: {{count}}",
+        "importError": "Tento soubor se nepodařilo přečíst. Použij JSON slovníku nebo prostý seznam slov.",
+        "nothingToExport": "Tvůj slovník je prázdný — není co exportovat."
       }
     },
     "history": {

@@ -13,6 +13,7 @@
     "models": "Modelos",
     "advanced": "Avanzado",
     "postProcessing": "Post Proceso",
+    "dictionary": "Diccionario",
     "history": "Historial",
     "debug": "Depuración",
     "about": "Acerca de"
@@ -421,6 +422,38 @@
         "cancel": "Cancelar",
         "selectToEdit": "Selecciona un prompt arriba para ver y editar sus detalles.",
         "createFirst": "Haz clic en 'Crear Nuevo Prompt' arriba para crear tu primer prompt de post procesamiento."
+      }
+    },
+    "dictionary": {
+      "title": "Diccionario",
+      "intro": "Palabras, nombres y jerga que usas: OpenFlow los escribirá a tu manera.",
+      "emptyState": "Aún no hay palabras. Añade la primera arriba para empezar.",
+      "add": "Añadir",
+      "delete": "Eliminar",
+      "removeAlias": "Quitar {{alias}}",
+      "duplicate": "«{{word}}» ya está en tu diccionario",
+      "emptyWord": "Introduce una palabra primero",
+      "word": {
+        "placeholder": "p. ej. MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "Suena como… (pulsa Intro)"
+      },
+      "columns": {
+        "word": "Palabra",
+        "aliases": "Suena como"
+      },
+      "options": {
+        "title": "Opciones",
+        "caseSensitive": "Respetar exactamente mis mayúsculas",
+        "replaceExact": "Reemplazar solo coincidencias exactas"
+      },
+      "importExport": {
+        "import": "Importar",
+        "export": "Exportar",
+        "importSuccess": "{{count}} entradas importadas",
+        "importError": "No se pudo leer ese archivo. Usa un JSON de diccionario o una lista de palabras simple.",
+        "nothingToExport": "Tu diccionario está vacío: no hay nada que exportar."
       }
     },
     "history": {

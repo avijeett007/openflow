@@ -9,7 +9,9 @@ use crate::managers::history::HistoryManager;
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::StreamWorkKind;
 use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{get_settings, AppSettings, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID};
+use crate::settings::{
+    get_settings, AppSettings, DictionaryEntry, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID,
+};
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{
@@ -61,10 +63,66 @@ fn strip_invisible_chars(s: &str) -> String {
     s.replace(['\u{200B}', '\u{200C}', '\u{200D}', '\u{FEFF}'], "")
 }
 
-/// Build a system prompt from the user's prompt template.
-/// Removes `${output}` placeholder since the transcription is sent as the user message.
-fn build_system_prompt(prompt_template: &str) -> String {
-    prompt_template.replace("${output}", "").trim().to_string()
+/// Same conservative 800-char budget the OpenAI-compatible HTTP `prompt` field
+/// uses (see `backends::stt_http::OPENAI_PROMPT_MAX_CHARS`) — a cleanup LLM's
+/// system prompt has similar real-estate concerns, so the vocabulary block
+/// reuses that field's tail-keeping truncation strategy (`build_prompt_string`)
+/// rather than inventing a second one.
+const VOCABULARY_BLOCK_MAX_CHARS: usize = 800;
+
+/// Build the "Vocabulary" block appended to the cleanup system prompt so the
+/// LLM keeps the user's exact custom spellings instead of "fixing" them.
+/// Canonical `word`s only — `sounds_like` aliases are never surfaced here:
+/// they're the misheard/alternate forms the user wants replaced *away from*,
+/// so telling the cleanup model to use them verbatim would be self-defeating.
+/// Words are capped/truncated the same way as the HTTP STT `prompt` field (see
+/// [`crate::backends::stt_http::build_prompt_string`]) so a very large
+/// dictionary can't blow out the system prompt. Returns `None` for an empty
+/// dictionary (callers must append nothing).
+fn dictionary_vocabulary_block(dictionary: &[DictionaryEntry]) -> Option<String> {
+    let words: Vec<&str> = dictionary.iter().map(|e| e.word.as_str()).collect();
+    let joined =
+        crate::backends::stt_http::build_prompt_string(&words, VOCABULARY_BLOCK_MAX_CHARS)?;
+    Some(format!(
+        "Vocabulary — always use these exact spellings of the user's custom words: {joined}"
+    ))
+}
+
+/// Build a system prompt from the user's prompt template, appending a
+/// dictionary vocabulary block (see [`dictionary_vocabulary_block`]) when the
+/// user has custom words configured. Removes `${output}` placeholder since the
+/// transcription is sent as the user message.
+fn build_system_prompt(prompt_template: &str, dictionary: &[DictionaryEntry]) -> String {
+    let mut prompt = prompt_template.replace("${output}", "").trim().to_string();
+    if let Some(block) = dictionary_vocabulary_block(dictionary) {
+        if !prompt.is_empty() {
+            prompt.push_str("\n\n");
+        }
+        prompt.push_str(&block);
+    }
+    prompt
+}
+
+/// Build the legacy-mode (non-structured-output) prompt: substitute
+/// `${output}` with the transcription, then append the same vocabulary block
+/// the structured-output path attaches via [`build_system_prompt`]. The legacy
+/// path sends a single message (no separate system prompt), so the block is
+/// appended to the end of that same string instead. Called exactly once per
+/// `post_process_transcription` invocation, so the block can't be appended
+/// twice on this path.
+fn build_legacy_prompt(
+    prompt_template: &str,
+    transcription: &str,
+    dictionary: &[DictionaryEntry],
+) -> String {
+    let mut prompt = prompt_template.replace("${output}", transcription);
+    if let Some(block) = dictionary_vocabulary_block(dictionary) {
+        if !prompt.trim().is_empty() {
+            prompt.push_str("\n\n");
+        }
+        prompt.push_str(&block);
+    }
+    prompt
 }
 
 /// Returns `true` when a transcription has no meaningful content to
@@ -198,7 +256,7 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
     if provider.supports_structured_output {
         debug!("Using structured outputs for provider '{}'", provider.id);
 
-        let system_prompt = build_system_prompt(&prompt);
+        let system_prompt = build_system_prompt(&prompt, &settings.dictionary);
         let user_content = transcription.to_string();
 
         // Handle Apple Intelligence separately since it uses native Swift APIs
@@ -312,8 +370,12 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         }
     }
 
-    // Legacy mode: Replace ${output} variable in the prompt with the actual text
-    let processed_prompt = prompt.replace("${output}", transcription);
+    // Legacy mode: Replace ${output} variable in the prompt with the actual text,
+    // and append the same dictionary vocabulary block the structured-output path
+    // gets (see `build_legacy_prompt`) — this path previously sent no vocabulary
+    // hint at all, on both the plain legacy path and the structured-output
+    // error-fallback path that lands here.
+    let processed_prompt = build_legacy_prompt(&prompt, transcription, &settings.dictionary);
     debug!("Processed prompt length: {} chars", processed_prompt.len());
 
     match crate::llm_client::send_chat_completion(
@@ -937,12 +999,26 @@ impl ShortcutAction for TranscribeAction {
                         match crate::backends::stt_http::transcribe(&settings, &samples).await {
                             Ok(outcome) => {
                                 debug!(
-                                    "Remote STT ({}) returned {} chars in {}ms",
+                                    "Remote STT ({}) returned {} chars in {}ms (dictionary prompted: {})",
                                     outcome.backend,
                                     outcome.text.len(),
-                                    outcome.latency_ms
+                                    outcome.latency_ms,
+                                    outcome.prompted
                                 );
-                                Ok(outcome.text)
+                                // Remote/self-hosted STT bypassed dictionary correction
+                                // entirely until now — run the same hook the local path
+                                // gets. `outcome.prompted` mirrors whisper's
+                                // `model_takes_initial_prompt`: when the dictionary
+                                // words were already sent to the engine as a biasing
+                                // hint (prompt/keyterm/keywords), skip the redundant
+                                // fuzzy pass but still run deterministic aliases.
+                                Ok(
+                                    crate::managers::transcription::post_process_transcription_text(
+                                        outcome.text,
+                                        &settings,
+                                        outcome.prompted,
+                                    ),
+                                )
                             }
                             Err(e) => Err(anyhow::anyhow!("Remote STT failed: {e}")),
                         }
@@ -1130,7 +1206,11 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 
 #[cfg(test)]
 mod tests {
-    use super::is_blank_transcription;
+    use super::{
+        build_legacy_prompt, build_system_prompt, dictionary_vocabulary_block,
+        is_blank_transcription, VOCABULARY_BLOCK_MAX_CHARS,
+    };
+    use crate::settings::DictionaryEntry;
 
     #[test]
     fn blank_transcription_is_detected() {
@@ -1143,5 +1223,119 @@ mod tests {
     fn non_blank_transcription_is_kept() {
         assert!(!is_blank_transcription("hello"));
         assert!(!is_blank_transcription("  hello  "));
+    }
+
+    fn entry(word: &str, sounds_like: &[&str]) -> DictionaryEntry {
+        DictionaryEntry {
+            word: word.to_string(),
+            sounds_like: sounds_like.iter().map(|s| s.to_string()).collect(),
+            replace_exact: false,
+            case_sensitive: false,
+        }
+    }
+
+    #[test]
+    fn vocabulary_block_is_none_for_empty_dictionary() {
+        assert_eq!(dictionary_vocabulary_block(&[]), None);
+    }
+
+    #[test]
+    fn vocabulary_block_is_none_when_all_words_blank() {
+        let dict = vec![entry("", &[]), entry("   ", &[])];
+        assert_eq!(dictionary_vocabulary_block(&dict), None);
+    }
+
+    #[test]
+    fn vocabulary_block_lists_canonical_words_only() {
+        // sounds_like aliases (misheard forms) must never appear in the block —
+        // they're what the user wants replaced AWAY from, so surfacing them to
+        // the cleanup model would be self-defeating.
+        let dict = vec![
+            entry("ChargeBee", &["charge bee", "charge b"]),
+            entry("Kubernetes", &["kubernettes"]),
+        ];
+        let block = dictionary_vocabulary_block(&dict).unwrap();
+        assert!(block.contains("ChargeBee"));
+        assert!(block.contains("Kubernetes"));
+        assert!(!block.contains("charge bee"));
+        assert!(!block.contains("kubernettes"));
+        assert!(block.starts_with("Vocabulary"));
+    }
+
+    #[test]
+    fn vocabulary_block_truncates_a_very_large_dictionary() {
+        // Mirrors build_prompt_string's tail-keeping truncation: with a huge
+        // dictionary the block must stay bounded rather than growing unbounded.
+        let dict: Vec<DictionaryEntry> = (0..500)
+            .map(|i| entry(&format!("word-number-{i:04}"), &[]))
+            .collect();
+        let block = dictionary_vocabulary_block(&dict).unwrap();
+        assert!(block.len() < VOCABULARY_BLOCK_MAX_CHARS + 100);
+        // Tail-kept: the most-recently-added word survives truncation...
+        assert!(block.contains("word-number-0499"));
+        // ...while the earliest-added word is dropped.
+        assert!(!block.contains("word-number-0000"));
+    }
+
+    #[test]
+    fn system_prompt_appends_vocabulary_block_when_dictionary_present() {
+        let dict = vec![entry("OpenFlow", &[])];
+        let prompt = build_system_prompt("Clean up: ${output}", &dict);
+        assert!(prompt.starts_with("Clean up:"));
+        assert!(prompt.contains("Vocabulary"));
+        assert!(prompt.contains("OpenFlow"));
+        // ${output} must still be stripped.
+        assert!(!prompt.contains("${output}"));
+    }
+
+    #[test]
+    fn system_prompt_unchanged_when_dictionary_is_empty() {
+        let prompt = build_system_prompt("Clean up: ${output}", &[]);
+        assert_eq!(prompt, "Clean up:");
+        assert!(!prompt.contains("Vocabulary"));
+    }
+
+    #[test]
+    fn system_prompt_with_empty_template_and_dictionary_has_no_leading_blank_line() {
+        let dict = vec![entry("OpenFlow", &[])];
+        let prompt = build_system_prompt("", &dict);
+        assert!(prompt.starts_with("Vocabulary"));
+    }
+
+    // ---- Legacy (non-structured-output) prompt assembly — FIX 3 ----
+
+    #[test]
+    fn legacy_prompt_substitutes_output_placeholder() {
+        let prompt = build_legacy_prompt("Clean up: ${output}", "hello world", &[]);
+        assert_eq!(prompt, "Clean up: hello world");
+    }
+
+    #[test]
+    fn legacy_prompt_appends_vocabulary_block_when_dictionary_present() {
+        let dict = vec![entry("OpenFlow", &["open flo"])];
+        let prompt = build_legacy_prompt("Clean up: ${output}", "hello", &dict);
+        assert!(prompt.starts_with("Clean up: hello"));
+        assert!(prompt.contains("Vocabulary"));
+        assert!(prompt.contains("OpenFlow"));
+        assert!(!prompt.contains("open flo"));
+        assert!(!prompt.contains("${output}"));
+    }
+
+    #[test]
+    fn legacy_prompt_unchanged_when_dictionary_is_empty() {
+        let prompt = build_legacy_prompt("Clean up: ${output}", "hello", &[]);
+        assert_eq!(prompt, "Clean up: hello");
+        assert!(!prompt.contains("Vocabulary"));
+    }
+
+    #[test]
+    fn legacy_prompt_appends_block_exactly_once() {
+        // Regression guard: calling the builder twice on the same inputs must
+        // not accumulate a second copy of the block (each call is independent).
+        let dict = vec![entry("OpenFlow", &[])];
+        let first = build_legacy_prompt("Clean up: ${output}", "hello", &dict);
+        let second = build_legacy_prompt("Clean up: ${output}", "hello", &dict);
+        assert_eq!(first, second);
+        assert_eq!(first.matches("Vocabulary").count(), 1);
     }
 }

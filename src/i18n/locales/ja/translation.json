@@ -13,6 +13,7 @@
     "models": "モデル",
     "advanced": "詳細設定",
     "postProcessing": "後処理",
+    "dictionary": "辞書",
     "history": "履歴",
     "debug": "デバッグ",
     "about": "概要"
@@ -421,6 +422,38 @@
         "cancel": "キャンセル",
         "selectToEdit": "上からプロンプトを選択して、詳細を表示・編集します。",
         "createFirst": "上の「新しいプロンプトを作成」をクリックして、最初の後処理プロンプトを作成してください。"
+      }
+    },
+    "dictionary": {
+      "title": "辞書",
+      "intro": "よく使う単語・名前・専門用語を登録すると、OpenFlow がその表記どおりに書き起こします。",
+      "emptyState": "まだ単語がありません。上から最初の単語を追加して始めましょう。",
+      "add": "追加",
+      "delete": "削除",
+      "removeAlias": "{{alias}} を削除",
+      "duplicate": "「{{word}}」はすでに辞書にあります",
+      "emptyWord": "先に単語を入力してください",
+      "word": {
+        "placeholder": "例：MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "似た音… (Enter で追加)"
+      },
+      "columns": {
+        "word": "単語",
+        "aliases": "似た音"
+      },
+      "options": {
+        "title": "オプション",
+        "caseSensitive": "大文字・小文字をそのまま使う",
+        "replaceExact": "完全一致のみ置き換える"
+      },
+      "importExport": {
+        "import": "インポート",
+        "export": "エクスポート",
+        "importSuccess": "{{count}} 件をインポートしました",
+        "importError": "そのファイルを読み込めませんでした。辞書の JSON か、単語リストを使用してください。",
+        "nothingToExport": "辞書が空です。エクスポートするものがありません。"
       }
     },
     "history": {

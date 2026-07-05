@@ -15,6 +15,7 @@
     "handsFree": "Hands-free",
     "advanced": "Advanced",
     "postProcessing": "Post Process",
+    "dictionary": "Dictionary",
     "history": "History",
     "dashboard": "Dashboard",
     "debug": "Debug",
@@ -587,6 +588,38 @@
         "cancel": "Cancel",
         "selectToEdit": "Select a prompt above to view and edit its details.",
         "createFirst": "Click 'Create New Prompt' above to create your first post-processing prompt."
+      }
+    },
+    "dictionary": {
+      "title": "Dictionary",
+      "intro": "Words, names and jargon you use — OpenFlow will spell them your way.",
+      "emptyState": "No words yet. Add your first one above to get started.",
+      "add": "Add",
+      "delete": "Delete",
+      "removeAlias": "Remove {{alias}}",
+      "duplicate": "\"{{word}}\" is already in your dictionary",
+      "emptyWord": "Enter a word first",
+      "word": {
+        "placeholder": "e.g. MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "Sounds like… (press Enter)"
+      },
+      "columns": {
+        "word": "Word",
+        "aliases": "Sounds like"
+      },
+      "options": {
+        "title": "Options",
+        "caseSensitive": "Match my capitalization exactly",
+        "replaceExact": "Only replace exact matches"
+      },
+      "importExport": {
+        "import": "Import",
+        "export": "Export",
+        "importSuccess": "Imported {{count}} entries",
+        "importError": "Couldn't read that file. Use a dictionary JSON or a plain word list.",
+        "nothingToExport": "Your dictionary is empty — nothing to export."
       }
     },
     "history": {

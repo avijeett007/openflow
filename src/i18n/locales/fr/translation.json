@@ -13,6 +13,7 @@
     "models": "Modèles",
     "advanced": "Avancé",
     "postProcessing": "Post-traitement",
+    "dictionary": "Dictionnaire",
     "history": "Historique",
     "debug": "Débogage",
     "about": "À propos"
@@ -421,6 +422,38 @@
         "cancel": "Annuler",
         "selectToEdit": "Sélectionnez un prompt ci-dessus pour voir et modifier ses détails.",
         "createFirst": "Cliquez sur 'Créer un nouveau prompt' ci-dessus pour créer votre premier prompt de post-traitement."
+      }
+    },
+    "dictionary": {
+      "title": "Dictionnaire",
+      "intro": "Les mots, noms et termes techniques que vous utilisez — OpenFlow les orthographiera à votre façon.",
+      "emptyState": "Aucun mot pour l'instant. Ajoutez le premier ci-dessus pour commencer.",
+      "add": "Ajouter",
+      "delete": "Supprimer",
+      "removeAlias": "Supprimer {{alias}}",
+      "duplicate": "« {{word}} » est déjà dans votre dictionnaire",
+      "emptyWord": "Saisissez d'abord un mot",
+      "word": {
+        "placeholder": "ex. MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "Ressemble à… (appuyez sur Entrée)"
+      },
+      "columns": {
+        "word": "Mot",
+        "aliases": "Ressemble à"
+      },
+      "options": {
+        "title": "Options",
+        "caseSensitive": "Respecter exactement ma casse",
+        "replaceExact": "Remplacer uniquement les correspondances exactes"
+      },
+      "importExport": {
+        "import": "Importer",
+        "export": "Exporter",
+        "importSuccess": "{{count}} entrées importées",
+        "importError": "Impossible de lire ce fichier. Utilisez un JSON de dictionnaire ou une simple liste de mots.",
+        "nothingToExport": "Votre dictionnaire est vide — rien à exporter."
       }
     },
     "history": {
