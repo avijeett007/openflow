@@ -133,7 +133,32 @@ fn match_exact_alias<'a>(
     best
 }
 
-/// Finds the best fuzzy target for a candidate n-gram string.
+/// Scores a candidate n-gram string against a single fuzzy target.
+///
+/// Same Levenshtein + Soundex combination `find_best_fuzzy` uses to rank targets,
+/// but with no length guard and no threshold — callers use it to compare a span
+/// against a *fixed* target (e.g. the edge-trim sub-span checks). Lower is better;
+/// an exact match is `0.0`, a total mismatch approaches `1.0`.
+fn score_against_target(candidate: &str, target: &FuzzyTarget) -> f64 {
+    let candidate_len = candidate.chars().count();
+    let compare = &target.compare;
+    let compare_len = compare.chars().count();
+    let max_len = candidate_len.max(compare_len) as f64;
+    if max_len == 0.0 {
+        return 1.0;
+    }
+
+    let levenshtein_score = levenshtein(candidate, compare) as f64 / max_len;
+
+    if soundex(candidate, compare) {
+        levenshtein_score * 0.3 // Give significant boost to phonetic matches
+    } else {
+        levenshtein_score
+    }
+}
+
+/// Finds the best fuzzy target for a candidate n-gram string, returning the
+/// matched target and its score.
 ///
 /// Uses Levenshtein distance and Soundex phonetic matching, with a 25% length
 /// guard to prevent an n-gram from matching a much shorter target.
@@ -141,7 +166,7 @@ fn find_best_fuzzy<'a>(
     candidate: &str,
     targets: &'a [FuzzyTarget],
     threshold: f64,
-) -> Option<&'a FuzzyTarget> {
+) -> Option<(&'a FuzzyTarget, f64)> {
     // Char counts, not byte lengths — a non-ASCII word (e.g. "café", "kübernetes")
     // has fewer chars than bytes, so gating on `.len()` would mis-judge its size
     // and either wrongly reject it outright or apply the wrong length-diff budget.
@@ -150,12 +175,11 @@ fn find_best_fuzzy<'a>(
         return None;
     }
 
-    let mut best_target: Option<&FuzzyTarget> = None;
+    let mut best_target: Option<(&FuzzyTarget, f64)> = None;
     let mut best_score = f64::MAX;
 
     for target in targets {
-        let compare = &target.compare;
-        let compare_len = compare.chars().count();
+        let compare_len = target.compare.chars().count();
         // Skip if lengths are too different (optimization + prevents over-matching)
         // Use percentage-based check: max 25% length difference (prevents n-grams from
         // matching significantly shorter targets, e.g., "openaigpt" vs "openai")
@@ -166,27 +190,11 @@ fn find_best_fuzzy<'a>(
             continue;
         }
 
-        // Calculate Levenshtein distance (normalized by length)
-        let levenshtein_dist = levenshtein(candidate, compare);
-        let levenshtein_score = if max_len > 0.0 {
-            levenshtein_dist as f64 / max_len
-        } else {
-            1.0
-        };
-
-        // Calculate phonetic similarity using Soundex
-        let phonetic_match = soundex(candidate, compare);
-
-        // Combine scores: favor phonetic matches, but also consider string similarity
-        let combined_score = if phonetic_match {
-            levenshtein_score * 0.3 // Give significant boost to phonetic matches
-        } else {
-            levenshtein_score
-        };
+        let combined_score = score_against_target(candidate, target);
 
         // Accept if the score is good enough (configurable threshold)
         if combined_score < threshold && combined_score < best_score {
-            best_target = Some(target);
+            best_target = Some((target, combined_score));
             best_score = combined_score;
         }
     }
@@ -314,9 +322,44 @@ fn apply_dictionary_inner(
                     Token::Locked(_) => unreachable!("locked tokens filtered above"),
                 })
                 .collect();
+
+            // A fuzzy n-gram must not span an internal punctuation boundary: a
+            // comma / period / bracket sitting between two words marks a phrase
+            // break, so those words belong to different tokens and must never be
+            // concatenated into one candidate term. Without this, "Charge B, che"
+            // fuses "B," + "che" into "chargebche", which coincidentally edits
+            // closer to "chargebee" than "chargeb" alone and swallows "che".
+            // Punctuation is only allowed on the leading edge of the first word
+            // and the trailing edge of the last word (where it is later re-emitted).
+            let spans_internal_punct = (0..n).any(|k| {
+                let (prefix, suffix) = extract_punctuation(ngram_words[k]);
+                (k > 0 && !prefix.is_empty()) || (k + 1 < n && !suffix.is_empty())
+            });
+            if spans_internal_punct {
+                continue;
+            }
+
             let ngram = build_ngram(&ngram_words);
 
-            if let Some(target) = find_best_fuzzy(&ngram, &fuzzy_targets, threshold) {
+            if let Some((target, score)) = find_best_fuzzy(&ngram, &fuzzy_targets, threshold) {
+                // Edge-trim guard: a multi-word span must not win if dropping its
+                // leading or trailing word yields a sub-span that scores no worse
+                // against the SAME target. When it doesn't, that edge word is being
+                // absorbed into the n-gram "for free" and silently deleted from the
+                // output (e.g. "Kubernetes on" -> Kubernetes swallows "on"). Bail to
+                // the next-smaller span: the drop-trailing sub-span is re-tried here
+                // at this position, and the drop-leading sub-span anchors at the next
+                // position, so both edge words survive.
+                if n > 1 {
+                    let drop_leading = build_ngram(&ngram_words[1..]);
+                    let drop_trailing = build_ngram(&ngram_words[..n - 1]);
+                    if score_against_target(&drop_leading, target) <= score
+                        || score_against_target(&drop_trailing, target) <= score
+                    {
+                        continue;
+                    }
+                }
+
                 let (prefix, _) = extract_punctuation(ngram_words[0]);
                 let (_, suffix) = extract_punctuation(ngram_words[n - 1]);
                 let corrected = if target.case_sensitive {
@@ -889,6 +932,63 @@ mod tests {
         // ...but fuzzy on the canonical word does not run in aliases-only mode.
         let fuzzy = apply_dictionary_aliases_only("the chargebe invoice", &entries);
         assert_eq!(fuzzy, "the chargebe invoice");
+    }
+
+    // ---- Edge-trim guard: fuzzy n-grams must not swallow adjacent function words ----
+
+    #[test]
+    fn test_dictionary_fuzzy_ngram_preserves_function_words() {
+        // Regression: the greedy fuzzy pass used to absorb neighboring function
+        // words ("and", "on", "my") into a bloated n-gram that still cleared the
+        // threshold via the Soundex boost / length guard, silently deleting them.
+        let entries = vec![
+            entry("ChargeBee", &[]),
+            entry("Kubernetes", &[]),
+            entry("MacBook Pro", &[]),
+        ];
+        let result = apply_dictionary(
+            "Let's set up Charge B and Kubernetes on my MacBook Pro today",
+            &entries,
+            0.18,
+        );
+        assert_eq!(
+            result,
+            "Let's set up ChargeBee and Kubernetes on my MacBook Pro today"
+        );
+    }
+
+    #[test]
+    fn test_dictionary_fuzzy_trailing_function_word_preserved() {
+        // "Kubernetes on" must not collapse to "Kubernetes" (dropping "on").
+        let entries = vec![entry("Kubernetes", &[])];
+        let result = apply_dictionary("Kubernetes on", &entries, 0.18);
+        assert_eq!(result, "Kubernetes on");
+    }
+
+    #[test]
+    fn test_dictionary_fuzzy_leading_function_word_preserved() {
+        // "my MacBook Pro" must keep "my"; the correction anchors on "MacBook Pro".
+        let entries = vec![entry("MacBook Pro", &[])];
+        let result = apply_dictionary("my MacBook Pro", &entries, 0.18);
+        assert_eq!(result, "my MacBook Pro");
+    }
+
+    #[test]
+    fn test_dictionary_fuzzy_mid_function_word_preserved() {
+        // The 3-gram "Charge B and" shrinks to the 2-gram "Charge B" -> ChargeBee,
+        // leaving the trailing "and something" untouched.
+        let entries = vec![entry("ChargeBee", &[])];
+        let result = apply_dictionary("Charge B and something", &entries, 0.18);
+        assert_eq!(result, "ChargeBee and something");
+    }
+
+    #[test]
+    fn test_dictionary_fuzzy_legitimate_multiword_join_still_wins() {
+        // Edge-trim must NOT block a real multi-word join: "Charge B" -> ChargeBee
+        // (dropping either edge word scores strictly worse, so the 2-gram wins).
+        let entries = vec![entry("ChargeBee", &[])];
+        let result = apply_dictionary("use Charge B today", &entries, 0.18);
+        assert_eq!(result, "use ChargeBee today");
     }
 
     #[test]
