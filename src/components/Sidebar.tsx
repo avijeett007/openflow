@@ -11,6 +11,7 @@ import {
   Sparkles,
   Cpu,
   SlidersHorizontal,
+  BookA,
 } from "lucide-react";
 import { useSettings } from "../hooks/useSettings";
 import {
@@ -20,6 +21,7 @@ import {
   DebugSettings,
   AboutSettings,
   PostProcessingSettings,
+  DictionarySettings,
   ModelsSettings,
   ModelSetupSettings,
   DashboardSettings,
@@ -84,6 +86,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.dashboard",
     icon: BarChart3,
     component: DashboardSettings,
+    enabled: () => true,
+  },
+  dictionary: {
+    labelKey: "sidebar.dictionary",
+    icon: BookA,
+    component: DictionarySettings,
     enabled: () => true,
   },
   postprocessing: {

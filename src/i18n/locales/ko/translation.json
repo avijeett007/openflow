@@ -13,6 +13,7 @@
     "models": "모델",
     "advanced": "고급",
     "postProcessing": "후처리",
+    "dictionary": "사전",
     "history": "히스토리",
     "debug": "디버그",
     "about": "정보"
@@ -421,6 +422,38 @@
         "cancel": "취소",
         "selectToEdit": "세부 정보를 보고 편집하려면 위에서 프롬프트를 선택하세요.",
         "createFirst": "첫 번째 후처리 프롬프트를 만들려면 위의 '새 프롬프트 만들기'를 클릭하세요."
+      }
+    },
+    "dictionary": {
+      "title": "사전",
+      "intro": "자주 쓰는 단어, 이름, 전문 용어를 등록하면 OpenFlow가 원하는 철자 그대로 적어 줍니다.",
+      "emptyState": "아직 단어가 없습니다. 위에서 첫 단어를 추가해 시작하세요.",
+      "add": "추가",
+      "delete": "삭제",
+      "removeAlias": "{{alias}} 제거",
+      "duplicate": "\"{{word}}\"은(는) 이미 사전에 있습니다",
+      "emptyWord": "먼저 단어를 입력하세요",
+      "word": {
+        "placeholder": "예: MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "비슷한 발음… (Enter 키)"
+      },
+      "columns": {
+        "word": "단어",
+        "aliases": "비슷한 발음"
+      },
+      "options": {
+        "title": "옵션",
+        "caseSensitive": "대소문자를 정확히 유지",
+        "replaceExact": "정확히 일치할 때만 교체"
+      },
+      "importExport": {
+        "import": "가져오기",
+        "export": "내보내기",
+        "importSuccess": "{{count}}개 항목을 가져왔습니다",
+        "importError": "파일을 읽을 수 없습니다. 사전 JSON 또는 일반 단어 목록을 사용하세요.",
+        "nothingToExport": "사전이 비어 있어 내보낼 항목이 없습니다."
       }
     },
     "history": {

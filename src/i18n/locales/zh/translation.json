@@ -13,6 +13,7 @@
     "models": "模型",
     "advanced": "高级",
     "postProcessing": "后处理",
+    "dictionary": "词典",
     "history": "历史记录",
     "debug": "调试",
     "about": "关于"
@@ -421,6 +422,38 @@
         "cancel": "取消",
         "selectToEdit": "选择上方的提示词以查看和编辑其详细信息。",
         "createFirst": "点击上方的「创建新提示词」来创建您的第一个后处理提示词。"
+      }
+    },
+    "dictionary": {
+      "title": "词典",
+      "intro": "你常用的词语、名称和术语——OpenFlow 会按你的写法拼写它们。",
+      "emptyState": "还没有词语。在上方添加第一个即可开始。",
+      "add": "添加",
+      "delete": "删除",
+      "removeAlias": "移除 {{alias}}",
+      "duplicate": "“{{word}}”已在你的词典中",
+      "emptyWord": "请先输入一个词",
+      "word": {
+        "placeholder": "例如：MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "听起来像…（按 Enter）"
+      },
+      "columns": {
+        "word": "词语",
+        "aliases": "听起来像"
+      },
+      "options": {
+        "title": "选项",
+        "caseSensitive": "完全按照我的大小写",
+        "replaceExact": "仅替换完全匹配项"
+      },
+      "importExport": {
+        "import": "导入",
+        "export": "导出",
+        "importSuccess": "已导入 {{count}} 条",
+        "importError": "无法读取该文件。请使用词典 JSON 或纯词语列表。",
+        "nothingToExport": "你的词典为空——没有可导出的内容。"
       }
     },
     "history": {

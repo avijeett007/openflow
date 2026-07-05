@@ -13,6 +13,7 @@
     "models": "Modele",
     "advanced": "Zaawansowane",
     "postProcessing": "Postproces",
+    "dictionary": "Słownik",
     "history": "Historia",
     "debug": "Debugowanie",
     "about": "O programie"
@@ -421,6 +422,38 @@
         "cancel": "Anuluj",
         "selectToEdit": "Wybierz prompt powyżej, aby zobaczyć i edytować jego szczegóły.",
         "createFirst": "Kliknij 'Utwórz nowy prompt' powyżej, aby utworzyć pierwszy prompt postprocessingu."
+      }
+    },
+    "dictionary": {
+      "title": "Słownik",
+      "intro": "Słowa, nazwy i żargon, których używasz — OpenFlow zapisze je po twojemu.",
+      "emptyState": "Brak słów. Dodaj pierwsze powyżej, aby zacząć.",
+      "add": "Dodaj",
+      "delete": "Usuń",
+      "removeAlias": "Usuń {{alias}}",
+      "duplicate": "„{{word}}” jest już w Twoim słowniku",
+      "emptyWord": "Najpierw wpisz słowo",
+      "word": {
+        "placeholder": "np. MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "Brzmi jak… (naciśnij Enter)"
+      },
+      "columns": {
+        "word": "Słowo",
+        "aliases": "Brzmi jak"
+      },
+      "options": {
+        "title": "Opcje",
+        "caseSensitive": "Zachowaj dokładnie moją wielkość liter",
+        "replaceExact": "Zamieniaj tylko dokładne dopasowania"
+      },
+      "importExport": {
+        "import": "Importuj",
+        "export": "Eksportuj",
+        "importSuccess": "Zaimportowano wpisy: {{count}}",
+        "importError": "Nie udało się odczytać pliku. Użyj pliku JSON słownika lub zwykłej listy słów.",
+        "nothingToExport": "Twój słownik jest pusty — nie ma czego eksportować."
       }
     },
     "history": {

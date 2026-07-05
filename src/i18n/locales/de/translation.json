@@ -13,6 +13,7 @@
     "models": "Modelle",
     "advanced": "Erweitert",
     "postProcessing": "Nachbearbeitung",
+    "dictionary": "Wörterbuch",
     "history": "Verlauf",
     "debug": "Debug",
     "about": "Info"
@@ -421,6 +422,38 @@
         "cancel": "Abbrechen",
         "selectToEdit": "Wähle oben einen Prompt aus, um dessen Details anzuzeigen und zu bearbeiten.",
         "createFirst": "Klicke oben auf 'Neuen Prompt erstellen', um deinen ersten Nachbearbeitungs-Prompt zu erstellen."
+      }
+    },
+    "dictionary": {
+      "title": "Wörterbuch",
+      "intro": "Wörter, Namen und Fachbegriffe, die du verwendest — OpenFlow schreibt sie so, wie du es möchtest.",
+      "emptyState": "Noch keine Wörter. Füge oben dein erstes hinzu, um loszulegen.",
+      "add": "Hinzufügen",
+      "delete": "Löschen",
+      "removeAlias": "{{alias}} entfernen",
+      "duplicate": "„{{word}}“ ist bereits in deinem Wörterbuch",
+      "emptyWord": "Gib zuerst ein Wort ein",
+      "word": {
+        "placeholder": "z. B. MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "Klingt wie… (Enter drücken)"
+      },
+      "columns": {
+        "word": "Wort",
+        "aliases": "Klingt wie"
+      },
+      "options": {
+        "title": "Optionen",
+        "caseSensitive": "Meine Groß-/Kleinschreibung genau übernehmen",
+        "replaceExact": "Nur exakte Treffer ersetzen"
+      },
+      "importExport": {
+        "import": "Importieren",
+        "export": "Exportieren",
+        "importSuccess": "{{count}} Einträge importiert",
+        "importError": "Diese Datei konnte nicht gelesen werden. Verwende eine Wörterbuch-JSON oder eine einfache Wortliste.",
+        "nothingToExport": "Dein Wörterbuch ist leer — nichts zu exportieren."
       }
     },
     "history": {

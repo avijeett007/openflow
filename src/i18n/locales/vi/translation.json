@@ -13,6 +13,7 @@
     "models": "Mô hình",
     "advanced": "Nâng cao",
     "postProcessing": "Xử lý sau",
+    "dictionary": "Từ điển",
     "history": "Lịch sử",
     "debug": "Gỡ lỗi",
     "about": "Giới thiệu"
@@ -421,6 +422,38 @@
         "cancel": "Hủy",
         "selectToEdit": "Chọn một prompt ở trên để xem và chỉnh sửa chi tiết.",
         "createFirst": "Nhấn 'Tạo Prompt mới' ở trên để tạo prompt xử lý sau đầu tiên của bạn."
+      }
+    },
+    "dictionary": {
+      "title": "Từ điển",
+      "intro": "Những từ, tên riêng và thuật ngữ bạn dùng — OpenFlow sẽ viết chúng theo cách của bạn.",
+      "emptyState": "Chưa có từ nào. Thêm từ đầu tiên ở trên để bắt đầu.",
+      "add": "Thêm",
+      "delete": "Xóa",
+      "removeAlias": "Xóa {{alias}}",
+      "duplicate": "\"{{word}}\" đã có trong từ điển của bạn",
+      "emptyWord": "Hãy nhập một từ trước",
+      "word": {
+        "placeholder": "ví dụ: MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "Nghe giống… (nhấn Enter)"
+      },
+      "columns": {
+        "word": "Từ",
+        "aliases": "Nghe giống"
+      },
+      "options": {
+        "title": "Tùy chọn",
+        "caseSensitive": "Giữ đúng kiểu viết hoa của tôi",
+        "replaceExact": "Chỉ thay thế khi khớp chính xác"
+      },
+      "importExport": {
+        "import": "Nhập",
+        "export": "Xuất",
+        "importSuccess": "Đã nhập {{count}} mục",
+        "importError": "Không đọc được tệp đó. Hãy dùng tệp JSON từ điển hoặc danh sách từ đơn giản.",
+        "nothingToExport": "Từ điển của bạn trống — không có gì để xuất."
       }
     },
     "history": {

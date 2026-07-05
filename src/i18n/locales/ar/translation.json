@@ -12,6 +12,7 @@
     "general": "عام",
     "advanced": "متقدم",
     "postProcessing": "معالجة لاحقة",
+    "dictionary": "القاموس",
     "history": "السجل",
     "debug": "تصحيح الأخطاء",
     "about": "حول",
@@ -400,6 +401,38 @@
         "cancel": "إلغاء",
         "selectToEdit": ".اختر مطالبة أعلاه لعرض وتعديل تفاصيلها",
         "createFirst": ".انقر على 'إنشاء مطالبة جديدة' أعلاه لإنشاء أول مطالبة معالجة لاحقة لك"
+      }
+    },
+    "dictionary": {
+      "title": "القاموس",
+      "intro": "الكلمات والأسماء والمصطلحات التي تستخدمها — سيكتبها OpenFlow بالطريقة التي تريدها.",
+      "emptyState": "لا توجد كلمات بعد. أضف أول كلمة في الأعلى للبدء.",
+      "add": "إضافة",
+      "delete": "حذف",
+      "removeAlias": "إزالة {{alias}}",
+      "duplicate": "«{{word}}» موجودة بالفعل في قاموسك",
+      "emptyWord": "أدخل كلمة أولاً",
+      "word": {
+        "placeholder": "مثال: MacBook Pro"
+      },
+      "aliases": {
+        "placeholder": "يُشبه في النطق… (اضغط Enter)"
+      },
+      "columns": {
+        "word": "الكلمة",
+        "aliases": "يُشبه في النطق"
+      },
+      "options": {
+        "title": "خيارات",
+        "caseSensitive": "التطابق التام مع حالة الأحرف لديّ",
+        "replaceExact": "استبدال المطابقات التامة فقط"
+      },
+      "importExport": {
+        "import": "استيراد",
+        "export": "تصدير",
+        "importSuccess": "تم استيراد {{count}} عنصرًا",
+        "importError": "تعذّرت قراءة هذا الملف. استخدم ملف JSON للقاموس أو قائمة كلمات بسيطة.",
+        "nothingToExport": "قاموسك فارغ — لا يوجد ما يمكن تصديره."
       }
     },
     "history": {
