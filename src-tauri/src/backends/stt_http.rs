@@ -13,7 +13,7 @@
 use std::io::Cursor;
 use std::time::Instant;
 
-use crate::settings::{AppSettings, SttApiStyle, SttBackendMode, SttProvider};
+use crate::settings::{AppSettings, DictionaryEntry, SttApiStyle, SttBackendMode, SttProvider};
 
 /// Outcome of a remote/self-hosted transcription.
 pub struct SttOutcome {
@@ -22,7 +22,30 @@ pub struct SttOutcome {
     pub latency_ms: u64,
     /// Human label of the backend that ran, e.g. `"remote:groq"`.
     pub backend: String,
+    /// True when dictionary words were sent to the engine as a biasing hint
+    /// (OpenAI-compatible `prompt`, or Deepgram `keyterm`/`keywords`). Callers
+    /// use this to decide whether the post-STT fuzzy correction pass would be
+    /// redundant — same rationale as whisper's local `initial_prompt` path
+    /// (see `post_process_transcription_text`). `false` whenever the
+    /// dictionary was empty or the request otherwise carried no hint.
+    pub prompted: bool,
 }
+
+/// Conservative cap on the OpenAI-compatible `prompt` field, in characters.
+/// Whisper's real limit is ~224 *tokens*; we don't have a tokenizer handy at
+/// this layer, so we cap the joined string length instead. ~800 chars is a
+/// safely conservative stand-in (average English word ~5 chars + separator,
+/// so ~800 chars is comfortably under 224 tokens even for multi-token words).
+const OPENAI_PROMPT_MAX_CHARS: usize = 800;
+
+/// Conservative cap on the number of Deepgram `keyterm` params. Deepgram's
+/// documented limit is 500 *tokens* total across all keyterms; we approximate
+/// with a per-term cap since keyterms may be multi-word phrases.
+const DEEPGRAM_KEYTERM_MAX_COUNT: usize = 500;
+
+/// Deepgram's documented cap on the number of `keywords` params (legacy
+/// models).
+const DEEPGRAM_KEYWORDS_MAX_COUNT: usize = 100;
 
 /// Encode 16 kHz mono f32 samples to a 16-bit PCM WAV in memory.
 fn encode_wav_16k_mono(samples: &[f32]) -> Result<Vec<u8>, String> {
@@ -99,17 +122,28 @@ pub fn resolve_active_stt(settings: &AppSettings) -> Result<(SttProvider, String
 pub async fn transcribe(settings: &AppSettings, samples: &[f32]) -> Result<SttOutcome, String> {
     let (provider, model, api_key) = resolve_active_stt(settings)?;
     let language = settings.selected_language.clone();
-    transcribe_with(&provider, &model, &api_key, samples, &language).await
+    transcribe_with(
+        &provider,
+        &model,
+        &api_key,
+        samples,
+        &language,
+        &settings.dictionary,
+    )
+    .await
 }
 
 /// Core transcription against an explicit provider/model/key — shared by the
-/// dictation path and the `Test` button.
+/// dictation path and the `Test` button. `dictionary` is used for engine-side
+/// biasing (OpenAI-compatible `prompt`, Deepgram `keyterm`/`keywords`); pass an
+/// empty slice to send none.
 pub async fn transcribe_with(
     provider: &SttProvider,
     model: &str,
     api_key: &str,
     samples: &[f32],
     language: &str,
+    dictionary: &[DictionaryEntry],
 ) -> Result<SttOutcome, String> {
     if model.trim().is_empty() {
         return Err("No STT model selected for this backend".to_string());
@@ -118,11 +152,17 @@ pub async fn transcribe_with(
     let started = Instant::now();
     let base = provider.base_url.trim_end_matches('/');
 
-    let text = match provider.api_style {
+    let words: Vec<&str> = dictionary
+        .iter()
+        .map(|e| e.word.as_str())
+        .filter(|w| !w.trim().is_empty())
+        .collect();
+
+    let (text, prompted) = match provider.api_style {
         SttApiStyle::OpenaiCompatible => {
-            openai_transcribe(base, model, api_key, wav, language).await?
+            openai_transcribe(base, model, api_key, wav, language, &words).await?
         }
-        SttApiStyle::Deepgram => deepgram_transcribe(base, model, api_key, wav).await?,
+        SttApiStyle::Deepgram => deepgram_transcribe(base, model, api_key, wav, &words).await?,
     };
 
     let backend = if provider.id == "selfhosted" {
@@ -135,7 +175,51 @@ pub async fn transcribe_with(
         model: model.to_string(),
         latency_ms: started.elapsed().as_millis() as u64,
         backend,
+        prompted,
     })
+}
+
+/// Build a biasing prompt string from dictionary words, joined with `", "`.
+/// Whisper-family decoders effectively only attend to the *tail* of an
+/// overlong prompt, so when the joined string would exceed `max_chars` we drop
+/// whole words from the FRONT (the earliest-added, so presumptively
+/// least-important, entries) and keep as many trailing words as fit — rather
+/// than mid-word char-truncating the joined string, which could hand the
+/// decoder a garbled fragment. Returns `None` for an empty/all-blank word
+/// list; callers must send no prompt param at all in that case.
+pub(crate) fn build_prompt_string(words: &[&str], max_chars: usize) -> Option<String> {
+    let words: Vec<&str> = words
+        .iter()
+        .copied()
+        .filter(|w| !w.trim().is_empty())
+        .collect();
+    if words.is_empty() {
+        return None;
+    }
+    let full = words.join(", ");
+    if full.len() <= max_chars {
+        return Some(full);
+    }
+
+    // Keep trailing whole words until adding another would exceed max_chars.
+    let mut kept: Vec<&str> = Vec::new();
+    let mut len = 0usize;
+    for w in words.iter().rev() {
+        let sep_len = if kept.is_empty() { 0 } else { 2 }; // ", "
+        let candidate_len = len + sep_len + w.len();
+        if candidate_len > max_chars {
+            break;
+        }
+        len = candidate_len;
+        kept.push(w);
+    }
+    if kept.is_empty() {
+        // Even the single most-important word doesn't fit; send it anyway —
+        // the engine will truncate internally, which beats sending nothing.
+        return words.last().map(|w| w.to_string());
+    }
+    kept.reverse();
+    Some(kept.join(", "))
 }
 
 async fn openai_transcribe(
@@ -144,7 +228,8 @@ async fn openai_transcribe(
     api_key: &str,
     wav: Vec<u8>,
     language: &str,
-) -> Result<String, String> {
+    dictionary_words: &[&str],
+) -> Result<(String, bool), String> {
     let part = reqwest::multipart::Part::bytes(wav)
         .file_name("audio.wav")
         .mime_str("audio/wav")
@@ -156,6 +241,14 @@ async fn openai_transcribe(
     // "auto" is our sentinel for "let the model decide"; only send a concrete code.
     if !language.is_empty() && language != "auto" {
         form = form.text("language", language.to_string());
+    }
+    // Vocabulary biasing: whisper-1, gpt-4o-transcribe, Groq whisper-large-v3(-turbo)
+    // and OpenAI-compatible self-hosted servers all accept a free-text `prompt`
+    // field; it's harmless if the server ignores it.
+    let prompt = build_prompt_string(dictionary_words, OPENAI_PROMPT_MAX_CHARS);
+    let prompted = prompt.is_some();
+    if let Some(prompt) = prompt {
+        form = form.text("prompt", prompt);
     }
 
     let client = reqwest::Client::new();
@@ -178,8 +271,31 @@ async fn openai_transcribe(
         .map_err(|e| format!("parse json: {e} (body: {})", truncate(&body, 200)))?;
     json.get("text")
         .and_then(|t| t.as_str())
-        .map(|s| s.to_string())
+        .map(|s| (s.to_string(), prompted))
         .ok_or_else(|| format!("response had no 'text' field: {}", truncate(&body, 200)))
+}
+
+/// Which Deepgram vocabulary-biasing param to send, chosen by model name.
+/// `keyterm` is Nova-3/Flux-only (Deepgram docs: "Keyterm Prompting" is
+/// supported by Nova-3 and Flux models); every older/legacy model (Nova-2 and
+/// earlier, plus Whisper-Cloud-on-Deepgram) only understands the legacy
+/// `keywords` param.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeepgramBiasingStyle {
+    /// Repeated `keyterm` params. Multi-word phrases OK, ≤500 tokens total.
+    Keyterm,
+    /// Repeated `keywords` params, `word` or `word:boost` format. Single
+    /// words only, ≤100 total.
+    Keywords,
+}
+
+pub(crate) fn deepgram_biasing_style(model: &str) -> DeepgramBiasingStyle {
+    let m = model.trim().to_lowercase();
+    if m.contains("nova-3") || m.contains("flux") {
+        DeepgramBiasingStyle::Keyterm
+    } else {
+        DeepgramBiasingStyle::Keywords
+    }
 }
 
 async fn deepgram_transcribe(
@@ -187,16 +303,55 @@ async fn deepgram_transcribe(
     model: &str,
     api_key: &str,
     wav: Vec<u8>,
-) -> Result<String, String> {
+    dictionary_words: &[&str],
+) -> Result<(String, bool), String> {
     if api_key.is_empty() {
         return Err("Deepgram requires an API key".to_string());
     }
-    let url = format!("{base}/listen?model={model}&punctuate=true&smart_format=true");
+    let url = format!("{base}/listen");
     let client = reqwest::Client::new();
-    let resp = client
+    let mut req = client
         .post(url)
+        .query(&[
+            ("model", model),
+            ("punctuate", "true"),
+            ("smart_format", "true"),
+        ])
         .header("Authorization", format!("Token {api_key}"))
-        .header("Content-Type", "audio/wav")
+        .header("Content-Type", "audio/wav");
+
+    let mut prompted = false;
+    match deepgram_biasing_style(model) {
+        DeepgramBiasingStyle::Keyterm => {
+            let pairs: Vec<(&str, &str)> = dictionary_words
+                .iter()
+                .filter(|w| !w.trim().is_empty())
+                .take(DEEPGRAM_KEYTERM_MAX_COUNT)
+                .map(|w| ("keyterm", *w))
+                .collect();
+            if !pairs.is_empty() {
+                prompted = true;
+                req = req.query(&pairs);
+            }
+        }
+        DeepgramBiasingStyle::Keywords => {
+            // Legacy `keywords` only supports single words — multi-word
+            // dictionary entries (phrases) are silently skipped rather than
+            // sent malformed.
+            let pairs: Vec<(&str, &str)> = dictionary_words
+                .iter()
+                .filter(|w| !w.trim().is_empty() && !w.trim().contains(char::is_whitespace))
+                .take(DEEPGRAM_KEYWORDS_MAX_COUNT)
+                .map(|w| ("keywords", *w))
+                .collect();
+            if !pairs.is_empty() {
+                prompted = true;
+                req = req.query(&pairs);
+            }
+        }
+    }
+
+    let resp = req
         .body(wav)
         .send()
         .await
@@ -210,7 +365,7 @@ async fn deepgram_transcribe(
         serde_json::from_str(&body).map_err(|e| format!("parse json: {e}"))?;
     json.pointer("/results/channels/0/alternatives/0/transcript")
         .and_then(|t| t.as_str())
-        .map(|s| s.to_string())
+        .map(|s| (s.to_string(), prompted))
         .ok_or_else(|| format!("unexpected Deepgram response: {}", truncate(&body, 200)))
 }
 
@@ -219,5 +374,109 @@ fn truncate(s: &str, n: usize) -> String {
         s.to_string()
     } else {
         format!("{}…", &s[..n])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_prompt_string_empty_dictionary_is_none() {
+        assert_eq!(build_prompt_string(&[], 800), None);
+        // Blank/whitespace-only entries count as empty too.
+        assert_eq!(build_prompt_string(&["", "   "], 800), None);
+    }
+
+    #[test]
+    fn build_prompt_string_joins_with_comma_space() {
+        let words = ["ChargeBee", "Kubernetes", "OpenFlow"];
+        assert_eq!(
+            build_prompt_string(&words, 800).as_deref(),
+            Some("ChargeBee, Kubernetes, OpenFlow")
+        );
+    }
+
+    #[test]
+    fn build_prompt_string_ignores_blank_entries_among_real_ones() {
+        let words = ["ChargeBee", "", "OpenFlow"];
+        assert_eq!(
+            build_prompt_string(&words, 800).as_deref(),
+            Some("ChargeBee, OpenFlow")
+        );
+    }
+
+    #[test]
+    fn build_prompt_string_truncates_keeping_the_tail() {
+        // Each word is 5 chars; with ", " separators a 3-word budget is 19
+        // chars ("aaaaa, bbbbb, ccccc"). Cap at 13 chars should keep only the
+        // last whole word or two, dropping from the FRONT (whisper attends to
+        // the prompt's tail, so the most-recently-added/most-important words
+        // must survive truncation).
+        let words = ["aaaaa", "bbbbb", "ccccc"];
+        let result = build_prompt_string(&words, 13).unwrap();
+        // "bbbbb, ccccc" is exactly 12 chars <= 13; adding "aaaaa, " would blow
+        // the budget, so only the trailing two words are kept, in original order.
+        assert_eq!(result, "bbbbb, ccccc");
+        assert!(!result.contains("aaaaa"));
+    }
+
+    #[test]
+    fn build_prompt_string_single_oversized_word_still_sent() {
+        // A single word longer than max_chars can't be dropped to fit (nothing
+        // else to drop) — send it anyway rather than sending nothing.
+        let words = ["a-very-long-single-dictionary-word-phrase"];
+        let result = build_prompt_string(&words, 5).unwrap();
+        assert_eq!(result, words[0]);
+    }
+
+    #[test]
+    fn build_prompt_string_no_truncation_when_under_budget() {
+        let words = ["short", "list"];
+        assert_eq!(
+            build_prompt_string(&words, 800).as_deref(),
+            Some("short, list")
+        );
+    }
+
+    #[test]
+    fn deepgram_biasing_style_nova3_and_flux_use_keyterm() {
+        assert_eq!(
+            deepgram_biasing_style("nova-3"),
+            DeepgramBiasingStyle::Keyterm
+        );
+        assert_eq!(
+            deepgram_biasing_style("nova-3-general"),
+            DeepgramBiasingStyle::Keyterm
+        );
+        assert_eq!(
+            deepgram_biasing_style("flux-general-en"),
+            DeepgramBiasingStyle::Keyterm
+        );
+        // Case-insensitive.
+        assert_eq!(
+            deepgram_biasing_style("Nova-3-Medical"),
+            DeepgramBiasingStyle::Keyterm
+        );
+    }
+
+    #[test]
+    fn deepgram_biasing_style_legacy_models_use_keywords() {
+        assert_eq!(
+            deepgram_biasing_style("nova-2"),
+            DeepgramBiasingStyle::Keywords
+        );
+        assert_eq!(
+            deepgram_biasing_style("nova-2-general"),
+            DeepgramBiasingStyle::Keywords
+        );
+        assert_eq!(
+            deepgram_biasing_style("base"),
+            DeepgramBiasingStyle::Keywords
+        );
+        assert_eq!(
+            deepgram_biasing_style("whisper-large"),
+            DeepgramBiasingStyle::Keywords
+        );
     }
 }

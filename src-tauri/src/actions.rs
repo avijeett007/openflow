@@ -9,7 +9,9 @@ use crate::managers::history::HistoryManager;
 use crate::managers::model::ModelManager;
 use crate::managers::transcription::StreamWorkKind;
 use crate::managers::transcription::TranscriptionManager;
-use crate::settings::{get_settings, AppSettings, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID};
+use crate::settings::{
+    get_settings, AppSettings, DictionaryEntry, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID,
+};
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
 use crate::utils::{
@@ -61,10 +63,40 @@ fn strip_invisible_chars(s: &str) -> String {
     s.replace(['\u{200B}', '\u{200C}', '\u{200D}', '\u{FEFF}'], "")
 }
 
-/// Build a system prompt from the user's prompt template.
-/// Removes `${output}` placeholder since the transcription is sent as the user message.
-fn build_system_prompt(prompt_template: &str) -> String {
-    prompt_template.replace("${output}", "").trim().to_string()
+/// Build the "Vocabulary" block appended to the cleanup system prompt so the
+/// LLM keeps the user's exact custom spellings instead of "fixing" them.
+/// Canonical `word`s only — `sounds_like` aliases are never surfaced here:
+/// they're the misheard/alternate forms the user wants replaced *away from*,
+/// so telling the cleanup model to use them verbatim would be self-defeating.
+/// Returns `None` for an empty dictionary (callers must append nothing).
+fn dictionary_vocabulary_block(dictionary: &[DictionaryEntry]) -> Option<String> {
+    let words: Vec<&str> = dictionary
+        .iter()
+        .map(|e| e.word.as_str())
+        .filter(|w| !w.trim().is_empty())
+        .collect();
+    if words.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "Vocabulary — always use these exact spellings of the user's custom words: {}",
+        words.join(", ")
+    ))
+}
+
+/// Build a system prompt from the user's prompt template, appending a
+/// dictionary vocabulary block (see [`dictionary_vocabulary_block`]) when the
+/// user has custom words configured. Removes `${output}` placeholder since the
+/// transcription is sent as the user message.
+fn build_system_prompt(prompt_template: &str, dictionary: &[DictionaryEntry]) -> String {
+    let mut prompt = prompt_template.replace("${output}", "").trim().to_string();
+    if let Some(block) = dictionary_vocabulary_block(dictionary) {
+        if !prompt.is_empty() {
+            prompt.push_str("\n\n");
+        }
+        prompt.push_str(&block);
+    }
+    prompt
 }
 
 /// Returns `true` when a transcription has no meaningful content to
@@ -198,7 +230,7 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
     if provider.supports_structured_output {
         debug!("Using structured outputs for provider '{}'", provider.id);
 
-        let system_prompt = build_system_prompt(&prompt);
+        let system_prompt = build_system_prompt(&prompt, &settings.dictionary);
         let user_content = transcription.to_string();
 
         // Handle Apple Intelligence separately since it uses native Swift APIs
@@ -937,12 +969,26 @@ impl ShortcutAction for TranscribeAction {
                         match crate::backends::stt_http::transcribe(&settings, &samples).await {
                             Ok(outcome) => {
                                 debug!(
-                                    "Remote STT ({}) returned {} chars in {}ms",
+                                    "Remote STT ({}) returned {} chars in {}ms (dictionary prompted: {})",
                                     outcome.backend,
                                     outcome.text.len(),
-                                    outcome.latency_ms
+                                    outcome.latency_ms,
+                                    outcome.prompted
                                 );
-                                Ok(outcome.text)
+                                // Remote/self-hosted STT bypassed dictionary correction
+                                // entirely until now — run the same hook the local path
+                                // gets. `outcome.prompted` mirrors whisper's
+                                // `model_takes_initial_prompt`: when the dictionary
+                                // words were already sent to the engine as a biasing
+                                // hint (prompt/keyterm/keywords), skip the redundant
+                                // fuzzy pass but still run deterministic aliases.
+                                Ok(
+                                    crate::managers::transcription::post_process_transcription_text(
+                                        outcome.text,
+                                        &settings,
+                                        outcome.prompted,
+                                    ),
+                                )
                             }
                             Err(e) => Err(anyhow::anyhow!("Remote STT failed: {e}")),
                         }
@@ -1130,7 +1176,8 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 
 #[cfg(test)]
 mod tests {
-    use super::is_blank_transcription;
+    use super::{build_system_prompt, dictionary_vocabulary_block, is_blank_transcription};
+    use crate::settings::DictionaryEntry;
 
     #[test]
     fn blank_transcription_is_detected() {
@@ -1143,5 +1190,67 @@ mod tests {
     fn non_blank_transcription_is_kept() {
         assert!(!is_blank_transcription("hello"));
         assert!(!is_blank_transcription("  hello  "));
+    }
+
+    fn entry(word: &str, sounds_like: &[&str]) -> DictionaryEntry {
+        DictionaryEntry {
+            word: word.to_string(),
+            sounds_like: sounds_like.iter().map(|s| s.to_string()).collect(),
+            replace_exact: false,
+            case_sensitive: false,
+        }
+    }
+
+    #[test]
+    fn vocabulary_block_is_none_for_empty_dictionary() {
+        assert_eq!(dictionary_vocabulary_block(&[]), None);
+    }
+
+    #[test]
+    fn vocabulary_block_is_none_when_all_words_blank() {
+        let dict = vec![entry("", &[]), entry("   ", &[])];
+        assert_eq!(dictionary_vocabulary_block(&dict), None);
+    }
+
+    #[test]
+    fn vocabulary_block_lists_canonical_words_only() {
+        // sounds_like aliases (misheard forms) must never appear in the block —
+        // they're what the user wants replaced AWAY from, so surfacing them to
+        // the cleanup model would be self-defeating.
+        let dict = vec![
+            entry("ChargeBee", &["charge bee", "charge b"]),
+            entry("Kubernetes", &["kubernettes"]),
+        ];
+        let block = dictionary_vocabulary_block(&dict).unwrap();
+        assert!(block.contains("ChargeBee"));
+        assert!(block.contains("Kubernetes"));
+        assert!(!block.contains("charge bee"));
+        assert!(!block.contains("kubernettes"));
+        assert!(block.starts_with("Vocabulary"));
+    }
+
+    #[test]
+    fn system_prompt_appends_vocabulary_block_when_dictionary_present() {
+        let dict = vec![entry("OpenFlow", &[])];
+        let prompt = build_system_prompt("Clean up: ${output}", &dict);
+        assert!(prompt.starts_with("Clean up:"));
+        assert!(prompt.contains("Vocabulary"));
+        assert!(prompt.contains("OpenFlow"));
+        // ${output} must still be stripped.
+        assert!(!prompt.contains("${output}"));
+    }
+
+    #[test]
+    fn system_prompt_unchanged_when_dictionary_is_empty() {
+        let prompt = build_system_prompt("Clean up: ${output}", &[]);
+        assert_eq!(prompt, "Clean up:");
+        assert!(!prompt.contains("Vocabulary"));
+    }
+
+    #[test]
+    fn system_prompt_with_empty_template_and_dictionary_has_no_leading_blank_line() {
+        let dict = vec![entry("OpenFlow", &[])];
+        let prompt = build_system_prompt("", &dict);
+        assert!(prompt.starts_with("Vocabulary"));
     }
 }

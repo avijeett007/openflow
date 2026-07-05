@@ -1607,7 +1607,16 @@ fn transcribe_cpp_run_plan(
     }
 }
 
-fn post_process_transcription_text(
+/// Apply dictionary correction (fuzzy + alias) and filler-word filtering to a
+/// raw transcription. Shared by every STT path — local (batch + streaming),
+/// remote, and self-hosted — so a word only needs one hook to reach all of
+/// them. `fuzzy_already_prompted` should be `true` when the canonical
+/// dictionary words were already handed to the engine as a biasing hint
+/// (whisper `initial_prompt`, or a remote request `prompt`/`keyterm`/`keywords`
+/// param, see `backends::stt_http`) — in that case the fuzzy pass is skipped
+/// (redundant with the engine's own biasing) but the deterministic alias pass
+/// still runs, since alias rules are never sent as a prompt.
+pub(crate) fn post_process_transcription_text(
     raw: String,
     settings: &AppSettings,
     fuzzy_already_prompted: bool,
