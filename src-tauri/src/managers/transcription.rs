@@ -1,4 +1,6 @@
-use crate::audio_toolkit::{apply_custom_words, filter_transcription_output};
+use crate::audio_toolkit::{
+    apply_dictionary, apply_dictionary_aliases_only, filter_transcription_output,
+};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::{EngineType, ModelManager};
 use crate::settings::{
@@ -1210,11 +1212,19 @@ impl TranscriptionManager {
                         // with INVALID_ARG, so skip it there and let the fuzzy
                         // post-correction handle custom words instead.
                         let family =
-                            if settings.custom_words.is_empty() || !model_takes_initial_prompt {
+                            if settings.dictionary.is_empty() || !model_takes_initial_prompt {
                                 None
                             } else {
+                                // Bias the decoder with the canonical spellings from
+                                // the dictionary (aliases are applied deterministically
+                                // in post-processing, not prompted).
+                                let prompt_words: Vec<&str> = settings
+                                    .dictionary
+                                    .iter()
+                                    .map(|e| e.word.as_str())
+                                    .collect();
                                 Some(RunExtension::Whisper(WhisperRunOptions {
-                                    initial_prompt: Some(settings.custom_words.join(", ")),
+                                    initial_prompt: Some(prompt_words.join(", ")),
                                     ..Default::default()
                                 }))
                             };
@@ -1600,16 +1610,21 @@ fn transcribe_cpp_run_plan(
 fn post_process_transcription_text(
     raw: String,
     settings: &AppSettings,
-    custom_words_already_prompted: bool,
+    fuzzy_already_prompted: bool,
 ) -> String {
-    let corrected = if !settings.custom_words.is_empty() && !custom_words_already_prompted {
-        apply_custom_words(
+    let corrected = if settings.dictionary.is_empty() {
+        raw
+    } else if fuzzy_already_prompted {
+        // Whisper already received the canonical words as an initial prompt, so
+        // the fuzzy pass is redundant — but deterministic alias rules must still
+        // be applied here.
+        apply_dictionary_aliases_only(&raw, &settings.dictionary)
+    } else {
+        apply_dictionary(
             &raw,
-            &settings.custom_words,
+            &settings.dictionary,
             settings.word_correction_threshold,
         )
-    } else {
-        raw
     };
 
     filter_transcription_output(
@@ -1906,6 +1921,51 @@ mod tests {
 
     fn languages(codes: &[&str]) -> Vec<String> {
         codes.iter().map(|code| (*code).to_string()).collect()
+    }
+
+    fn post_process_test_settings(entries: Vec<crate::settings::DictionaryEntry>) -> AppSettings {
+        let mut settings = crate::settings::get_default_settings();
+        settings.dictionary = entries;
+        settings.app_language = "en".to_string();
+        // Disable filler-word filtering so assertions isolate dictionary behavior.
+        settings.custom_filler_words = Some(Vec::new());
+        settings
+    }
+
+    #[test]
+    fn prompted_whisper_path_still_applies_aliases_but_not_fuzzy() {
+        let settings = post_process_test_settings(vec![crate::settings::DictionaryEntry {
+            word: "ChargeBee".to_string(),
+            sounds_like: vec!["charge bee".to_string()],
+            replace_exact: false,
+            case_sensitive: false,
+        }]);
+
+        // fuzzy_already_prompted = true (whisper got the canonical words as a
+        // decode prompt): the deterministic alias must still fire...
+        let aliased =
+            post_process_transcription_text("the charge bee invoice".to_string(), &settings, true);
+        assert_eq!(aliased, "the ChargeBee invoice");
+
+        // ...but the fuzzy pass must stay skipped on the prompted path.
+        let fuzzy =
+            post_process_transcription_text("the chargebe invoice".to_string(), &settings, true);
+        assert_eq!(fuzzy, "the chargebe invoice");
+    }
+
+    #[test]
+    fn unprompted_path_applies_both_alias_and_fuzzy() {
+        let settings = post_process_test_settings(vec![crate::settings::DictionaryEntry {
+            word: "ChargeBee".to_string(),
+            sounds_like: vec!["charge bee".to_string()],
+            replace_exact: false,
+            case_sensitive: false,
+        }]);
+
+        // fuzzy_already_prompted = false: fuzzy correction runs on the canonical.
+        let fuzzy =
+            post_process_transcription_text("the chargebe invoice".to_string(), &settings, false);
+        assert_eq!(fuzzy, "the ChargeBee invoice");
     }
 
     #[test]

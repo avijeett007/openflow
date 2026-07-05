@@ -93,6 +93,28 @@ pub struct LLMPrompt {
     pub prompt: String,
 }
 
+/// A user dictionary entry: a canonical spelling plus optional "sounds like"
+/// aliases (misheard/alternate forms) that are rewritten to the canonical word.
+/// Supersedes the flat `custom_words` list (legacy entries migrate to one entry
+/// each with no aliases). See `audio_toolkit::text::apply_dictionary`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
+pub struct DictionaryEntry {
+    /// Canonical spelling used in the output. Spaces are allowed (phrases).
+    pub word: String,
+    /// Aliases / misheard forms that are replaced by `word`. Matched exactly
+    /// first (deterministic, threshold-independent) then fuzzily.
+    #[serde(default)]
+    pub sounds_like: Vec<String>,
+    /// When true, only deterministic alias replacement runs for this entry — the
+    /// fuzzy pass never matches against `word` (or its aliases).
+    #[serde(default)]
+    pub replace_exact: bool,
+    /// When true, `word`'s exact casing is emitted verbatim (bypasses the
+    /// case-pattern preservation that otherwise mirrors the input token's case).
+    #[serde(default)]
+    pub case_sensitive: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Type)]
 pub struct PostProcessProvider {
     pub id: String,
@@ -424,8 +446,13 @@ pub struct AppSettings {
     pub debug_mode: bool,
     #[serde(default = "default_log_level")]
     pub log_level: LogLevel,
+    /// Legacy flat custom-word list. Kept deserializable for back-compat and
+    /// migrated into `dictionary` on load; `dictionary` is the source of truth.
     #[serde(default)]
     pub custom_words: Vec<String>,
+    /// User dictionary: canonical spellings + "sounds like" alias rules.
+    #[serde(default)]
+    pub dictionary: Vec<DictionaryEntry>,
     #[serde(default)]
     pub model_unload_timeout: ModelUnloadTimeout,
     #[serde(default = "default_word_correction_threshold")]
@@ -1016,6 +1043,7 @@ pub fn get_default_settings() -> AppSettings {
         debug_mode: false,
         log_level: default_log_level(),
         custom_words: Vec::new(),
+        dictionary: Vec::new(),
         model_unload_timeout: ModelUnloadTimeout::default(),
         word_correction_threshold: default_word_correction_threshold(),
         history_limit: default_history_limit(),
@@ -1217,6 +1245,25 @@ fn apply_settings_migrations(
         updated = true;
     }
 
+    // Dictionary migration: fold the legacy flat `custom_words` list into the
+    // richer `dictionary` (one entry per word, no aliases) so existing users keep
+    // their vocabulary. Idempotent: once `dictionary` is populated it never
+    // re-runs, and `custom_words` is left intact for back-compat. `dictionary` is
+    // the source of truth everywhere else.
+    if settings.dictionary.is_empty() && !settings.custom_words.is_empty() {
+        settings.dictionary = settings
+            .custom_words
+            .iter()
+            .map(|word| DictionaryEntry {
+                word: word.clone(),
+                sounds_like: Vec::new(),
+                replace_exact: false,
+                case_sensitive: false,
+            })
+            .collect();
+        updated = true;
+    }
+
     // One-time overlay migration (only while the new key is absent): the retired
     // overlay_position `none` meant "hide the overlay" → OverlayStyle::None; any
     // other position had it visible → Live. The position enum no longer has a
@@ -1380,6 +1427,57 @@ mod tests {
             TranscribeAcceleratorSetting::Gpu
         );
         assert_eq!(settings.transcribe_gpu_device, 2);
+    }
+
+    #[test]
+    fn custom_words_migrate_into_dictionary() {
+        let mut settings = get_default_settings();
+        settings.custom_words = vec!["ChargeBee".to_string(), "OpenFlow".to_string()];
+        settings.dictionary = Vec::new();
+
+        let raw = serde_json::json!({
+            "settings_schema_version": CURRENT_SETTINGS_SCHEMA_VERSION,
+            "onboarding_completed": false,
+            "whats_new_last_seen_version": default_whats_new_last_seen_version(),
+            "overlay_style": "live",
+            "custom_words": ["ChargeBee", "OpenFlow"]
+        });
+
+        assert!(apply_settings_migrations(&mut settings, &raw));
+        assert_eq!(settings.dictionary.len(), 2);
+        assert_eq!(settings.dictionary[0].word, "ChargeBee");
+        assert!(settings.dictionary[0].sounds_like.is_empty());
+        assert!(!settings.dictionary[0].replace_exact);
+        assert!(!settings.dictionary[0].case_sensitive);
+        assert_eq!(settings.dictionary[1].word, "OpenFlow");
+        // Legacy list is preserved for back-compat.
+        assert_eq!(settings.custom_words.len(), 2);
+    }
+
+    #[test]
+    fn dictionary_migration_is_idempotent_when_already_populated() {
+        let mut settings = get_default_settings();
+        settings.custom_words = vec!["ChargeBee".to_string()];
+        settings.dictionary = vec![DictionaryEntry {
+            word: "Something".to_string(),
+            sounds_like: vec!["some thing".to_string()],
+            replace_exact: false,
+            case_sensitive: false,
+        }];
+
+        let raw = serde_json::json!({
+            "settings_schema_version": CURRENT_SETTINGS_SCHEMA_VERSION,
+            "onboarding_completed": false,
+            "whats_new_last_seen_version": default_whats_new_last_seen_version(),
+            "overlay_style": "live",
+            "custom_words": ["ChargeBee"],
+            "dictionary": [{ "word": "Something", "sounds_like": ["some thing"] }]
+        });
+
+        // No migration needed: dictionary is already the source of truth.
+        assert!(!apply_settings_migrations(&mut settings, &raw));
+        assert_eq!(settings.dictionary.len(), 1);
+        assert_eq!(settings.dictionary[0].word, "Something");
     }
 
     #[test]

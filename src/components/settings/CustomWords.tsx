@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useSettings } from "../../hooks/useSettings";
+import type { DictionaryEntry } from "@/bindings";
 import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { SettingContainer } from "../ui/SettingContainer";
@@ -16,7 +17,10 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
     const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
     const [newWord, setNewWord] = useState("");
-    const customWords = getSetting("custom_words") || [];
+    // Chips are backed by dictionary entries; this simple UI edits only the
+    // canonical word (no aliases). The full Dictionary UI lands in a later chunk.
+    const dictionary = getSetting("dictionary") || [];
+    const customWords = dictionary.map((entry) => entry.word);
 
     const handleAddWord = () => {
       const trimmedWord = newWord.trim();
@@ -34,15 +38,21 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
           );
           return;
         }
-        updateSetting("custom_words", [...customWords, sanitizedWord]);
+        const newEntry: DictionaryEntry = {
+          word: sanitizedWord,
+          sounds_like: [],
+          replace_exact: false,
+          case_sensitive: false,
+        };
+        updateSetting("dictionary", [...dictionary, newEntry]);
         setNewWord("");
       }
     };
 
     const handleRemoveWord = (wordToRemove: string) => {
       updateSetting(
-        "custom_words",
-        customWords.filter((word) => word !== wordToRemove),
+        "dictionary",
+        dictionary.filter((entry) => entry.word !== wordToRemove),
       );
     };
 
@@ -70,7 +80,7 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
               onKeyDown={handleKeyPress}
               placeholder={t("settings.advanced.customWords.placeholder")}
               variant="compact"
-              disabled={isUpdating("custom_words")}
+              disabled={isUpdating("dictionary")}
             />
             <Button
               onClick={handleAddWord}
@@ -78,7 +88,7 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
                 !newWord.trim() ||
                 newWord.includes(" ") ||
                 newWord.trim().length > 50 ||
-                isUpdating("custom_words")
+                isUpdating("dictionary")
               }
               variant="primary"
               size="md"
@@ -95,7 +105,7 @@ export const CustomWords: React.FC<CustomWordsProps> = React.memo(
               <Button
                 key={word}
                 onClick={() => handleRemoveWord(word)}
-                disabled={isUpdating("custom_words")}
+                disabled={isUpdating("dictionary")}
                 variant="secondary"
                 size="sm"
                 className="inline-flex items-center gap-1 cursor-pointer"

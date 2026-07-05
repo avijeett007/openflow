@@ -348,9 +348,9 @@ async setPostProcessSelectedPrompt(id: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async updateCustomWords(words: string[]) : Promise<Result<null, string>> {
+async updateDictionary(entries: DictionaryEntry[]) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("update_custom_words", { words }) };
+    return { status: "ok", data: await TAURI_INVOKE("update_dictionary", { entries }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1160,7 +1160,16 @@ settings_schema_version?: number; bindings: Partial<{ [key in string]: ShortcutB
  * upgrading from before this key existed are blanked by the migration so they
  * see the current release's notes — see `apply_settings_migrations`.
  */
-whats_new_last_seen_version?: string; selected_model?: string; onboarding_completed?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; custom_words?: string[]; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; 
+whats_new_last_seen_version?: string; selected_model?: string; onboarding_completed?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel;
+/**
+ * Legacy flat custom-word list. Kept deserializable for back-compat and
+ * migrated into `dictionary` on load; `dictionary` is the source of truth.
+ */
+custom_words?: string[];
+/**
+ * User dictionary: canonical spellings + "sounds like" alias rules.
+ */
+dictionary?: DictionaryEntry[]; model_unload_timeout?: ModelUnloadTimeout; word_correction_threshold?: number; history_limit?: number; recording_retention_period?: RecordingRetentionPeriod; paste_method?: PasteMethod; clipboard_handling?: ClipboardHandling; auto_submit?: boolean; auto_submit_key?: AutoSubmitKey; post_process_enabled?: boolean; post_process_provider_id?: string; post_process_providers?: PostProcessProvider[]; post_process_api_keys?: SecretMap; post_process_models?: Partial<{ [key in string]: string }>; post_process_prompts?: LLMPrompt[]; post_process_selected_prompt_id?: string | null; 
 /**
  * Per-app cleanup prompt overrides: active-app name (as returned by
  * `active_app::current().app_name`, e.g. "Slack", "Visual Studio Code",
@@ -1248,6 +1257,32 @@ backend: string }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CustomSounds = { start: boolean; stop: boolean }
+/**
+ * A user dictionary entry: a canonical spelling plus optional "sounds like"
+ * aliases (misheard/alternate forms) that are rewritten to the canonical word.
+ * Supersedes the flat `custom_words` list (legacy entries migrate to one entry
+ * each with no aliases). See `audio_toolkit::text::apply_dictionary`.
+ */
+export type DictionaryEntry = {
+/**
+ * Canonical spelling used in the output. Spaces are allowed (phrases).
+ */
+word: string;
+/**
+ * Aliases / misheard forms that are replaced by `word`. Matched exactly
+ * first (deterministic, threshold-independent) then fuzzily.
+ */
+sounds_like?: string[];
+/**
+ * When true, only deterministic alias replacement runs for this entry — the
+ * fuzzy pass never matches against `word` (or its aliases).
+ */
+replace_exact?: boolean;
+/**
+ * When true, `word`'s exact casing is emitted verbatim (bypasses the
+ * case-pattern preservation that otherwise mirrors the input token's case).
+ */
+case_sensitive?: boolean }
 export type EngineType = 
 /**
  * Any GGML/GGUF model loaded through transcribe-cpp (Whisper, Parakeet,

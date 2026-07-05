@@ -22,8 +22,8 @@ use tauri_plugin_autostart::ManagerExt;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
-    self, get_settings, AutoSubmitKey, ClipboardHandling, KeyboardImplementation, LLMPrompt,
-    OverlayPosition, OverlayStyle, PasteMethod, ShortcutBinding, SoundTheme, TypingTool,
+    self, get_settings, AutoSubmitKey, ClipboardHandling, DictionaryEntry, KeyboardImplementation,
+    LLMPrompt, OverlayPosition, OverlayStyle, PasteMethod, ShortcutBinding, SoundTheme, TypingTool,
     APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::tray;
@@ -832,9 +832,9 @@ pub fn change_whats_new_last_seen_version_setting(
 
 #[tauri::command]
 #[specta::specta]
-pub fn update_custom_words(app: AppHandle, words: Vec<String>) -> Result<(), String> {
+pub fn update_dictionary(app: AppHandle, entries: Vec<DictionaryEntry>) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
-    settings.custom_words = words;
+    settings.dictionary = entries;
     settings::write_settings(&app, settings);
     Ok(())
 }

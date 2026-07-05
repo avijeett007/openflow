@@ -1,3 +1,4 @@
+use crate::settings::DictionaryEntry;
 use natural::phonetics::soundex;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -18,46 +19,150 @@ fn build_ngram(words: &[&str]) -> String {
         .concat()
 }
 
-/// Finds the best matching custom word for a candidate string
+/// A precomputed exact-match alias: the alias split into normalized tokens plus
+/// the canonical replacement and casing policy.
+struct AliasMatcher {
+    /// Alias tokens, normalized (punctuation-trimmed; lowercased unless the entry
+    /// is case-sensitive). Length drives greedy longest-match n-gram selection.
+    tokens: Vec<String>,
+    canonical: String,
+    case_sensitive: bool,
+}
+
+/// A precomputed fuzzy target (a canonical word or one of its aliases) compared
+/// against candidate n-grams by Levenshtein distance + Soundex.
+struct FuzzyTarget {
+    /// Lowercased, space-stripped comparison form (matches `build_ngram` output).
+    compare: String,
+    /// Canonical replacement emitted on a match.
+    canonical: String,
+    case_sensitive: bool,
+}
+
+/// Normalizes a single word for exact alias comparison: strips leading/trailing
+/// punctuation, and lowercases unless the entry is case-sensitive.
+fn normalize_token(word: &str, case_sensitive: bool) -> String {
+    let trimmed = word.trim_matches(|c: char| !c.is_alphanumeric());
+    if case_sensitive {
+        trimmed.to_string()
+    } else {
+        trimmed.to_lowercase()
+    }
+}
+
+/// Builds the exact-alias matchers for all entries. Aliases with no usable tokens
+/// (empty / all-punctuation) are dropped.
+fn build_alias_matchers(entries: &[DictionaryEntry]) -> Vec<AliasMatcher> {
+    let mut matchers = Vec::new();
+    for entry in entries {
+        for alias in &entry.sounds_like {
+            let tokens: Vec<String> = alias
+                .split_whitespace()
+                .map(|w| normalize_token(w, entry.case_sensitive))
+                .filter(|t| !t.is_empty())
+                .collect();
+            if tokens.is_empty() {
+                continue;
+            }
+            matchers.push(AliasMatcher {
+                tokens,
+                canonical: entry.word.clone(),
+                case_sensitive: entry.case_sensitive,
+            });
+        }
+    }
+    matchers
+}
+
+/// Builds the fuzzy targets: every canonical word and every alias, each resolving
+/// to the entry's canonical word. Entries flagged `replace_exact` are excluded —
+/// they participate only in the deterministic alias pass.
+fn build_fuzzy_targets(entries: &[DictionaryEntry]) -> Vec<FuzzyTarget> {
+    let mut targets = Vec::new();
+    for entry in entries {
+        if entry.replace_exact {
+            continue;
+        }
+        let canonical_cmp = entry.word.to_lowercase().replace(' ', "");
+        if !canonical_cmp.is_empty() {
+            targets.push(FuzzyTarget {
+                compare: canonical_cmp,
+                canonical: entry.word.clone(),
+                case_sensitive: entry.case_sensitive,
+            });
+        }
+        for alias in &entry.sounds_like {
+            let alias_cmp = alias.to_lowercase().replace(' ', "");
+            if !alias_cmp.is_empty() {
+                targets.push(FuzzyTarget {
+                    compare: alias_cmp,
+                    canonical: entry.word.clone(),
+                    case_sensitive: entry.case_sensitive,
+                });
+            }
+        }
+    }
+    targets
+}
+
+/// Tries to match an alias exactly at the start of `words`, preferring the alias
+/// with the most tokens (greedy). Returns the matched token count and matcher.
+fn match_exact_alias<'a>(
+    words: &[&str],
+    matchers: &'a [AliasMatcher],
+) -> Option<(usize, &'a AliasMatcher)> {
+    let mut best: Option<(usize, &AliasMatcher)> = None;
+    for matcher in matchers {
+        let n = matcher.tokens.len();
+        if n > words.len() {
+            continue;
+        }
+        let all_match = matcher
+            .tokens
+            .iter()
+            .enumerate()
+            .all(|(k, tok)| normalize_token(words[k], matcher.case_sensitive) == *tok);
+        if !all_match {
+            continue;
+        }
+        match best {
+            Some((bn, _)) if bn >= n => {}
+            _ => best = Some((n, matcher)),
+        }
+    }
+    best
+}
+
+/// Finds the best fuzzy target for a candidate n-gram string.
 ///
-/// Uses Levenshtein distance and Soundex phonetic matching to find
-/// the best match above the given threshold.
-///
-/// # Arguments
-/// * `candidate` - The cleaned/lowercased candidate string to match
-/// * `custom_words` - Original custom words (for returning the replacement)
-/// * `custom_words_nospace` - Custom words with spaces removed, lowercased (for comparison)
-/// * `threshold` - Maximum similarity score to accept
-///
-/// # Returns
-/// The best matching custom word and its score, if any match was found
-fn find_best_match<'a>(
+/// Uses Levenshtein distance and Soundex phonetic matching, with a 25% length
+/// guard to prevent an n-gram from matching a much shorter target.
+fn find_best_fuzzy<'a>(
     candidate: &str,
-    custom_words: &'a [String],
-    custom_words_nospace: &[String],
+    targets: &'a [FuzzyTarget],
     threshold: f64,
-) -> Option<(&'a String, f64)> {
+) -> Option<&'a FuzzyTarget> {
     if candidate.is_empty() || candidate.len() > 50 {
         return None;
     }
 
-    let mut best_match: Option<&String> = None;
+    let mut best_target: Option<&FuzzyTarget> = None;
     let mut best_score = f64::MAX;
 
-    for (i, custom_word_nospace) in custom_words_nospace.iter().enumerate() {
+    for target in targets {
+        let compare = &target.compare;
         // Skip if lengths are too different (optimization + prevents over-matching)
         // Use percentage-based check: max 25% length difference (prevents n-grams from
-        // matching significantly shorter custom words, e.g., "openaigpt" vs "openai")
-        let len_diff = (candidate.len() as i32 - custom_word_nospace.len() as i32).abs() as f64;
-        let max_len = candidate.len().max(custom_word_nospace.len()) as f64;
+        // matching significantly shorter targets, e.g., "openaigpt" vs "openai")
+        let len_diff = (candidate.len() as i32 - compare.len() as i32).abs() as f64;
+        let max_len = candidate.len().max(compare.len()) as f64;
         let max_allowed_diff = (max_len * 0.25).max(2.0); // At least 2 chars difference allowed
         if len_diff > max_allowed_diff {
             continue;
         }
 
         // Calculate Levenshtein distance (normalized by length)
-        let levenshtein_dist = levenshtein(candidate, custom_word_nospace);
-        let max_len = candidate.len().max(custom_word_nospace.len()) as f64;
+        let levenshtein_dist = levenshtein(candidate, compare);
         let levenshtein_score = if max_len > 0.0 {
             levenshtein_dist as f64 / max_len
         } else {
@@ -65,7 +170,7 @@ fn find_best_match<'a>(
         };
 
         // Calculate phonetic similarity using Soundex
-        let phonetic_match = soundex(candidate, custom_word_nospace);
+        let phonetic_match = soundex(candidate, compare);
 
         // Combine scores: favor phonetic matches, but also consider string similarity
         let combined_score = if phonetic_match {
@@ -76,69 +181,144 @@ fn find_best_match<'a>(
 
         // Accept if the score is good enough (configurable threshold)
         if combined_score < threshold && combined_score < best_score {
-            best_match = Some(&custom_words[i]);
+            best_target = Some(target);
             best_score = combined_score;
         }
     }
 
-    best_match.map(|m| (m, best_score))
+    best_target
 }
 
-/// Applies custom word corrections to transcribed text using fuzzy matching
+/// Applies dictionary corrections to transcribed text.
 ///
-/// This function corrects words in the input text by finding the best matches
-/// from a list of custom words using a combination of:
-/// - Levenshtein distance for string similarity
-/// - Soundex phonetic matching for pronunciation similarity
-/// - N-gram matching for multi-word speech artifacts (e.g., "Charge B" -> "ChargeBee")
+/// Two passes run left-to-right, greedy longest-match first:
+/// 1. **Deterministic alias replacement** — any n-gram exactly matching an
+///    entry's `sounds_like` alias is rewritten to the canonical `word`. This is
+///    threshold-independent, so homophone rules always fire.
+/// 2. **Fuzzy correction** — Levenshtein + Soundex n-gram matching against
+///    canonical words *and* aliases (a fuzzy alias hit yields the canonical word).
+///    Entries flagged `replace_exact` skip this pass entirely.
+///
+/// `case_sensitive` entries emit `word` verbatim; otherwise the input token's
+/// case pattern is preserved. Punctuation around a match is preserved.
 ///
 /// # Arguments
 /// * `text` - The input text to correct
-/// * `custom_words` - List of custom words to match against
-/// * `threshold` - Maximum similarity score to accept (0.0 = exact match, 1.0 = any match)
+/// * `entries` - Dictionary entries to match against
+/// * `threshold` - Maximum fuzzy similarity score to accept (0.0 = exact only)
+pub fn apply_dictionary(text: &str, entries: &[DictionaryEntry], threshold: f64) -> String {
+    apply_dictionary_inner(text, entries, threshold, true)
+}
+
+/// Deterministic alias replacement only, with the fuzzy pass disabled.
 ///
-/// # Returns
-/// The corrected text with custom words applied
-pub fn apply_custom_words(text: &str, custom_words: &[String], threshold: f64) -> String {
-    if custom_words.is_empty() {
+/// Used on the whisper-prompted path: the canonical words were already handed to
+/// the model as an initial prompt (so fuzzy correction is redundant and skipped),
+/// but explicit `sounds_like` alias rules must still be enforced.
+pub fn apply_dictionary_aliases_only(text: &str, entries: &[DictionaryEntry]) -> String {
+    apply_dictionary_inner(text, entries, 0.0, false)
+}
+
+/// A token after the exact-alias pass. `Locked` tokens are the result of a
+/// deterministic alias replacement and are immune to the fuzzy pass — which also
+/// may not span them, so a fuzzy n-gram can't swallow a word adjacent to an
+/// already-resolved alias.
+enum Token<'a> {
+    Raw(&'a str),
+    Locked(String),
+}
+
+fn apply_dictionary_inner(
+    text: &str,
+    entries: &[DictionaryEntry],
+    threshold: f64,
+    fuzzy_enabled: bool,
+) -> String {
+    if entries.is_empty() {
         return text.to_string();
     }
 
-    // Pre-compute lowercase versions to avoid repeated allocations
-    let custom_words_lower: Vec<String> = custom_words.iter().map(|w| w.to_lowercase()).collect();
-
-    // Pre-compute versions with spaces removed for n-gram comparison
-    let custom_words_nospace: Vec<String> = custom_words_lower
-        .iter()
-        .map(|w| w.replace(' ', ""))
-        .collect();
-
+    let alias_matchers = build_alias_matchers(entries);
     let words: Vec<&str> = text.split_whitespace().collect();
-    let mut result = Vec::new();
+
+    // Pass 1: deterministic exact alias replacement (threshold-independent),
+    // greedy longest-match. Replaced spans are locked so the fuzzy pass leaves
+    // them (and their neighbors) alone.
+    let mut stage1: Vec<Token> = Vec::new();
     let mut i = 0;
-
     while i < words.len() {
-        let mut matched = false;
+        if let Some((n, matcher)) = match_exact_alias(&words[i..], &alias_matchers) {
+            let ngram_words = &words[i..i + n];
+            let (prefix, _) = extract_punctuation(ngram_words[0]);
+            let (_, suffix) = extract_punctuation(ngram_words[n - 1]);
+            let corrected = if matcher.case_sensitive {
+                matcher.canonical.clone()
+            } else {
+                preserve_case_pattern(ngram_words[0], &matcher.canonical)
+            };
+            stage1.push(Token::Locked(format!("{}{}{}", prefix, corrected, suffix)));
+            i += n;
+        } else {
+            stage1.push(Token::Raw(words[i]));
+            i += 1;
+        }
+    }
 
-        // Try n-grams from longest (3) to shortest (1) - greedy matching
+    let render = |tokens: &[Token]| -> String {
+        tokens
+            .iter()
+            .map(|t| match t {
+                Token::Raw(s) => (*s).to_string(),
+                Token::Locked(s) => s.clone(),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    if !fuzzy_enabled {
+        return render(&stage1);
+    }
+
+    let fuzzy_targets = build_fuzzy_targets(entries);
+
+    // Pass 2: fuzzy correction over canonical words + aliases (greedy n-grams),
+    // skipping locked tokens entirely.
+    let mut result: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < stage1.len() {
+        if let Token::Locked(s) = &stage1[i] {
+            result.push(s.clone());
+            i += 1;
+            continue;
+        }
+
+        let mut matched = false;
         for n in (1..=3).rev() {
-            if i + n > words.len() {
+            if i + n > stage1.len() {
                 continue;
             }
+            let span = &stage1[i..i + n];
+            // An n-gram may not span a locked (already-resolved) token.
+            if span.iter().any(|t| matches!(t, Token::Locked(_))) {
+                continue;
+            }
+            let ngram_words: Vec<&str> = span
+                .iter()
+                .map(|t| match t {
+                    Token::Raw(s) => *s,
+                    Token::Locked(_) => unreachable!("locked tokens filtered above"),
+                })
+                .collect();
+            let ngram = build_ngram(&ngram_words);
 
-            let ngram_words = &words[i..i + n];
-            let ngram = build_ngram(ngram_words);
-
-            if let Some((replacement, _score)) =
-                find_best_match(&ngram, custom_words, &custom_words_nospace, threshold)
-            {
-                // Extract punctuation from first and last words of the n-gram
+            if let Some(target) = find_best_fuzzy(&ngram, &fuzzy_targets, threshold) {
                 let (prefix, _) = extract_punctuation(ngram_words[0]);
                 let (_, suffix) = extract_punctuation(ngram_words[n - 1]);
-
-                // Preserve case from first word
-                let corrected = preserve_case_pattern(ngram_words[0], replacement);
-
+                let corrected = if target.case_sensitive {
+                    target.canonical.clone()
+                } else {
+                    preserve_case_pattern(ngram_words[0], &target.canonical)
+                };
                 result.push(format!("{}{}{}", prefix, corrected, suffix));
                 i += n;
                 matched = true;
@@ -147,12 +327,29 @@ pub fn apply_custom_words(text: &str, custom_words: &[String], threshold: f64) -
         }
 
         if !matched {
-            result.push(words[i].to_string());
+            if let Token::Raw(s) = &stage1[i] {
+                result.push((*s).to_string());
+            }
             i += 1;
         }
     }
 
     result.join(" ")
+}
+
+/// Legacy fuzzy-only entry point for callers that still pass a flat word list.
+/// Each word becomes a dictionary entry with no aliases.
+pub fn apply_custom_words(text: &str, custom_words: &[String], threshold: f64) -> String {
+    let entries: Vec<DictionaryEntry> = custom_words
+        .iter()
+        .map(|word| DictionaryEntry {
+            word: word.clone(),
+            sounds_like: Vec::new(),
+            replace_exact: false,
+            case_sensitive: false,
+        })
+        .collect();
+    apply_dictionary(text, &entries, threshold)
 }
 
 /// Preserves the case pattern of the original word when applying a replacement
@@ -563,5 +760,121 @@ mod tests {
             "got double-counted result: {}",
             result
         );
+    }
+
+    // ---- Dictionary (entries + aliases) tests ----
+
+    fn entry(word: &str, sounds_like: &[&str]) -> DictionaryEntry {
+        DictionaryEntry {
+            word: word.to_string(),
+            sounds_like: sounds_like.iter().map(|s| s.to_string()).collect(),
+            replace_exact: false,
+            case_sensitive: false,
+        }
+    }
+
+    #[test]
+    fn test_dictionary_exact_alias_single_word() {
+        let entries = vec![entry("Kubernetes", &["kubernetis", "coober netties"])];
+        let result = apply_dictionary("we deploy on kubernetis today", &entries, 0.18);
+        assert_eq!(result, "we deploy on Kubernetes today");
+    }
+
+    #[test]
+    fn test_dictionary_exact_alias_multi_word() {
+        let entries = vec![entry("MySQL", &["my sequel"])];
+        let result = apply_dictionary("store it in my sequel please", &entries, 0.18);
+        assert_eq!(result, "store it in MySQL please");
+    }
+
+    #[test]
+    fn test_dictionary_exact_alias_is_threshold_independent() {
+        // threshold 0.0 disables all fuzzy matching, yet the exact alias must fire.
+        let entries = vec![entry("ChargeBee", &["charge bee"])];
+        let result = apply_dictionary("the charge bee invoice", &entries, 0.0);
+        assert_eq!(result, "the ChargeBee invoice");
+    }
+
+    #[test]
+    fn test_dictionary_exact_alias_preserves_punctuation() {
+        let entries = vec![entry("ChargeBee", &["charge bee"])];
+        let result = apply_dictionary("use charge bee, please", &entries, 0.0);
+        assert!(result.contains("ChargeBee,"), "got: {}", result);
+    }
+
+    #[test]
+    fn test_dictionary_fuzzy_still_works_on_canonical() {
+        let entries = vec![entry("hello", &[]), entry("world", &[])];
+        let result = apply_dictionary("helo wrold", &entries, 0.5);
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_dictionary_replace_exact_disables_fuzzy_but_alias_fires() {
+        let entries = vec![DictionaryEntry {
+            word: "ChargeBee".to_string(),
+            sounds_like: vec!["charge bee".to_string()],
+            replace_exact: true,
+            case_sensitive: false,
+        }];
+
+        // Fuzzy on the canonical word is disabled: a near-miss stays untouched.
+        let fuzzy = apply_dictionary("the chargebe invoice", &entries, 0.5);
+        assert_eq!(fuzzy, "the chargebe invoice");
+
+        // But the deterministic alias still fires.
+        let exact = apply_dictionary("the charge bee invoice", &entries, 0.5);
+        assert_eq!(exact, "the ChargeBee invoice");
+    }
+
+    #[test]
+    fn test_dictionary_case_sensitive_emits_verbatim() {
+        let entries = vec![DictionaryEntry {
+            word: "iOS".to_string(),
+            sounds_like: vec!["i o s".to_string()],
+            replace_exact: false,
+            case_sensitive: true,
+        }];
+
+        // Sentence-start capitalization must NOT be mirrored onto the canonical.
+        let result = apply_dictionary("I o s is great", &entries, 0.18);
+        assert!(result.contains("iOS"), "got: {}", result);
+        assert!(!result.contains("IOS"), "got: {}", result);
+    }
+
+    #[test]
+    fn test_dictionary_case_insensitive_preserves_pattern() {
+        // Without case_sensitive, an all-caps input token yields an all-caps output.
+        let entries = vec![entry("ChargeBee", &["charge bee"])];
+        let result = apply_dictionary("CHARGE BEE is great", &entries, 0.18);
+        assert!(result.contains("CHARGEBEE"), "got: {}", result);
+    }
+
+    #[test]
+    fn test_dictionary_fuzzy_alias_yields_canonical() {
+        // A fuzzy hit on an alias resolves to the canonical word, not the alias.
+        let entries = vec![entry("Kubernetes", &["kubernetes cluster"])];
+        // Slight misspelling of the alias token still routes to canonical.
+        let result = apply_dictionary("our kubernetis stack", &entries, 0.3);
+        assert!(result.contains("Kubernetes"), "got: {}", result);
+    }
+
+    #[test]
+    fn test_dictionary_aliases_only_skips_fuzzy() {
+        let entries = vec![entry("ChargeBee", &["charge bee"])];
+
+        // Exact alias fires...
+        let aliased = apply_dictionary_aliases_only("the charge bee invoice", &entries);
+        assert_eq!(aliased, "the ChargeBee invoice");
+
+        // ...but fuzzy on the canonical word does not run in aliases-only mode.
+        let fuzzy = apply_dictionary_aliases_only("the chargebe invoice", &entries);
+        assert_eq!(fuzzy, "the chargebe invoice");
+    }
+
+    #[test]
+    fn test_dictionary_empty_entries_noop() {
+        let result = apply_dictionary("hello world", &[], 0.5);
+        assert_eq!(result, "hello world");
     }
 }
