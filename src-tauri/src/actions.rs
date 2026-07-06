@@ -72,6 +72,12 @@ fn strip_invisible_chars(s: &str) -> String {
 /// rather than inventing a second one.
 const VOCABULARY_BLOCK_MAX_CHARS: usize = 800;
 
+/// Literal prefix of the vocabulary block we generate (see
+/// [`dictionary_vocabulary_block`]). Shared with [`strip_leaked_vocabulary_block`]
+/// so the two can never drift apart — the stripper looks for exactly this text.
+const VOCABULARY_BLOCK_PREFIX: &str =
+    "Vocabulary — always use these exact spellings of the user's custom words:";
+
 /// Build the "Vocabulary" block appended to the cleanup system prompt so the
 /// LLM keeps the user's exact custom spellings instead of "fixing" them.
 /// Canonical `word`s only — `sounds_like` aliases are never surfaced here:
@@ -85,9 +91,23 @@ fn dictionary_vocabulary_block(dictionary: &[DictionaryEntry]) -> Option<String>
     let words: Vec<&str> = dictionary.iter().map(|e| e.word.as_str()).collect();
     let joined =
         crate::backends::stt_http::build_prompt_string(&words, VOCABULARY_BLOCK_MAX_CHARS)?;
-    Some(format!(
-        "Vocabulary — always use these exact spellings of the user's custom words: {joined}"
-    ))
+    Some(format!("{VOCABULARY_BLOCK_PREFIX} {joined}"))
+}
+
+/// Deterministic safety net for a weak/local model that echoes the vocabulary
+/// instruction block (see [`dictionary_vocabulary_block`]) into its cleaned
+/// output instead of only following it. Since we control the exact text of
+/// that block, its prefix is a reliable marker: if present, everything from
+/// that point to the end of the string is dropped (trailing whitespace/blank
+/// lines left behind are trimmed too), regardless of whether the echo landed
+/// on its own line or was appended after a blank line. A no-op when the
+/// prefix is absent — in particular, output that merely mentions the word
+/// "Vocabulary" without the exact instruction text is left untouched.
+fn strip_leaked_vocabulary_block(output: &str) -> String {
+    match output.find(VOCABULARY_BLOCK_PREFIX) {
+        Some(idx) => output[..idx].trim_end().to_string(),
+        None => output.to_string(),
+    }
 }
 
 /// Build a system prompt from the user's prompt template, appending a
@@ -98,28 +118,6 @@ fn build_system_prompt(prompt_template: &str, dictionary: &[DictionaryEntry]) ->
     let mut prompt = prompt_template.replace("${output}", "").trim().to_string();
     if let Some(block) = dictionary_vocabulary_block(dictionary) {
         if !prompt.is_empty() {
-            prompt.push_str("\n\n");
-        }
-        prompt.push_str(&block);
-    }
-    prompt
-}
-
-/// Build the legacy-mode (non-structured-output) prompt: substitute
-/// `${output}` with the transcription, then append the same vocabulary block
-/// the structured-output path attaches via [`build_system_prompt`]. The legacy
-/// path sends a single message (no separate system prompt), so the block is
-/// appended to the end of that same string instead. Called exactly once per
-/// `post_process_transcription` invocation, so the block can't be appended
-/// twice on this path.
-fn build_legacy_prompt(
-    prompt_template: &str,
-    transcription: &str,
-    dictionary: &[DictionaryEntry],
-) -> String {
-    let mut prompt = prompt_template.replace("${output}", transcription);
-    if let Some(block) = dictionary_vocabulary_block(dictionary) {
-        if !prompt.trim().is_empty() {
             prompt.push_str("\n\n");
         }
         prompt.push_str(&block);
@@ -283,7 +281,8 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
                             debug!("Apple Intelligence returned an empty response");
                             None
                         } else {
-                            let result = strip_invisible_chars(&result);
+                            let result =
+                                strip_leaked_vocabulary_block(&strip_invisible_chars(&result));
                             debug!(
                                 "Apple Intelligence post-processing succeeded. Output length: {} chars",
                                 result.len()
@@ -337,7 +336,9 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
                         if let Some(transcription_value) =
                             json.get(TRANSCRIPTION_FIELD).and_then(|t| t.as_str())
                         {
-                            let result = strip_invisible_chars(transcription_value);
+                            let result = strip_leaked_vocabulary_block(&strip_invisible_chars(
+                                transcription_value,
+                            ));
                             debug!(
                                 "Structured output post-processing succeeded for provider '{}'. Output length: {} chars",
                                 provider.id,
@@ -346,7 +347,9 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
                             return Some(result);
                         } else {
                             error!("Structured output response missing 'transcription' field");
-                            return Some(strip_invisible_chars(&content));
+                            return Some(strip_leaked_vocabulary_block(&strip_invisible_chars(
+                                &content,
+                            )));
                         }
                     }
                     Err(e) => {
@@ -354,7 +357,9 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
                             "Failed to parse structured output JSON: {}. Returning raw content.",
                             e
                         );
-                        return Some(strip_invisible_chars(&content));
+                        return Some(strip_leaked_vocabulary_block(&strip_invisible_chars(
+                            &content,
+                        )));
                     }
                 }
             }
@@ -372,26 +377,34 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         }
     }
 
-    // Legacy mode: Replace ${output} variable in the prompt with the actual text,
-    // and append the same dictionary vocabulary block the structured-output path
-    // gets (see `build_legacy_prompt`) — this path previously sent no vocabulary
-    // hint at all, on both the plain legacy path and the structured-output
-    // error-fallback path that lands here.
-    let processed_prompt = build_legacy_prompt(&prompt, transcription, &settings.dictionary);
-    debug!("Processed prompt length: {} chars", processed_prompt.len());
+    // Legacy mode: role-separate instructions from content, mirroring the
+    // structured-output path (the prompt template + dictionary vocabulary block
+    // live in the system message, the raw transcription is the sole user
+    // message) but with no JSON schema, so it also works on providers that
+    // don't support structured output. This is what previously leaked the
+    // vocabulary block into the model's reply on both the plain legacy path and
+    // the structured-output error-fallback path that lands here: the old
+    // single-message prompt appended the vocab instructions after the
+    // transcription with no role boundary between "content" and "instruction",
+    // which weak models can't reliably separate.
+    let system_prompt = build_system_prompt(&prompt, &settings.dictionary);
+    let user_content = transcription.to_string();
+    debug!("Legacy system prompt length: {} chars", system_prompt.len());
 
-    match crate::llm_client::send_chat_completion(
+    match crate::llm_client::send_chat_completion_with_schema(
         &provider,
         api_key,
         &model,
-        processed_prompt,
+        user_content,
+        Some(system_prompt),
+        None,
         reasoning_effort,
         reasoning,
     )
     .await
     {
         Ok(Some(content)) => {
-            let content = strip_invisible_chars(&content);
+            let content = strip_leaked_vocabulary_block(&strip_invisible_chars(&content));
             debug!(
                 "LLM post-processing succeeded for provider '{}'. Output length: {} chars",
                 provider.id,
@@ -1391,8 +1404,8 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 #[cfg(test)]
 mod tests {
     use super::{
-        build_legacy_prompt, build_system_prompt, dictionary_vocabulary_block,
-        is_blank_transcription, resolve_agent_api_key_with, VOCABULARY_BLOCK_MAX_CHARS,
+        build_system_prompt, dictionary_vocabulary_block, is_blank_transcription,
+        resolve_agent_api_key_with, strip_leaked_vocabulary_block, VOCABULARY_BLOCK_MAX_CHARS,
     };
     use crate::settings::{AgentDefinition, AgentOutputMode, DictionaryEntry};
 
@@ -1541,40 +1554,37 @@ mod tests {
         assert!(prompt.starts_with("Vocabulary"));
     }
 
-    // ---- Legacy (non-structured-output) prompt assembly — FIX 3 ----
+    // ---- Leaked vocabulary block stripping (deterministic safety net) ----
 
     #[test]
-    fn legacy_prompt_substitutes_output_placeholder() {
-        let prompt = build_legacy_prompt("Clean up: ${output}", "hello world", &[]);
-        assert_eq!(prompt, "Clean up: hello world");
+    fn strips_leaked_vocabulary_block_appended_after_real_text() {
+        let output = "Hello world, this is the cleaned transcript.\n\nVocabulary — always use these exact spellings of the user's custom words: ChargeBee, MacBook Pro, Kubernetes, iPhone";
+        let stripped = strip_leaked_vocabulary_block(output);
+        assert_eq!(stripped, "Hello world, this is the cleaned transcript.");
     }
 
     #[test]
-    fn legacy_prompt_appends_vocabulary_block_when_dictionary_present() {
-        let dict = vec![entry("OpenFlow", &["open flo"])];
-        let prompt = build_legacy_prompt("Clean up: ${output}", "hello", &dict);
-        assert!(prompt.starts_with("Clean up: hello"));
-        assert!(prompt.contains("Vocabulary"));
-        assert!(prompt.contains("OpenFlow"));
-        assert!(!prompt.contains("open flo"));
-        assert!(!prompt.contains("${output}"));
+    fn strips_leaked_vocabulary_block_when_it_is_the_whole_trailing_segment() {
+        let output =
+            "Vocabulary — always use these exact spellings of the user's custom words: ChargeBee";
+        let stripped = strip_leaked_vocabulary_block(output);
+        assert_eq!(stripped, "");
     }
 
     #[test]
-    fn legacy_prompt_unchanged_when_dictionary_is_empty() {
-        let prompt = build_legacy_prompt("Clean up: ${output}", "hello", &[]);
-        assert_eq!(prompt, "Clean up: hello");
-        assert!(!prompt.contains("Vocabulary"));
+    fn strip_leaked_vocabulary_block_is_noop_when_absent() {
+        let output = "Just a normal cleaned transcript with no leakage.";
+        assert_eq!(strip_leaked_vocabulary_block(output), output);
     }
 
     #[test]
-    fn legacy_prompt_appends_block_exactly_once() {
-        // Regression guard: calling the builder twice on the same inputs must
-        // not accumulate a second copy of the block (each call is independent).
-        let dict = vec![entry("OpenFlow", &[])];
-        let first = build_legacy_prompt("Clean up: ${output}", "hello", &dict);
-        let second = build_legacy_prompt("Clean up: ${output}", "hello", &dict);
-        assert_eq!(first, second);
-        assert_eq!(first.matches("Vocabulary").count(), 1);
+    fn strip_leaked_vocabulary_block_does_not_truncate_mere_mentions() {
+        // Contains the word "Vocabulary" but not the exact instruction prefix —
+        // must be left completely untouched.
+        let output = "My vocabulary has really improved lately, thanks!";
+        assert_eq!(strip_leaked_vocabulary_block(output), output);
+
+        let output2 = "Vocabulary is an interesting topic to discuss.";
+        assert_eq!(strip_leaked_vocabulary_block(output2), output2);
     }
 }
