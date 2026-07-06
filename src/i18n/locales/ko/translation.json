@@ -14,6 +14,7 @@
     "advanced": "고급",
     "postProcessing": "후처리",
     "dictionary": "사전",
+    "agents": "에이전트",
     "history": "히스토리",
     "debug": "디버그",
     "about": "정보"
@@ -454,6 +455,85 @@
         "importSuccess": "{{count}}개 항목을 가져왔습니다",
         "importError": "파일을 읽을 수 없습니다. 사전 JSON 또는 일반 단어 목록을 사용하세요.",
         "nothingToExport": "사전이 비어 있어 내보낼 항목이 없습니다."
+      }
+    },
+    "agents": {
+      "title": "에이전트",
+      "intro": "원하는 단축키에 고유한 페르소나를 부여하세요. 에이전트의 단축키에 대고 말하면 OpenFlow는 원본 텍스트를 그대로 삽입하는 대신, 해당 에이전트의 LLM을 거쳐 결과를 삽입합니다.",
+      "emptyState": "아직 에이전트가 없습니다. 아래에서 추가해 첫 단축키 기반 페르소나를 만들어 보세요.",
+      "addAgent": {
+        "title": "에이전트 추가",
+        "blank": "빈 에이전트",
+        "templates": {
+          "formalRewriter": {
+            "name": "격식체 다듬기",
+            "description": "받아쓴 내용을 격식 있고 세련된 어조로 다시 씁니다."
+          },
+          "commitMessage": {
+            "name": "커밋 메시지",
+            "description": "말한 설명을 Conventional Commits 형식의 메시지로 바꿔줍니다."
+          }
+        },
+        "created": "\"{{name}}\" 생성됨",
+        "error": "에이전트를 만들 수 없습니다: {{error}}"
+      },
+      "card": {
+        "name": { "label": "이름", "placeholder": "예: 격식체 다듬기" },
+        "enabled": {
+          "label": "사용",
+          "description": "끄면 이 에이전트의 단축키 등록이 해제됩니다."
+        },
+        "provider": {
+          "label": "제공자",
+          "description": "이 에이전트의 페르소나가 실행되는 LLM 백엔드입니다."
+        },
+        "model": {
+          "label": "모델",
+          "placeholder": "예: gpt-4o-mini",
+          "description": "선택한 제공자와 함께 사용할 모델 ID입니다. 직접 입력하며, 에이전트용 실시간 모델 목록은 제공되지 않습니다."
+        },
+        "apiKey": {
+          "label": "API 키",
+          "description": "선택 사항입니다. 비워두면 이 제공자의 후처리 키를 대신 사용합니다.",
+          "placeholderConfigured": "•••••••• (저장됨 — 그대로 두려면 비워두세요)",
+          "placeholderEmpty": "이 제공자의 후처리 키를 대신 사용합니다",
+          "clear": "키 지우기",
+          "cleared": "API 키가 지워졌습니다",
+          "saved": "API 키가 저장되었습니다",
+          "error": "API 키를 저장할 수 없습니다: {{error}}"
+        },
+        "outputMode": {
+          "label": "출력",
+          "description": "에이전트의 응답을 어떻게 처리할지 정합니다.",
+          "inject": "커서 위치에 삽입",
+          "clipboard": "클립보드에 복사"
+        },
+        "systemPrompt": {
+          "label": "시스템 프롬프트",
+          "description": "받아쓴 내용을 변환할 때 사용되는 페르소나와 지침입니다.",
+          "placeholder": "이 에이전트의 페르소나와 받아쓴 내용을 어떻게 변환할지 설명하세요..."
+        },
+        "test": {
+          "label": "테스트",
+          "description": "단축키를 건드리지 않고 샘플 텍스트로 에이전트를 시험해 보세요.",
+          "sampleText": {
+            "placeholder": "시험해 볼 샘플 텍스트를 입력하거나 붙여넣으세요..."
+          },
+          "run": "테스트 실행",
+          "running": "실행 중...",
+          "latency": "{{ms}}ms",
+          "error": "테스트 실패: {{error}}"
+        },
+        "delete": {
+          "button": "에이전트 삭제",
+          "confirmTitle": "\"{{name}}\"을(를) 삭제할까요?",
+          "confirmDescription": "이 에이전트와 단축키, 저장된 API 키가 모두 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+          "confirm": "삭제",
+          "cancel": "취소",
+          "success": "\"{{name}}\" 삭제됨",
+          "error": "에이전트를 삭제할 수 없습니다: {{error}}"
+        },
+        "update": { "error": "에이전트를 업데이트할 수 없습니다: {{error}}" }
       }
     },
     "history": {

@@ -14,6 +14,7 @@
     "advanced": "高级",
     "postProcessing": "后处理",
     "dictionary": "词典",
+    "agents": "智能体",
     "history": "历史记录",
     "debug": "调试",
     "about": "关于"
@@ -454,6 +455,83 @@
         "importSuccess": "已导入 {{count}} 条",
         "importError": "无法读取该文件。请使用词典 JSON 或纯词语列表。",
         "nothingToExport": "你的词典为空——没有可导出的内容。"
+      }
+    },
+    "agents": {
+      "title": "智能体",
+      "intro": "为每个快捷键赋予专属人设。对着某个智能体的快捷键说话，OpenFlow 会先将转录文本通过该智能体的 LLM 处理，再插入结果，而不是插入原始转录文本。",
+      "emptyState": "还没有智能体。在下方添加一个，获得你的第一个由快捷键触发的人设。",
+      "addAgent": {
+        "title": "添加智能体",
+        "blank": "空白智能体",
+        "templates": {
+          "formalRewriter": {
+            "name": "正式改写",
+            "description": "以正式、精炼的语气改写你的口述内容。"
+          },
+          "commitMessage": {
+            "name": "提交信息",
+            "description": "将口述描述转换为符合 Conventional Commits 规范的提交信息。"
+          }
+        },
+        "created": "已创建“{{name}}”",
+        "error": "无法创建智能体：{{error}}"
+      },
+      "card": {
+        "name": { "label": "名称", "placeholder": "例如：正式改写" },
+        "enabled": {
+          "label": "启用",
+          "description": "关闭时，此智能体的快捷键将被取消注册。"
+        },
+        "provider": {
+          "label": "提供商",
+          "description": "此智能体人设所运行的 LLM 后端。"
+        },
+        "model": {
+          "label": "模型",
+          "placeholder": "例如：gpt-4o-mini",
+          "description": "所选提供商使用的模型 ID。需手动输入——智能体没有实时模型列表。"
+        },
+        "apiKey": {
+          "label": "API 密钥",
+          "description": "可选。留空则回退使用此提供商的后处理密钥。",
+          "placeholderConfigured": "••••••••（已保存 — 留空以保留）",
+          "placeholderEmpty": "将回退使用此提供商的后处理密钥",
+          "clear": "清除密钥",
+          "cleared": "已清除 API 密钥",
+          "saved": "已保存 API 密钥",
+          "error": "无法保存 API 密钥：{{error}}"
+        },
+        "outputMode": {
+          "label": "输出",
+          "description": "智能体回复后会发生的操作。",
+          "inject": "在光标处插入",
+          "clipboard": "复制到剪贴板"
+        },
+        "systemPrompt": {
+          "label": "系统提示词",
+          "description": "用于转换口述内容的人设与指令。",
+          "placeholder": "描述此智能体的人设，以及它应如何转换口述内容……"
+        },
+        "test": {
+          "label": "测试",
+          "description": "在不影响你的快捷键的情况下，用示例转录文本试用此智能体。",
+          "sampleText": { "placeholder": "输入或粘贴示例转录文本以试用……" },
+          "run": "运行测试",
+          "running": "运行中……",
+          "latency": "{{ms}} 毫秒",
+          "error": "测试失败：{{error}}"
+        },
+        "delete": {
+          "button": "删除智能体",
+          "confirmTitle": "删除“{{name}}”？",
+          "confirmDescription": "这将移除此智能体、其快捷键及已保存的 API 密钥。此操作无法撤销。",
+          "confirm": "删除",
+          "cancel": "取消",
+          "success": "已删除“{{name}}”",
+          "error": "无法删除智能体：{{error}}"
+        },
+        "update": { "error": "无法更新智能体：{{error}}" }
       }
     },
     "history": {

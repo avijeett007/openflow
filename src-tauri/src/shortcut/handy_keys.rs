@@ -453,6 +453,12 @@ pub fn init_shortcuts(app: &AppHandle) -> Result<(), String> {
     }
 
     app.manage(state);
+
+    // Flow OS: register enabled agent hotkeys too (they live in user settings,
+    // not the default binding set enumerated above). State is now managed, so the
+    // shared facade can resolve it.
+    super::register_agent_shortcuts(app, settings::KeyboardImplementation::HandyKeys);
+
     info!("handy-keys shortcuts initialized");
     Ok(())
 }

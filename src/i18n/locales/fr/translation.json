@@ -14,6 +14,7 @@
     "advanced": "Avancé",
     "postProcessing": "Post-traitement",
     "dictionary": "Dictionnaire",
+    "agents": "Agents",
     "history": "Historique",
     "debug": "Débogage",
     "about": "À propos"
@@ -454,6 +455,85 @@
         "importSuccess": "{{count}} entrées importées",
         "importError": "Impossible de lire ce fichier. Utilisez un JSON de dictionnaire ou une simple liste de mots.",
         "nothingToExport": "Votre dictionnaire est vide — rien à exporter."
+      }
+    },
+    "agents": {
+      "title": "Agents",
+      "intro": "Donnez à n'importe quel raccourci sa propre personnalité. Parlez dans le raccourci d'un agent et OpenFlow achemine la transcription via le LLM de cet agent avant d'insérer le résultat, au lieu de la transcription brute.",
+      "emptyState": "Aucun agent pour l'instant. Ajoutez-en un ci-dessous pour créer votre première personnalité déclenchée par raccourci.",
+      "addAgent": {
+        "title": "Ajouter un agent",
+        "blank": "Agent vierge",
+        "templates": {
+          "formalRewriter": {
+            "name": "Réécriture Formelle",
+            "description": "Réécrit votre dictée dans un ton formel et soigné."
+          },
+          "commitMessage": {
+            "name": "Message de Commit",
+            "description": "Transforme une description orale en message de Conventional Commits."
+          }
+        },
+        "created": "« {{name}} » créé",
+        "error": "Impossible de créer l'agent : {{error}}"
+      },
+      "card": {
+        "name": { "label": "Nom", "placeholder": "ex. Réécriture Formelle" },
+        "enabled": {
+          "label": "Activé",
+          "description": "Lorsqu'il est désactivé, le raccourci de cet agent n'est plus enregistré."
+        },
+        "provider": {
+          "label": "Fournisseur",
+          "description": "Le backend LLM sur lequel s'exécute la personnalité de cet agent."
+        },
+        "model": {
+          "label": "Modèle",
+          "placeholder": "ex. gpt-4o-mini",
+          "description": "Identifiant du modèle à utiliser avec le fournisseur sélectionné. Saisi manuellement — il n'y a pas de liste de modèles en direct pour les agents."
+        },
+        "apiKey": {
+          "label": "Clé API",
+          "description": "Facultatif. Laissez vide pour utiliser la clé de post-traitement de ce fournisseur.",
+          "placeholderConfigured": "•••••••• (enregistrée — laissez vide pour la conserver)",
+          "placeholderEmpty": "Utilise la clé de post-traitement de ce fournisseur",
+          "clear": "Effacer la clé",
+          "cleared": "Clé API effacée",
+          "saved": "Clé API enregistrée",
+          "error": "Impossible d'enregistrer la clé API : {{error}}"
+        },
+        "outputMode": {
+          "label": "Sortie",
+          "description": "Ce qui se passe avec la réponse de l'agent.",
+          "inject": "Insérer au curseur",
+          "clipboard": "Copier dans le presse-papiers"
+        },
+        "systemPrompt": {
+          "label": "Prompt système",
+          "description": "La personnalité et les instructions utilisées pour transformer la dictée.",
+          "placeholder": "Décrivez la personnalité de cet agent et comment il doit transformer la dictée..."
+        },
+        "test": {
+          "label": "Tester",
+          "description": "Essayez l'agent sur une transcription d'exemple sans toucher à votre raccourci.",
+          "sampleText": {
+            "placeholder": "Tapez ou collez une transcription d'exemple à essayer..."
+          },
+          "run": "Lancer le test",
+          "running": "En cours...",
+          "latency": "{{ms}} ms",
+          "error": "Échec du test : {{error}}"
+        },
+        "delete": {
+          "button": "Supprimer l'agent",
+          "confirmTitle": "Supprimer « {{name}} » ?",
+          "confirmDescription": "Cela supprime l'agent, son raccourci et sa clé API enregistrée. Cette action est irréversible.",
+          "confirm": "Supprimer",
+          "cancel": "Annuler",
+          "success": "« {{name}} » supprimé",
+          "error": "Impossible de supprimer l'agent : {{error}}"
+        },
+        "update": { "error": "Impossible de mettre à jour l'agent : {{error}}" }
       }
     },
     "history": {

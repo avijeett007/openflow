@@ -14,6 +14,7 @@
     "advanced": "Nâng cao",
     "postProcessing": "Xử lý sau",
     "dictionary": "Từ điển",
+    "agents": "Tác nhân",
     "history": "Lịch sử",
     "debug": "Gỡ lỗi",
     "about": "Giới thiệu"
@@ -454,6 +455,88 @@
         "importSuccess": "Đã nhập {{count}} mục",
         "importError": "Không đọc được tệp đó. Hãy dùng tệp JSON từ điển hoặc danh sách từ đơn giản.",
         "nothingToExport": "Từ điển của bạn trống — không có gì để xuất."
+      }
+    },
+    "agents": {
+      "title": "Tác nhân",
+      "intro": "Gán cho mỗi phím tắt một tính cách riêng. Nói vào phím tắt của một tác nhân và OpenFlow sẽ chuyển bản chép lời qua LLM của tác nhân đó trước khi chèn kết quả, thay vì bản chép lời gốc.",
+      "emptyState": "Chưa có tác nhân nào. Thêm một tác nhân bên dưới để có tính cách kích hoạt bằng phím tắt đầu tiên của bạn.",
+      "addAgent": {
+        "title": "Thêm một tác nhân",
+        "blank": "Tác nhân trống",
+        "templates": {
+          "formalRewriter": {
+            "name": "Viết lại trang trọng",
+            "description": "Viết lại lời đọc của bạn theo giọng điệu trang trọng, chỉn chu."
+          },
+          "commitMessage": {
+            "name": "Thông điệp commit",
+            "description": "Biến một mô tả nói thành thông điệp theo chuẩn Conventional Commits."
+          }
+        },
+        "created": "Đã tạo \"{{name}}\"",
+        "error": "Không thể tạo tác nhân: {{error}}"
+      },
+      "card": {
+        "name": {
+          "label": "Tên",
+          "placeholder": "ví dụ: Viết lại trang trọng"
+        },
+        "enabled": {
+          "label": "Bật",
+          "description": "Khi tắt, phím tắt của tác nhân này sẽ bị hủy đăng ký."
+        },
+        "provider": {
+          "label": "Nhà cung cấp",
+          "description": "LLM nào sẽ chạy tính cách của tác nhân này."
+        },
+        "model": {
+          "label": "Mô hình",
+          "placeholder": "ví dụ: gpt-4o-mini",
+          "description": "ID mô hình dùng với nhà cung cấp đã chọn. Nhập thủ công - không có danh sách mô hình trực tiếp cho tác nhân."
+        },
+        "apiKey": {
+          "label": "Khóa API",
+          "description": "Tùy chọn. Để trống để dùng khóa Xử lý sau của nhà cung cấp này.",
+          "placeholderConfigured": "•••••••• (đã lưu — để trống để giữ nguyên)",
+          "placeholderEmpty": "Sẽ dùng khóa Xử lý sau của nhà cung cấp này",
+          "clear": "Xóa khóa",
+          "cleared": "Đã xóa khóa API",
+          "saved": "Đã lưu khóa API",
+          "error": "Không thể lưu khóa API: {{error}}"
+        },
+        "outputMode": {
+          "label": "Đầu ra",
+          "description": "Điều gì xảy ra với phản hồi của tác nhân.",
+          "inject": "Chèn tại con trỏ",
+          "clipboard": "Sao chép vào clipboard"
+        },
+        "systemPrompt": {
+          "label": "Prompt hệ thống",
+          "description": "Tính cách và hướng dẫn dùng để biến đổi lời đọc.",
+          "placeholder": "Mô tả tính cách của tác nhân này và cách nó nên biến đổi lời đọc..."
+        },
+        "test": {
+          "label": "Kiểm tra",
+          "description": "Thử tác nhân trên một bản chép lời mẫu mà không ảnh hưởng đến phím tắt của bạn.",
+          "sampleText": {
+            "placeholder": "Nhập hoặc dán một bản chép lời mẫu để thử..."
+          },
+          "run": "Chạy kiểm tra",
+          "running": "Đang chạy...",
+          "latency": "{{ms}} ms",
+          "error": "Kiểm tra thất bại: {{error}}"
+        },
+        "delete": {
+          "button": "Xóa tác nhân",
+          "confirmTitle": "Xóa \"{{name}}\"?",
+          "confirmDescription": "Thao tác này sẽ xóa tác nhân, phím tắt và khóa API đã lưu của nó. Không thể hoàn tác.",
+          "confirm": "Xóa",
+          "cancel": "Hủy",
+          "success": "Đã xóa \"{{name}}\"",
+          "error": "Không thể xóa tác nhân: {{error}}"
+        },
+        "update": { "error": "Không thể cập nhật tác nhân: {{error}}" }
       }
     },
     "history": {

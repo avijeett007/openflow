@@ -363,6 +363,12 @@ fn unregister_all_shortcuts(app: &AppHandle, implementation: KeyboardImplementat
             continue;
         }
 
+        // Seeded agent bindings can have an empty hotkey (not bound yet) — parsing
+        // an empty shortcut errors, so skip them here (nothing was registered).
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
+
         let result = match implementation {
             KeyboardImplementation::Tauri => tauri_impl::unregister_shortcut(app, binding),
             KeyboardImplementation::HandyKeys => handy_keys::unregister_shortcut(app, binding),
@@ -439,7 +445,45 @@ fn register_all_shortcuts_for_implementation(
         settings::write_settings(app, current_settings);
     }
 
+    // Also register user-defined agent hotkeys (not part of the default set).
+    register_agent_shortcuts(app, implementation);
+
     reset_bindings
+}
+
+/// Register every enabled Flow OS agent's hotkey for the given implementation.
+///
+/// Agent bindings live in user settings (`settings.agents` + their seeded
+/// `agent:<id>` entries in `settings.bindings`), NOT in the default-binding set
+/// that the startup/impl-switch loops enumerate — so those loops miss them. This
+/// fills that gap. Skips disabled agents and any whose seeded binding has an
+/// empty hotkey. Duplicate registration is rejected by the underlying facade, so
+/// a re-run is harmless. Used by both the runtime impl-switch path and the Tauri
+/// startup path (HandyKeys startup registers inline because its state isn't
+/// managed yet at that point).
+pub(crate) fn register_agent_shortcuts(app: &AppHandle, implementation: KeyboardImplementation) {
+    let settings = get_settings(app);
+    for agent in &settings.agents {
+        if !agent.enabled {
+            continue;
+        }
+        let Some(binding) = settings.bindings.get(&agent.binding_id).cloned() else {
+            continue;
+        };
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
+        let result = match implementation {
+            KeyboardImplementation::Tauri => tauri_impl::register_shortcut(app, binding),
+            KeyboardImplementation::HandyKeys => handy_keys::register_shortcut(app, binding),
+        };
+        if let Err(e) = result {
+            warn!(
+                "Failed to register agent shortcut '{}' for {:?}: {}",
+                agent.binding_id, implementation, e
+            );
+        }
+    }
 }
 
 /// Initialize HandyKeys if not already initialized, with rollback on failure

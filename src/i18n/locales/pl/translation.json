@@ -14,6 +14,7 @@
     "advanced": "Zaawansowane",
     "postProcessing": "Postproces",
     "dictionary": "Słownik",
+    "agents": "Agenci",
     "history": "Historia",
     "debug": "Debugowanie",
     "about": "O programie"
@@ -454,6 +455,88 @@
         "importSuccess": "Zaimportowano wpisy: {{count}}",
         "importError": "Nie udało się odczytać pliku. Użyj pliku JSON słownika lub zwykłej listy słów.",
         "nothingToExport": "Twój słownik jest pusty — nie ma czego eksportować."
+      }
+    },
+    "agents": {
+      "title": "Agenci",
+      "intro": "Nadaj dowolnemu skrótowi klawiszowemu własną personę. Powiedz coś do skrótu przypisanego do agenta, a OpenFlow przepuści transkrypcję przez model LLM tego agenta przed wstawieniem wyniku, zamiast wstawiać surową transkrypcję.",
+      "emptyState": "Nie masz jeszcze żadnych agentów. Dodaj jednego poniżej, aby stworzyć swoją pierwszą personę uruchamianą skrótem klawiszowym.",
+      "addAgent": {
+        "title": "Dodaj agenta",
+        "blank": "Pusty agent",
+        "templates": {
+          "formalRewriter": {
+            "name": "Formalny przepisywacz",
+            "description": "Przepisuje Twoją transkrypcję na formalny, dopracowany styl."
+          },
+          "commitMessage": {
+            "name": "Wiadomość commita",
+            "description": "Zamienia wypowiedziany opis na wiadomość w formacie Conventional Commits."
+          }
+        },
+        "created": "Utworzono „{{name}}”",
+        "error": "Nie udało się utworzyć agenta: {{error}}"
+      },
+      "card": {
+        "name": {
+          "label": "Nazwa",
+          "placeholder": "np. Formalny przepisywacz"
+        },
+        "enabled": {
+          "label": "Włączony",
+          "description": "Gdy wyłączone, skrót klawiszowy tego agenta zostaje wyrejestrowany."
+        },
+        "provider": {
+          "label": "Dostawca",
+          "description": "Backend LLM, na którym działa persona tego agenta."
+        },
+        "model": {
+          "label": "Model",
+          "placeholder": "np. gpt-4o-mini",
+          "description": "Identyfikator modelu używany z wybranym dostawcą. Wpisywany ręcznie — dla agentów nie ma aktualnej listy modeli."
+        },
+        "apiKey": {
+          "label": "Klucz API",
+          "description": "Opcjonalne. Zostaw puste, aby korzystać z klucza postprocessingu tego dostawcy.",
+          "placeholderConfigured": "•••••••• (zapisano — zostaw puste, aby zachować)",
+          "placeholderEmpty": "Korzysta z klucza postprocessingu tego dostawcy",
+          "clear": "Wyczyść klucz",
+          "cleared": "Wyczyszczono klucz API",
+          "saved": "Zapisano klucz API",
+          "error": "Nie udało się zapisać klucza API: {{error}}"
+        },
+        "outputMode": {
+          "label": "Wynik",
+          "description": "Co dzieje się z odpowiedzią agenta.",
+          "inject": "Wstaw w miejscu kursora",
+          "clipboard": "Kopiuj do schowka"
+        },
+        "systemPrompt": {
+          "label": "Prompt systemowy",
+          "description": "Persona i instrukcje używane do przekształcenia transkrypcji.",
+          "placeholder": "Opisz personę tego agenta i sposób, w jaki powinien przekształcać transkrypcję..."
+        },
+        "test": {
+          "label": "Test",
+          "description": "Wypróbuj agenta na przykładowej transkrypcji, bez naruszania skrótu klawiszowego.",
+          "sampleText": {
+            "placeholder": "Wpisz lub wklej przykładową transkrypcję, aby wypróbować..."
+          },
+          "run": "Uruchom test",
+          "running": "Trwa uruchamianie...",
+          "latency": "{{ms}} ms",
+          "error": "Test nie powiódł się: {{error}}"
+        },
+        "delete": {
+          "button": "Usuń agenta",
+          "confirmTitle": "Usunąć „{{name}}”?",
+          "confirmDescription": "Spowoduje to usunięcie agenta, jego skrótu klawiszowego i zapisanego klucza API. Tej operacji nie można cofnąć.",
+          "confirm": "Usuń",
+          "cancel": "Anuluj",
+          "success": "Usunięto „{{name}}”",
+          "error": "Nie udało się usunąć agenta: {{error}}"
+        },
+        "update": { "error": "Nie udało się zaktualizować agenta: {{error}}" }
       }
     },
     "history": {

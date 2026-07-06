@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod analytics;
 pub mod audio;
 pub mod backends;

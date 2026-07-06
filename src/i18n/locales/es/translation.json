@@ -14,6 +14,7 @@
     "advanced": "Avanzado",
     "postProcessing": "Post Proceso",
     "dictionary": "Diccionario",
+    "agents": "Agentes",
     "history": "Historial",
     "debug": "Depuración",
     "about": "Acerca de"
@@ -454,6 +455,88 @@
         "importSuccess": "{{count}} entradas importadas",
         "importError": "No se pudo leer ese archivo. Usa un JSON de diccionario o una lista de palabras simple.",
         "nothingToExport": "Tu diccionario está vacío: no hay nada que exportar."
+      }
+    },
+    "agents": {
+      "title": "Agentes",
+      "intro": "Dale a cualquier atajo su propia personalidad. Habla en el atajo de un agente y OpenFlow enrutará la transcripción a través del LLM de ese agente antes de insertar el resultado, en lugar de la transcripción sin procesar.",
+      "emptyState": "Aún no hay agentes. Añade uno abajo para crear tu primera personalidad activada por atajo.",
+      "addAgent": {
+        "title": "Añadir un agente",
+        "blank": "Agente en blanco",
+        "templates": {
+          "formalRewriter": {
+            "name": "Reescritor Formal",
+            "description": "Reescribe tu dictado en un tono formal y pulido."
+          },
+          "commitMessage": {
+            "name": "Mensaje de Commit",
+            "description": "Convierte una descripción hablada en un mensaje de Conventional Commits."
+          }
+        },
+        "created": "«{{name}}» creado",
+        "error": "No se pudo crear el agente: {{error}}"
+      },
+      "card": {
+        "name": {
+          "label": "Nombre",
+          "placeholder": "p. ej. Reescritor Formal"
+        },
+        "enabled": {
+          "label": "Habilitado",
+          "description": "Cuando está desactivado, el atajo de este agente queda sin registrar."
+        },
+        "provider": {
+          "label": "Proveedor",
+          "description": "En qué backend de LLM se ejecuta la personalidad de este agente."
+        },
+        "model": {
+          "label": "Modelo",
+          "placeholder": "p. ej. gpt-4o-mini",
+          "description": "ID del modelo a usar con el proveedor seleccionado. Se escribe manualmente: no hay una lista de modelos en vivo para agentes."
+        },
+        "apiKey": {
+          "label": "Clave de API",
+          "description": "Opcional. Déjala en blanco para usar la clave de Post Proceso de este proveedor.",
+          "placeholderConfigured": "•••••••• (guardada — deja en blanco para mantenerla)",
+          "placeholderEmpty": "Usa la clave de Post Proceso de este proveedor",
+          "clear": "Borrar clave",
+          "cleared": "Clave de API borrada",
+          "saved": "Clave de API guardada",
+          "error": "No se pudo guardar la clave de API: {{error}}"
+        },
+        "outputMode": {
+          "label": "Salida",
+          "description": "Qué ocurre con la respuesta del agente.",
+          "inject": "Insertar en el cursor",
+          "clipboard": "Copiar al portapapeles"
+        },
+        "systemPrompt": {
+          "label": "Prompt del sistema",
+          "description": "La personalidad e instrucciones usadas para transformar el dictado.",
+          "placeholder": "Describe la personalidad de este agente y cómo debe transformar el dictado..."
+        },
+        "test": {
+          "label": "Prueba",
+          "description": "Prueba el agente con una transcripción de muestra sin tocar tu atajo.",
+          "sampleText": {
+            "placeholder": "Escribe o pega una transcripción de muestra para probar..."
+          },
+          "run": "Ejecutar prueba",
+          "running": "Ejecutando...",
+          "latency": "{{ms}} ms",
+          "error": "La prueba falló: {{error}}"
+        },
+        "delete": {
+          "button": "Eliminar agente",
+          "confirmTitle": "¿Eliminar «{{name}}»?",
+          "confirmDescription": "Esto elimina el agente, su atajo y su clave de API guardada. Esta acción no se puede deshacer.",
+          "confirm": "Eliminar",
+          "cancel": "Cancelar",
+          "success": "«{{name}}» eliminado",
+          "error": "No se pudo eliminar el agente: {{error}}"
+        },
+        "update": { "error": "No se pudo actualizar el agente: {{error}}" }
       }
     },
     "history": {

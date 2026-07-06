@@ -41,6 +41,25 @@ pub fn is_transcribe_binding(id: &str) -> bool {
     id == "transcribe" || id == "transcribe_with_post_process"
 }
 
+/// A Flow OS agent binding is `agent:<id>`. Agent invocations are
+/// dictation-shaped and serialize through this same coordinator exactly like
+/// `"transcribe"` (post_process = false; the agent LLM is the processor).
+pub fn is_agent_binding(id: &str) -> bool {
+    id.starts_with("agent:")
+}
+
+/// Resolve the [`ShortcutAction`] that drives a binding. Agent bindings
+/// (`agent:<id>`) reuse the plain `"transcribe"` action — the binding_id is
+/// threaded through `start`/`stop` as a parameter, so the same action records
+/// under the agent's id and derives the agent from it at finish time.
+fn action_for(binding_id: &str) -> Option<Arc<dyn crate::actions::ShortcutAction>> {
+    if is_agent_binding(binding_id) {
+        ACTION_MAP.get("transcribe").cloned()
+    } else {
+        ACTION_MAP.get(binding_id).cloned()
+    }
+}
+
 impl TranscriptionCoordinator {
     pub fn new(app: AppHandle) -> Self {
         let (tx, rx) = mpsc::channel();
@@ -159,7 +178,7 @@ impl TranscriptionCoordinator {
 }
 
 fn start(app: &AppHandle, stage: &mut Stage, binding_id: &str, hotkey_string: &str) {
-    let Some(action) = ACTION_MAP.get(binding_id) else {
+    let Some(action) = action_for(binding_id) else {
         warn!("No action in ACTION_MAP for '{binding_id}'");
         return;
     };
@@ -175,10 +194,39 @@ fn start(app: &AppHandle, stage: &mut Stage, binding_id: &str, hotkey_string: &s
 }
 
 fn stop(app: &AppHandle, stage: &mut Stage, binding_id: &str, hotkey_string: &str) {
-    let Some(action) = ACTION_MAP.get(binding_id) else {
+    let Some(action) = action_for(binding_id) else {
         warn!("No action in ACTION_MAP for '{binding_id}'");
         return;
     };
     action.stop(app, binding_id, hotkey_string);
     *stage = Stage::Processing;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_agent_binding, is_transcribe_binding};
+
+    #[test]
+    fn recognizes_agent_bindings() {
+        assert!(is_agent_binding("agent:coder"));
+        assert!(is_agent_binding("agent:commit-msg"));
+        // The bare prefix is technically an agent binding (empty id); harmless.
+        assert!(is_agent_binding("agent:"));
+    }
+
+    #[test]
+    fn rejects_non_agent_bindings() {
+        assert!(!is_agent_binding("transcribe"));
+        assert!(!is_agent_binding("transcribe_with_post_process"));
+        assert!(!is_agent_binding("cancel"));
+        assert!(!is_agent_binding("agentic")); // no colon → not an agent binding
+    }
+
+    #[test]
+    fn transcribe_and_agent_bindings_are_disjoint() {
+        assert!(is_transcribe_binding("transcribe"));
+        assert!(!is_agent_binding("transcribe"));
+        assert!(is_agent_binding("agent:x"));
+        assert!(!is_transcribe_binding("agent:x"));
+    }
 }

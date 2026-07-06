@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import {
   BarChart3,
+  Bot,
   Cog,
   Ear,
   FlaskConical,
@@ -26,6 +27,7 @@ import {
   ModelSetupSettings,
   DashboardSettings,
   HandsFreeSettings,
+  AgentsSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -92,6 +94,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.dictionary",
     icon: BookA,
     component: DictionarySettings,
+    enabled: () => true,
+  },
+  agents: {
+    labelKey: "sidebar.agents",
+    icon: Bot,
+    component: AgentsSettings,
     enabled: () => true,
   },
   postprocessing: {

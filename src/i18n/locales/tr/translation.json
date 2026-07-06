@@ -14,6 +14,7 @@
     "advanced": "Gelişmiş",
     "postProcessing": "Son İşlem",
     "dictionary": "Sözlük",
+    "agents": "Ajanlar",
     "history": "Geçmiş",
     "debug": "Hata Ayıklama",
     "about": "Hakkında"
@@ -454,6 +455,85 @@
         "importSuccess": "{{count}} kayıt içe aktarıldı",
         "importError": "Bu dosya okunamadı. Bir sözlük JSON'ı veya düz bir kelime listesi kullan.",
         "nothingToExport": "Sözlüğün boş — dışa aktarılacak bir şey yok."
+      }
+    },
+    "agents": {
+      "title": "Ajanlar",
+      "intro": "Herhangi bir kısayol tuşuna kendi kişiliğini ver. Bir ajanın kısayol tuşuna konuş, OpenFlow transkripsiyonu ham haliyle eklemek yerine o ajanın LLM'sinden geçirip sonucu ekler.",
+      "emptyState": "Henüz ajan yok. İlk kısayolla tetiklenen kişiliğini oluşturmak için aşağıya bir tane ekle.",
+      "addAgent": {
+        "title": "Bir ajan ekle",
+        "blank": "Boş ajan",
+        "templates": {
+          "formalRewriter": {
+            "name": "Resmi Yeniden Yazıcı",
+            "description": "Dikteni resmi, cilalı bir üslupla yeniden yazar."
+          },
+          "commitMessage": {
+            "name": "Commit Mesajı",
+            "description": "Sözlü bir açıklamayı Conventional Commits mesajına dönüştürür."
+          }
+        },
+        "created": "\"{{name}}\" oluşturuldu",
+        "error": "Ajan oluşturulamadı: {{error}}"
+      },
+      "card": {
+        "name": { "label": "Ad", "placeholder": "örn. Resmi Yeniden Yazıcı" },
+        "enabled": {
+          "label": "Etkin",
+          "description": "Kapalıyken bu ajanın kısayol tuşunun kaydı kaldırılır."
+        },
+        "provider": {
+          "label": "Sağlayıcı",
+          "description": "Bu ajanın kişiliğinin hangi LLM arka ucunda çalıştığı."
+        },
+        "model": {
+          "label": "Model",
+          "placeholder": "örn. gpt-4o-mini",
+          "description": "Seçilen sağlayıcıyla kullanılacak model kimliği. Elle girilir - ajanlar için canlı bir model listesi yoktur."
+        },
+        "apiKey": {
+          "label": "API anahtarı",
+          "description": "İsteğe bağlı. Bu sağlayıcının Son İşlem anahtarına geri dönmek için boş bırak.",
+          "placeholderConfigured": "•••••••• (kaydedildi — korumak için boş bırak)",
+          "placeholderEmpty": "Bu sağlayıcı için Son İşlem anahtarına geri döner",
+          "clear": "Anahtarı temizle",
+          "cleared": "API anahtarı temizlendi",
+          "saved": "API anahtarı kaydedildi",
+          "error": "API anahtarı kaydedilemedi: {{error}}"
+        },
+        "outputMode": {
+          "label": "Çıktı",
+          "description": "Ajanın yanıtına ne olacağı.",
+          "inject": "İmleç konumuna ekle",
+          "clipboard": "Panoya kopyala"
+        },
+        "systemPrompt": {
+          "label": "Sistem istemi",
+          "description": "Diktenin dönüştürülmesinde kullanılan kişilik ve talimatlar.",
+          "placeholder": "Bu ajanın kişiliğini ve dikteyi nasıl dönüştürmesi gerektiğini açıkla..."
+        },
+        "test": {
+          "label": "Test",
+          "description": "Kısayol tuşuna dokunmadan ajanı örnek bir transkripsiyon üzerinde dene.",
+          "sampleText": {
+            "placeholder": "Denemek için bir örnek transkripsiyon yaz veya yapıştır..."
+          },
+          "run": "Testi çalıştır",
+          "running": "Çalışıyor...",
+          "latency": "{{ms}} ms",
+          "error": "Test başarısız oldu: {{error}}"
+        },
+        "delete": {
+          "button": "Ajanı sil",
+          "confirmTitle": "\"{{name}}\" silinsin mi?",
+          "confirmDescription": "Bu, ajanı, kısayol tuşunu ve kayıtlı API anahtarını kaldırır. Bu işlem geri alınamaz.",
+          "confirm": "Sil",
+          "cancel": "İptal",
+          "success": "\"{{name}}\" silindi",
+          "error": "Ajan silinemedi: {{error}}"
+        },
+        "update": { "error": "Ajan güncellenemedi: {{error}}" }
       }
     },
     "history": {

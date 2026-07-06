@@ -93,6 +93,48 @@ pub struct LLMPrompt {
     pub prompt: String,
 }
 
+/// What an agent does with its LLM response. `Inject` pastes it at the cursor
+/// exactly like a normal dictation; `Clipboard` only copies it (no paste, no
+/// auto-submit) and shows a brief confirmation. Defaults to `Inject`.
+#[derive(Serialize, Deserialize, Clone, Debug, Type, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentOutputMode {
+    Inject,
+    Clipboard,
+}
+
+impl Default for AgentOutputMode {
+    fn default() -> Self {
+        AgentOutputMode::Inject
+    }
+}
+
+/// A Flow OS agent: dictation routed through a persona LLM before injection.
+/// Each agent has its own global hotkey (via a seeded `ShortcutBinding` keyed
+/// `agent:<id>`). All optional fields are `#[serde(default)]` so an old settings
+/// store (with no `agents` key, or partial entries) always deserializes cleanly —
+/// the store wipes to defaults on any parse failure.
+#[derive(Serialize, Deserialize, Clone, Debug, Type)]
+pub struct AgentDefinition {
+    /// Stable slug, e.g. "coder"; unique. Matches `^[a-z0-9_-]{1,48}$`.
+    pub id: String,
+    /// Display name shown in the UI.
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// ALWAYS `"agent:<id>"` — the join key into `AppSettings.bindings`.
+    pub binding_id: String,
+    /// References an existing `post_process_providers` entry.
+    pub provider_id: String,
+    #[serde(default)]
+    pub model: String,
+    /// The persona used as the LLM system prompt.
+    #[serde(default)]
+    pub system_prompt: String,
+    #[serde(default)]
+    pub output_mode: AgentOutputMode,
+}
+
 /// A user dictionary entry: a canonical spelling plus optional "sounds like"
 /// aliases (misheard/alternate forms) that are rewritten to the canonical word.
 /// Supersedes the flat `custom_words` list (legacy entries migrate to one entry
@@ -594,6 +636,13 @@ pub struct AppSettings {
     /// and selected output device. Default on.
     #[serde(default = "default_hands_free_voice_feedback")]
     pub hands_free_voice_feedback: bool,
+
+    // ---- Flow OS: agents (per-agent voice hotkeys) ----
+    /// User-defined agents. Empty by default. Purely additive — an old store
+    /// with no `agents` key deserializes to an empty list, so behavior with no
+    /// agents configured is byte-for-byte identical to before this field existed.
+    #[serde(default)]
+    pub agents: Vec<AgentDefinition>,
 }
 
 fn default_model() -> String {
@@ -1102,7 +1151,13 @@ pub fn get_default_settings() -> AppSettings {
         wake_word_listen_seconds: default_wake_word_listen_seconds(),
         wake_word_silence_timeout_ms: default_wake_word_silence_timeout_ms(),
         hands_free_voice_feedback: default_hands_free_voice_feedback(),
+        agents: Vec::new(),
     }
+}
+
+/// `#[serde(default)]` helper for boolean fields that should default to `true`.
+fn default_true() -> bool {
+    true
 }
 
 impl AppSettings {

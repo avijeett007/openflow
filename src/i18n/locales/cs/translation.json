@@ -14,6 +14,7 @@
     "advanced": "Pokročilé",
     "postProcessing": "Následné zpracování",
     "dictionary": "Slovník",
+    "agents": "Agenti",
     "history": "Historie",
     "debug": "Ladění",
     "about": "O aplikaci"
@@ -454,6 +455,88 @@
         "importSuccess": "Importováno záznamů: {{count}}",
         "importError": "Tento soubor se nepodařilo přečíst. Použij JSON slovníku nebo prostý seznam slov.",
         "nothingToExport": "Tvůj slovník je prázdný — není co exportovat."
+      }
+    },
+    "agents": {
+      "title": "Agenti",
+      "intro": "Dej libovolné klávesové zkratce vlastní osobnost. Namluv do zkratky agenta a OpenFlow provede přepis přes LLM tohoto agenta ještě před vložením výsledku, místo aby vložil syrový přepis.",
+      "emptyState": "Zatím žádní agenti. Přidej níže prvního a získej svou první osobnost spouštěnou klávesovou zkratkou.",
+      "addAgent": {
+        "title": "Přidat agenta",
+        "blank": "Prázdný agent",
+        "templates": {
+          "formalRewriter": {
+            "name": "Formální přepisovač",
+            "description": "Přepíše tvou diktovanou řeč do formálního, uhlazeného tónu."
+          },
+          "commitMessage": {
+            "name": "Zpráva k commitu",
+            "description": "Promluvený popis změní na zprávu ve formátu Conventional Commits."
+          }
+        },
+        "created": "„{{name}}“ vytvořen",
+        "error": "Agenta se nepodařilo vytvořit: {{error}}"
+      },
+      "card": {
+        "name": {
+          "label": "Název",
+          "placeholder": "např. Formální přepisovač"
+        },
+        "enabled": {
+          "label": "Povoleno",
+          "description": "Pokud je vypnuto, klávesová zkratka tohoto agenta se zruší."
+        },
+        "provider": {
+          "label": "Poskytovatel",
+          "description": "Na jakém LLM backendu běží osobnost tohoto agenta."
+        },
+        "model": {
+          "label": "Model",
+          "placeholder": "např. gpt-4o-mini",
+          "description": "ID modelu k použití u vybraného poskytovatele. Zadává se ručně - pro agenty není k dispozici živý seznam modelů."
+        },
+        "apiKey": {
+          "label": "API klíč",
+          "description": "Volitelné. Ponech prázdné a použije se výchozí klíč pro následné zpracování u tohoto poskytovatele.",
+          "placeholderConfigured": "•••••••• (uloženo — ponech prázdné pro zachování)",
+          "placeholderEmpty": "Použije se klíč pro následné zpracování u tohoto poskytovatele",
+          "clear": "Vymazat klíč",
+          "cleared": "API klíč vymazán",
+          "saved": "API klíč uložen",
+          "error": "API klíč se nepodařilo uložit: {{error}}"
+        },
+        "outputMode": {
+          "label": "Výstup",
+          "description": "Co se stane s odpovědí agenta.",
+          "inject": "Vložit na pozici kurzoru",
+          "clipboard": "Zkopírovat do schránky"
+        },
+        "systemPrompt": {
+          "label": "Systémový prompt",
+          "description": "Osobnost a instrukce použité k transformaci přepisu.",
+          "placeholder": "Popiš osobnost tohoto agenta a jak má transformovat přepis..."
+        },
+        "test": {
+          "label": "Test",
+          "description": "Vyzkoušej agenta na ukázkovém přepisu, aniž bys sáhl na svou klávesovou zkratku.",
+          "sampleText": {
+            "placeholder": "Napiš nebo vlož ukázkový přepis k vyzkoušení..."
+          },
+          "run": "Spustit test",
+          "running": "Probíhá...",
+          "latency": "{{ms}} ms",
+          "error": "Test selhal: {{error}}"
+        },
+        "delete": {
+          "button": "Smazat agenta",
+          "confirmTitle": "Smazat „{{name}}“?",
+          "confirmDescription": "Tímto se odstraní agent, jeho klávesová zkratka a uložený API klíč. Tuto akci nelze vrátit zpět.",
+          "confirm": "Smazat",
+          "cancel": "Zrušit",
+          "success": "„{{name}}“ smazán",
+          "error": "Agenta se nepodařilo smazat: {{error}}"
+        },
+        "update": { "error": "Agenta se nepodařilo aktualizovat: {{error}}" }
       }
     },
     "history": {

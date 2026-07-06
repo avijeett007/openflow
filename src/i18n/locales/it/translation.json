@@ -14,6 +14,7 @@
     "advanced": "Avanzate",
     "postProcessing": "Post-Elaborazione",
     "dictionary": "Dizionario",
+    "agents": "Agenti",
     "history": "Cronologia",
     "debug": "Debug",
     "about": "Informazioni"
@@ -454,6 +455,85 @@
         "importSuccess": "{{count}} voci importate",
         "importError": "Impossibile leggere quel file. Usa un JSON del dizionario o un semplice elenco di parole.",
         "nothingToExport": "Il tuo dizionario è vuoto: niente da esportare."
+      }
+    },
+    "agents": {
+      "title": "Agenti",
+      "intro": "Dai a qualsiasi scorciatoia la sua personalità. Parla nella scorciatoia di un agente e OpenFlow instraderà la trascrizione attraverso l'LLM di quell'agente prima di inserire il risultato, invece della trascrizione grezza.",
+      "emptyState": "Ancora nessun agente. Aggiungine uno qui sotto per creare la tua prima personalità attivata da scorciatoia.",
+      "addAgent": {
+        "title": "Aggiungi un agente",
+        "blank": "Agente vuoto",
+        "templates": {
+          "formalRewriter": {
+            "name": "Riscrittore Formale",
+            "description": "Riscrive il tuo dettato in un tono formale e curato."
+          },
+          "commitMessage": {
+            "name": "Messaggio di Commit",
+            "description": "Trasforma una descrizione parlata in un messaggio Conventional Commits."
+          }
+        },
+        "created": "\"{{name}}\" creato",
+        "error": "Impossibile creare l'agente: {{error}}"
+      },
+      "card": {
+        "name": { "label": "Nome", "placeholder": "es. Riscrittore Formale" },
+        "enabled": {
+          "label": "Abilitato",
+          "description": "Quando disattivato, la scorciatoia di questo agente viene deregistrata."
+        },
+        "provider": {
+          "label": "Provider",
+          "description": "Su quale backend LLM gira la personalità di questo agente."
+        },
+        "model": {
+          "label": "Modello",
+          "placeholder": "es. gpt-4o-mini",
+          "description": "ID del modello da usare con il provider selezionato. Digitato manualmente: non esiste una lista di modelli in tempo reale per gli agenti."
+        },
+        "apiKey": {
+          "label": "Chiave API",
+          "description": "Facoltativa. Lasciala vuota per usare la chiave di Post-Elaborazione di questo provider.",
+          "placeholderConfigured": "•••••••• (salvata — lascia vuoto per mantenerla)",
+          "placeholderEmpty": "Usa la chiave di Post-Elaborazione di questo provider",
+          "clear": "Cancella chiave",
+          "cleared": "Chiave API cancellata",
+          "saved": "Chiave API salvata",
+          "error": "Impossibile salvare la chiave API: {{error}}"
+        },
+        "outputMode": {
+          "label": "Output",
+          "description": "Cosa succede alla risposta dell'agente.",
+          "inject": "Inserisci al cursore",
+          "clipboard": "Copia negli appunti"
+        },
+        "systemPrompt": {
+          "label": "Prompt di sistema",
+          "description": "La personalità e le istruzioni usate per trasformare il dettato.",
+          "placeholder": "Descrivi la personalità di questo agente e come deve trasformare il dettato..."
+        },
+        "test": {
+          "label": "Test",
+          "description": "Prova l'agente su una trascrizione di esempio senza toccare la tua scorciatoia.",
+          "sampleText": {
+            "placeholder": "Digita o incolla una trascrizione di esempio da provare..."
+          },
+          "run": "Esegui test",
+          "running": "In esecuzione...",
+          "latency": "{{ms}} ms",
+          "error": "Test fallito: {{error}}"
+        },
+        "delete": {
+          "button": "Elimina agente",
+          "confirmTitle": "Eliminare \"{{name}}\"?",
+          "confirmDescription": "Questo rimuove l'agente, la sua scorciatoia e la sua chiave API salvata. L'operazione non può essere annullata.",
+          "confirm": "Elimina",
+          "cancel": "Annulla",
+          "success": "\"{{name}}\" eliminato",
+          "error": "Impossibile eliminare l'agente: {{error}}"
+        },
+        "update": { "error": "Impossibile aggiornare l'agente: {{error}}" }
       }
     },
     "history": {

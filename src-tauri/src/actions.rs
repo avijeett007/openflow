@@ -10,7 +10,8 @@ use crate::managers::model::ModelManager;
 use crate::managers::transcription::StreamWorkKind;
 use crate::managers::transcription::TranscriptionManager;
 use crate::settings::{
-    get_settings, AppSettings, DictionaryEntry, OverlayStyle, APPLE_INTELLIGENCE_PROVIDER_ID,
+    get_settings, AgentDefinition, AgentOutputMode, AppSettings, DictionaryEntry, OverlayStyle,
+    APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::shortcut;
 use crate::tray::{change_tray_icon, TrayIconState};
@@ -26,6 +27,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tauri::Manager;
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 #[derive(Clone, serde::Serialize)]
 struct RecordingErrorEvent {
@@ -70,6 +72,12 @@ fn strip_invisible_chars(s: &str) -> String {
 /// rather than inventing a second one.
 const VOCABULARY_BLOCK_MAX_CHARS: usize = 800;
 
+/// Literal prefix of the vocabulary block we generate (see
+/// [`dictionary_vocabulary_block`]). Shared with [`strip_leaked_vocabulary_block`]
+/// so the two can never drift apart — the stripper looks for exactly this text.
+const VOCABULARY_BLOCK_PREFIX: &str =
+    "Vocabulary — always use these exact spellings of the user's custom words:";
+
 /// Build the "Vocabulary" block appended to the cleanup system prompt so the
 /// LLM keeps the user's exact custom spellings instead of "fixing" them.
 /// Canonical `word`s only — `sounds_like` aliases are never surfaced here:
@@ -83,9 +91,23 @@ fn dictionary_vocabulary_block(dictionary: &[DictionaryEntry]) -> Option<String>
     let words: Vec<&str> = dictionary.iter().map(|e| e.word.as_str()).collect();
     let joined =
         crate::backends::stt_http::build_prompt_string(&words, VOCABULARY_BLOCK_MAX_CHARS)?;
-    Some(format!(
-        "Vocabulary — always use these exact spellings of the user's custom words: {joined}"
-    ))
+    Some(format!("{VOCABULARY_BLOCK_PREFIX} {joined}"))
+}
+
+/// Deterministic safety net for a weak/local model that echoes the vocabulary
+/// instruction block (see [`dictionary_vocabulary_block`]) into its cleaned
+/// output instead of only following it. Since we control the exact text of
+/// that block, its prefix is a reliable marker: if present, everything from
+/// that point to the end of the string is dropped (trailing whitespace/blank
+/// lines left behind are trimmed too), regardless of whether the echo landed
+/// on its own line or was appended after a blank line. A no-op when the
+/// prefix is absent — in particular, output that merely mentions the word
+/// "Vocabulary" without the exact instruction text is left untouched.
+fn strip_leaked_vocabulary_block(output: &str) -> String {
+    match output.find(VOCABULARY_BLOCK_PREFIX) {
+        Some(idx) => output[..idx].trim_end().to_string(),
+        None => output.to_string(),
+    }
 }
 
 /// Build a system prompt from the user's prompt template, appending a
@@ -96,28 +118,6 @@ fn build_system_prompt(prompt_template: &str, dictionary: &[DictionaryEntry]) ->
     let mut prompt = prompt_template.replace("${output}", "").trim().to_string();
     if let Some(block) = dictionary_vocabulary_block(dictionary) {
         if !prompt.is_empty() {
-            prompt.push_str("\n\n");
-        }
-        prompt.push_str(&block);
-    }
-    prompt
-}
-
-/// Build the legacy-mode (non-structured-output) prompt: substitute
-/// `${output}` with the transcription, then append the same vocabulary block
-/// the structured-output path attaches via [`build_system_prompt`]. The legacy
-/// path sends a single message (no separate system prompt), so the block is
-/// appended to the end of that same string instead. Called exactly once per
-/// `post_process_transcription` invocation, so the block can't be appended
-/// twice on this path.
-fn build_legacy_prompt(
-    prompt_template: &str,
-    transcription: &str,
-    dictionary: &[DictionaryEntry],
-) -> String {
-    let mut prompt = prompt_template.replace("${output}", transcription);
-    if let Some(block) = dictionary_vocabulary_block(dictionary) {
-        if !prompt.trim().is_empty() {
             prompt.push_str("\n\n");
         }
         prompt.push_str(&block);
@@ -281,7 +281,8 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
                             debug!("Apple Intelligence returned an empty response");
                             None
                         } else {
-                            let result = strip_invisible_chars(&result);
+                            let result =
+                                strip_leaked_vocabulary_block(&strip_invisible_chars(&result));
                             debug!(
                                 "Apple Intelligence post-processing succeeded. Output length: {} chars",
                                 result.len()
@@ -335,7 +336,9 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
                         if let Some(transcription_value) =
                             json.get(TRANSCRIPTION_FIELD).and_then(|t| t.as_str())
                         {
-                            let result = strip_invisible_chars(transcription_value);
+                            let result = strip_leaked_vocabulary_block(&strip_invisible_chars(
+                                transcription_value,
+                            ));
                             debug!(
                                 "Structured output post-processing succeeded for provider '{}'. Output length: {} chars",
                                 provider.id,
@@ -344,7 +347,9 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
                             return Some(result);
                         } else {
                             error!("Structured output response missing 'transcription' field");
-                            return Some(strip_invisible_chars(&content));
+                            return Some(strip_leaked_vocabulary_block(&strip_invisible_chars(
+                                &content,
+                            )));
                         }
                     }
                     Err(e) => {
@@ -352,7 +357,9 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
                             "Failed to parse structured output JSON: {}. Returning raw content.",
                             e
                         );
-                        return Some(strip_invisible_chars(&content));
+                        return Some(strip_leaked_vocabulary_block(&strip_invisible_chars(
+                            &content,
+                        )));
                     }
                 }
             }
@@ -370,26 +377,34 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
         }
     }
 
-    // Legacy mode: Replace ${output} variable in the prompt with the actual text,
-    // and append the same dictionary vocabulary block the structured-output path
-    // gets (see `build_legacy_prompt`) — this path previously sent no vocabulary
-    // hint at all, on both the plain legacy path and the structured-output
-    // error-fallback path that lands here.
-    let processed_prompt = build_legacy_prompt(&prompt, transcription, &settings.dictionary);
-    debug!("Processed prompt length: {} chars", processed_prompt.len());
+    // Legacy mode: role-separate instructions from content, mirroring the
+    // structured-output path (the prompt template + dictionary vocabulary block
+    // live in the system message, the raw transcription is the sole user
+    // message) but with no JSON schema, so it also works on providers that
+    // don't support structured output. This is what previously leaked the
+    // vocabulary block into the model's reply on both the plain legacy path and
+    // the structured-output error-fallback path that lands here: the old
+    // single-message prompt appended the vocab instructions after the
+    // transcription with no role boundary between "content" and "instruction",
+    // which weak models can't reliably separate.
+    let system_prompt = build_system_prompt(&prompt, &settings.dictionary);
+    let user_content = transcription.to_string();
+    debug!("Legacy system prompt length: {} chars", system_prompt.len());
 
-    match crate::llm_client::send_chat_completion(
+    match crate::llm_client::send_chat_completion_with_schema(
         &provider,
         api_key,
         &model,
-        processed_prompt,
+        user_content,
+        Some(system_prompt),
+        None,
         reasoning_effort,
         reasoning,
     )
     .await
     {
         Ok(Some(content)) => {
-            let content = strip_invisible_chars(&content);
+            let content = strip_leaked_vocabulary_block(&strip_invisible_chars(&content));
             debug!(
                 "LLM post-processing succeeded for provider '{}'. Output length: {} chars",
                 provider.id,
@@ -627,6 +642,84 @@ fn build_dictation_event(
     }
 }
 
+/// Resolve an agent's API key with the documented fallback: the per-agent key
+/// (keychain scope `"agent"`, account = agent id) first, then the shared cleanup
+/// key for the provider the agent reuses (scope `"cleanup"`, account =
+/// `provider_id`). This lets an agent that reuses a provider the user already
+/// configured for cleanup (e.g. OpenRouter) work with zero extra setup.
+/// Generic over the lookup so the fallback order is unit-testable without the
+/// real OS keychain.
+fn resolve_agent_api_key_with<F>(agent: &AgentDefinition, lookup: F) -> String
+where
+    F: Fn(&str, &str) -> Option<String>,
+{
+    lookup("agent", &agent.id)
+        .filter(|k| !k.is_empty())
+        .or_else(|| lookup("cleanup", &agent.provider_id))
+        .filter(|k| !k.is_empty())
+        .unwrap_or_default()
+}
+
+fn resolve_agent_api_key(agent: &AgentDefinition) -> String {
+    resolve_agent_api_key_with(agent, crate::keychain::get_api_key)
+}
+
+/// Run an agent's persona LLM over the transcript and return its response. The
+/// agent's `provider_id` selects a `post_process_providers` entry; the agent's
+/// `system_prompt` is the system message and the transcript is the user message.
+/// Returns `Err` on any failure (missing provider/model, empty/no content, HTTP
+/// error) so the caller can fall back to injecting the raw transcript.
+pub(crate) async fn run_agent_transform(
+    app: &AppHandle,
+    agent: &AgentDefinition,
+    transcript: &str,
+) -> Result<String, String> {
+    let settings = get_settings(app);
+    let provider = settings
+        .post_process_provider(&agent.provider_id)
+        .cloned()
+        .ok_or_else(|| format!("Agent provider '{}' not found", agent.provider_id))?;
+
+    let model = agent.model.trim();
+    if model.is_empty() {
+        return Err(format!("Agent '{}' has no model configured", agent.id));
+    }
+
+    let api_key = resolve_agent_api_key(agent);
+    let system_prompt = {
+        let sp = agent.system_prompt.trim();
+        if sp.is_empty() {
+            None
+        } else {
+            Some(sp.to_string())
+        }
+    };
+
+    match crate::llm_client::send_chat_completion_with_schema(
+        &provider,
+        api_key,
+        model,
+        transcript.to_string(),
+        system_prompt,
+        None,
+        None,
+        None,
+    )
+    .await
+    {
+        Ok(Some(content)) => {
+            let content = strip_invisible_chars(&content);
+            if content.trim().is_empty() {
+                Err("Agent LLM returned empty content".to_string())
+            } else {
+                Ok(content)
+            }
+        }
+        Ok(None) => Err("Agent LLM returned no content".to_string()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Shared "finish a dictation" tail: clean the raw transcript, optionally persist
 /// a history entry, inject the text into the active app, and log a dictation
 /// analytics event. This is the single code path used by BOTH the manual hotkey
@@ -645,6 +738,14 @@ fn build_dictation_event(
 ///   does not persist a recording).
 /// - `cancel_generation` is the recorder cancel token captured before this
 ///   dictation, so a mid-flight cancel still aborts the paste.
+/// - `agent_id` is `Some(id)` only when a Flow OS agent hotkey (`agent:<id>`)
+///   triggered this dictation. When `None` the behavior is EXACTLY as before
+///   agents existed (this is the wake-word and normal-dictation path). When
+///   `Some(id)` and the agent exists+is enabled, the raw transcript is routed
+///   through the agent's persona LLM (replacing the normal cleanup pass) and the
+///   LLM response is injected/copied per the agent's `output_mode`; on any LLM
+///   failure it falls back to injecting the raw transcript.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn finish_dictation(
     app: &AppHandle,
     raw_text: String,
@@ -653,6 +754,7 @@ pub(crate) async fn finish_dictation(
     stt_latency_ms: i64,
     history_file_name: Option<String>,
     cancel_generation: u64,
+    agent_id: Option<String>,
 ) {
     let ah = app.clone();
     let rm = Arc::clone(&app.state::<Arc<AudioRecordingManager>>());
@@ -661,7 +763,21 @@ pub(crate) async fn finish_dictation(
     let am = Arc::clone(&app.state::<Arc<AnalyticsManager>>());
     let style = get_settings(&ah).overlay_style;
 
-    if post_process {
+    // Flow OS: an agent hotkey (`agent:<id>`) routes the transcript through the
+    // agent's persona LLM instead of the normal cleanup pass. Resolve the agent
+    // (only if it still exists and is enabled) up front; a stale/disabled agent
+    // id degrades gracefully to a plain dictation.
+    let agent = agent_id.as_ref().and_then(|id| {
+        get_settings(&ah)
+            .agents
+            .into_iter()
+            .find(|a| &a.id == id && a.enabled)
+    });
+    let agent_active = agent.is_some();
+
+    // Show the "working" overlay while either the cleanup LLM or the agent LLM
+    // runs, so an agent invocation isn't a silent gap between stop and paste.
+    if post_process || agent_active {
         if style == OverlayStyle::Live {
             tm.emit_stream_working(StreamWorkKind::Polishing);
         } else {
@@ -670,8 +786,43 @@ pub(crate) async fn finish_dictation(
     }
 
     let cleanup_start = Instant::now();
-    let processed = process_transcription_output(&ah, &raw_text, post_process).await;
-    let cleanup_latency_ms = if post_process {
+    // Agent runs replace the cleanup pass with the agent LLM transform and honor
+    // the agent's output mode; everything else uses the normal cleanup path
+    // (Inject is the only mode there).
+    let (processed, output_mode) = if let Some(agent) = agent.clone() {
+        let mode = agent.output_mode.clone();
+        let processed = match run_agent_transform(&ah, &agent, &raw_text).await {
+            Ok(text) => ProcessedTranscription {
+                final_text: text.clone(),
+                post_processed_text: Some(text),
+                post_process_prompt: None,
+            },
+            Err(e) => {
+                // Never silently drop the user's words: fall back to the raw
+                // transcript and surface the error like a cleanup failure.
+                error!(
+                    "Agent '{}' transform failed: {}. Falling back to raw transcript.",
+                    agent.id, e
+                );
+                let _ = ah.emit(
+                    "transcription-error",
+                    format!("Agent '{}': {e}", agent.name),
+                );
+                ProcessedTranscription {
+                    final_text: raw_text.clone(),
+                    post_processed_text: None,
+                    post_process_prompt: None,
+                }
+            }
+        };
+        (processed, mode)
+    } else {
+        (
+            process_transcription_output(&ah, &raw_text, post_process).await,
+            AgentOutputMode::Inject,
+        )
+    };
+    let cleanup_latency_ms = if post_process || agent_active {
         cleanup_start.elapsed().as_millis() as i64
     } else {
         0
@@ -713,21 +864,31 @@ pub(crate) async fn finish_dictation(
     // can shell out to osascript, so it must never run on the main (paste)
     // thread. injected_ok is flipped to true only when the paste succeeds. Off
     // mode short-circuits inside log_event.
-    let settings_for_analytics = get_settings(&ah);
-    let privacy = settings_for_analytics.analytics_privacy;
-    let audio_ms = (samples_len as i64) * 1000 / 16_000;
-    let active = active_app::current();
-    let dictation_event = build_dictation_event(
-        &settings_for_analytics,
-        raw_text,
-        cleaned_for_analytics,
-        &final_text,
-        audio_ms,
-        stt_latency_ms,
-        cleanup_latency_ms,
-        active,
-        post_process,
-    );
+    //
+    // Flow OS: agent runs are NOT logged to dictation analytics — they are not
+    // dictations, and mixing them in would corrupt WPM / time-saved stats (see
+    // DESIGN §4). The event is `None` for agent runs; everything else is
+    // unchanged (a `Some` event + the store's privacy setting).
+    let analytics = if agent_active {
+        None
+    } else {
+        let settings_for_analytics = get_settings(&ah);
+        let privacy = settings_for_analytics.analytics_privacy;
+        let audio_ms = (samples_len as i64) * 1000 / 16_000;
+        let active = active_app::current();
+        let event = build_dictation_event(
+            &settings_for_analytics,
+            raw_text,
+            cleaned_for_analytics,
+            &final_text,
+            audio_ms,
+            stt_latency_ms,
+            cleanup_latency_ms,
+            active,
+            post_process,
+        );
+        Some((event, privacy))
+    };
     let am_for_paste = Arc::clone(&am);
 
     ah.run_on_main_thread(move || {
@@ -738,18 +899,44 @@ pub(crate) async fn finish_dictation(
             return;
         }
 
-        match utils::paste(final_text, ah_clone.clone()) {
-            Ok(()) => {
-                debug!("Text pasted successfully in {:?}", paste_time.elapsed());
-                // Non-fatal analytics logging: never panics or blocks; errors are
-                // logged inside log_event.
-                let mut ev = dictation_event;
+        // Inject (paste at cursor) is the normal path and every agent's default.
+        // Clipboard mode only copies the agent's output — no paste, no
+        // auto-submit — for agents whose output the user pastes manually.
+        let delivered = match output_mode {
+            AgentOutputMode::Clipboard => match ah_clone.clipboard().write_text(final_text.clone())
+            {
+                Ok(()) => {
+                    debug!(
+                        "Agent output copied to clipboard in {:?}",
+                        paste_time.elapsed()
+                    );
+                    true
+                }
+                Err(e) => {
+                    error!("Failed to copy agent output to clipboard: {}", e);
+                    let _ = ah_clone.emit("paste-error", ());
+                    false
+                }
+            },
+            AgentOutputMode::Inject => match utils::paste(final_text, ah_clone.clone()) {
+                Ok(()) => {
+                    debug!("Text pasted successfully in {:?}", paste_time.elapsed());
+                    true
+                }
+                Err(e) => {
+                    error!("Failed to paste transcription: {}", e);
+                    let _ = ah_clone.emit("paste-error", ());
+                    false
+                }
+            },
+        };
+
+        if delivered {
+            // Non-fatal analytics logging: never panics or blocks; errors are
+            // logged inside log_event. Skipped entirely for agent runs (None).
+            if let Some((mut ev, privacy)) = analytics {
                 ev.injected_ok = true;
                 am_for_paste.log_event(ev, privacy);
-            }
-            Err(e) => {
-                error!("Failed to paste transcription: {}", e);
-                let _ = ah_clone.emit("paste-error", ());
             }
         }
         utils::hide_recording_overlay(&ah_clone);
@@ -942,7 +1129,16 @@ impl ShortcutAction for TranscribeAction {
                                                  // user has enabled cleanup globally for the main transcribe hotkey. The
                                                  // effective value drives the overlay "Polishing" state, the actual cleanup
                                                  // call, and the history entry's post_process flag alike.
-        let post_process = self.post_process || get_settings(app).post_process_enabled;
+                                                 // Flow OS: an `agent:<id>` binding drives this same action. Derive the
+                                                 // agent id from the binding so the finish tail can route the transcript
+                                                 // through the agent LLM. Agent runs skip the normal cleanup pass (the
+                                                 // agent LLM is the processor), so force post_process off for them.
+        let agent_id = binding_id.strip_prefix("agent:").map(|s| s.to_string());
+        let post_process = if agent_id.is_some() {
+            false
+        } else {
+            self.post_process || get_settings(app).post_process_enabled
+        };
         let cancel_generation = rm.cancel_generation();
 
         tauri::async_runtime::spawn(async move {
@@ -1094,6 +1290,7 @@ impl ShortcutAction for TranscribeAction {
                                 stt_latency_ms,
                                 history_file_name,
                                 cancel_generation,
+                                agent_id,
                             )
                             .await;
                         }
@@ -1207,10 +1404,65 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 #[cfg(test)]
 mod tests {
     use super::{
-        build_legacy_prompt, build_system_prompt, dictionary_vocabulary_block,
-        is_blank_transcription, VOCABULARY_BLOCK_MAX_CHARS,
+        build_system_prompt, dictionary_vocabulary_block, is_blank_transcription,
+        resolve_agent_api_key_with, strip_leaked_vocabulary_block, VOCABULARY_BLOCK_MAX_CHARS,
     };
-    use crate::settings::DictionaryEntry;
+    use crate::settings::{AgentDefinition, AgentOutputMode, DictionaryEntry};
+
+    fn test_agent(id: &str, provider_id: &str) -> AgentDefinition {
+        AgentDefinition {
+            id: id.to_string(),
+            name: "Test".to_string(),
+            enabled: true,
+            binding_id: format!("agent:{id}"),
+            provider_id: provider_id.to_string(),
+            model: "some-model".to_string(),
+            system_prompt: String::new(),
+            output_mode: AgentOutputMode::Inject,
+        }
+    }
+
+    #[test]
+    fn agent_key_prefers_agent_scope() {
+        let agent = test_agent("coder", "openrouter");
+        // Both scopes have a key — the per-agent key wins.
+        let key = resolve_agent_api_key_with(&agent, |scope, acct| match (scope, acct) {
+            ("agent", "coder") => Some("agent-key".to_string()),
+            ("cleanup", "openrouter") => Some("cleanup-key".to_string()),
+            _ => None,
+        });
+        assert_eq!(key, "agent-key");
+    }
+
+    #[test]
+    fn agent_key_falls_back_to_cleanup_scope() {
+        let agent = test_agent("coder", "openrouter");
+        // No per-agent key → fall back to the provider's cleanup key.
+        let key = resolve_agent_api_key_with(&agent, |scope, acct| match (scope, acct) {
+            ("cleanup", "openrouter") => Some("cleanup-key".to_string()),
+            _ => None,
+        });
+        assert_eq!(key, "cleanup-key");
+    }
+
+    #[test]
+    fn agent_key_falls_back_past_empty_agent_key() {
+        let agent = test_agent("coder", "openrouter");
+        // An empty per-agent key is treated as absent, so the fallback applies.
+        let key = resolve_agent_api_key_with(&agent, |scope, acct| match (scope, acct) {
+            ("agent", "coder") => Some(String::new()),
+            ("cleanup", "openrouter") => Some("cleanup-key".to_string()),
+            _ => None,
+        });
+        assert_eq!(key, "cleanup-key");
+    }
+
+    #[test]
+    fn agent_key_empty_when_neither_scope_has_one() {
+        let agent = test_agent("coder", "openrouter");
+        let key = resolve_agent_api_key_with(&agent, |_, _| None);
+        assert_eq!(key, "");
+    }
 
     #[test]
     fn blank_transcription_is_detected() {
@@ -1302,40 +1554,37 @@ mod tests {
         assert!(prompt.starts_with("Vocabulary"));
     }
 
-    // ---- Legacy (non-structured-output) prompt assembly — FIX 3 ----
+    // ---- Leaked vocabulary block stripping (deterministic safety net) ----
 
     #[test]
-    fn legacy_prompt_substitutes_output_placeholder() {
-        let prompt = build_legacy_prompt("Clean up: ${output}", "hello world", &[]);
-        assert_eq!(prompt, "Clean up: hello world");
+    fn strips_leaked_vocabulary_block_appended_after_real_text() {
+        let output = "Hello world, this is the cleaned transcript.\n\nVocabulary — always use these exact spellings of the user's custom words: ChargeBee, MacBook Pro, Kubernetes, iPhone";
+        let stripped = strip_leaked_vocabulary_block(output);
+        assert_eq!(stripped, "Hello world, this is the cleaned transcript.");
     }
 
     #[test]
-    fn legacy_prompt_appends_vocabulary_block_when_dictionary_present() {
-        let dict = vec![entry("OpenFlow", &["open flo"])];
-        let prompt = build_legacy_prompt("Clean up: ${output}", "hello", &dict);
-        assert!(prompt.starts_with("Clean up: hello"));
-        assert!(prompt.contains("Vocabulary"));
-        assert!(prompt.contains("OpenFlow"));
-        assert!(!prompt.contains("open flo"));
-        assert!(!prompt.contains("${output}"));
+    fn strips_leaked_vocabulary_block_when_it_is_the_whole_trailing_segment() {
+        let output =
+            "Vocabulary — always use these exact spellings of the user's custom words: ChargeBee";
+        let stripped = strip_leaked_vocabulary_block(output);
+        assert_eq!(stripped, "");
     }
 
     #[test]
-    fn legacy_prompt_unchanged_when_dictionary_is_empty() {
-        let prompt = build_legacy_prompt("Clean up: ${output}", "hello", &[]);
-        assert_eq!(prompt, "Clean up: hello");
-        assert!(!prompt.contains("Vocabulary"));
+    fn strip_leaked_vocabulary_block_is_noop_when_absent() {
+        let output = "Just a normal cleaned transcript with no leakage.";
+        assert_eq!(strip_leaked_vocabulary_block(output), output);
     }
 
     #[test]
-    fn legacy_prompt_appends_block_exactly_once() {
-        // Regression guard: calling the builder twice on the same inputs must
-        // not accumulate a second copy of the block (each call is independent).
-        let dict = vec![entry("OpenFlow", &[])];
-        let first = build_legacy_prompt("Clean up: ${output}", "hello", &dict);
-        let second = build_legacy_prompt("Clean up: ${output}", "hello", &dict);
-        assert_eq!(first, second);
-        assert_eq!(first.matches("Vocabulary").count(), 1);
+    fn strip_leaked_vocabulary_block_does_not_truncate_mere_mentions() {
+        // Contains the word "Vocabulary" but not the exact instruction prefix —
+        // must be left completely untouched.
+        let output = "My vocabulary has really improved lately, thanks!";
+        assert_eq!(strip_leaked_vocabulary_block(output), output);
+
+        let output2 = "Vocabulary is an interesting topic to discuss.";
+        assert_eq!(strip_leaked_vocabulary_block(output2), output2);
     }
 }
