@@ -523,6 +523,7 @@ fn handle_wake(
             0,
             None,
             cancel_generation,
+            None,
         ));
         return;
     }
@@ -581,6 +582,7 @@ fn handle_wake(
         0,
         None,
         cancel_generation,
+        None,
     ));
 }
 

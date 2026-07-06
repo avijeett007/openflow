@@ -37,6 +37,10 @@ pub fn init_shortcuts(app: &AppHandle) {
             error!("Failed to register shortcut {} during init: {}", id, e);
         }
     }
+
+    // Flow OS: also register enabled agent hotkeys (they live in user settings,
+    // not the default binding set enumerated above).
+    super::register_agent_shortcuts(app, settings::KeyboardImplementation::Tauri);
 }
 
 /// Validate a shortcut string for the Tauri global-shortcut implementation.

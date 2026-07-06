@@ -77,9 +77,10 @@ async setWakeWordSensitivity(value: number) : Promise<Result<null, string>> {
 }
 },
 /**
- * How long (seconds) to keep the mic open for the command after the wake word.
- * Clamped to 3..=120. VAD trims trailing silence, so a longer value just avoids
- * cutting the user off mid-thought.
+ * Pre-speech grace window (seconds): after the wake word, how long to wait for
+ * the user to START speaking before giving up. Clamped to 3..=120. Once they
+ * speak, capture extends while speech continues and ends on the silence timeout,
+ * so a short command isn't forced to wait out this whole window.
  */
 async setWakeWordListenSeconds(seconds: number) : Promise<Result<null, string>> {
     try {
@@ -89,6 +90,12 @@ async setWakeWordListenSeconds(seconds: number) : Promise<Result<null, string>> 
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * How long (seconds) of continuous silence ends the command capture once the
+ * user has started speaking. Clamped to 1..=15s. This is the "smart" part: the
+ * mic stays open as long as speech keeps arriving and stops shortly after the
+ * user finishes.
+ */
 async setWakeWordSilenceTimeoutSeconds(seconds: number) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_wake_word_silence_timeout_seconds", { seconds }) };
@@ -97,6 +104,11 @@ async setWakeWordSilenceTimeoutSeconds(seconds: number) : Promise<Result<null, s
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Report whether hands-free wake-word detection can actually run: it needs the
+ * selected local STT model present on disk. Reuses [`ModelManager`]'s existing
+ * on-disk `is_downloaded` view rather than probing files here.
+ */
 async getHandsFreeReadiness() : Promise<Result<HandsFreeReadiness, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_hands_free_readiness") };
@@ -870,6 +882,42 @@ async testCleanupBackend() : Promise<Result<BackendTestResult, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async createAgent(agent: AgentDefinition) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_agent", { agent }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateAgent(agent: AgentDefinition) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_agent", { agent }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteAgent(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_agent", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Run the agent's persona LLM over `sample_text` and return the output +
+ * latency. Powers the agent card's "Test" button (mirrors `test_cleanup_backend`).
+ */
+async testAgent(id: string, sampleText: string) : Promise<Result<AgentTestResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_agent", { id, sampleText }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateMicrophoneMode(alwaysOn: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_microphone_mode", { alwaysOn }) };
@@ -1137,6 +1185,45 @@ streamTextEvent: "stream-text-event"
 /** user-defined types **/
 
 /**
+ * A Flow OS agent: dictation routed through a persona LLM before injection.
+ * Each agent has its own global hotkey (via a seeded `ShortcutBinding` keyed
+ * `agent:<id>`). All optional fields are `#[serde(default)]` so an old settings
+ * store (with no `agents` key, or partial entries) always deserializes cleanly —
+ * the store wipes to defaults on any parse failure.
+ */
+export type AgentDefinition = { 
+/**
+ * Stable slug, e.g. "coder"; unique. Matches `^[a-z0-9_-]{1,48}$`.
+ */
+id: string; 
+/**
+ * Display name shown in the UI.
+ */
+name: string; enabled?: boolean; 
+/**
+ * ALWAYS `"agent:<id>"` — the join key into `AppSettings.bindings`.
+ */
+binding_id: string; 
+/**
+ * References an existing `post_process_providers` entry.
+ */
+provider_id: string; model?: string; 
+/**
+ * The persona used as the LLM system prompt.
+ */
+system_prompt?: string; output_mode?: AgentOutputMode }
+/**
+ * What an agent does with its LLM response. `Inject` pastes it at the cursor
+ * exactly like a normal dictation; `Clipboard` only copies it (no paste, no
+ * auto-submit) and shows a brief confirmation. Defaults to `Inject`.
+ */
+export type AgentOutputMode = "inject" | "clipboard"
+/**
+ * Result of the agent "Test" action: the LLM's output plus how long it took.
+ * Mirrors `BackendTestResult` / `test_cleanup_backend`.
+ */
+export type AgentTestResult = { output: string; latency_ms: number }
+/**
  * The wire protocol an HTTP STT endpoint speaks. Most providers and
  * self-hosted servers (OpenAI, Groq, Speaches, whisper-server, LocalAI) use the
  * OpenAI `/audio/transcriptions` multipart shape; Deepgram is different enough
@@ -1160,16 +1247,16 @@ settings_schema_version?: number; bindings: Partial<{ [key in string]: ShortcutB
  * upgrading from before this key existed are blanked by the migration so they
  * see the current release's notes — see `apply_settings_migrations`.
  */
-whats_new_last_seen_version?: string; selected_model?: string; onboarding_completed?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel;
+whats_new_last_seen_version?: string; selected_model?: string; onboarding_completed?: boolean; always_on_microphone?: boolean; selected_microphone?: string | null; clamshell_microphone?: string | null; selected_output_device?: string | null; translate_to_english?: boolean; selected_language?: string; overlay_position?: OverlayPosition; debug_mode?: boolean; log_level?: LogLevel; 
 /**
  * Legacy flat custom-word list. Kept deserializable for back-compat and
  * migrated into `dictionary` on load; `dictionary` is the source of truth.
  */
-custom_words?: string[];
+custom_words?: string[]; 
 /**
  * User dictionary: canonical spellings + "sounds like" alias rules.
  */
-dictionary?: DictionaryEntry[];
+dictionary?: DictionaryEntry[]; 
 /**
  * One-shot marker for the legacy `custom_words` → `dictionary` migration
  * (see `apply_settings_migrations`). Missing/`false` means the migration
@@ -1230,23 +1317,34 @@ wake_word?: string;
  */
 wake_word_sensitivity?: number; 
 /**
- * After the wake word is heard, how long (seconds) to keep the mic open for
- * the command. VAD trims trailing silence, so this is the MAX listen window
- * before the command is transcribed — set it long enough for a full thought.
+ * Pre-speech grace window (seconds): after the wake word, how long to wait
+ * for the user to START speaking before giving up. A pause after the wake
+ * word (while gathering a thought) never cuts them off. Once they DO speak,
+ * capture keeps extending while speech continues and ends shortly after they
+ * go quiet (see `wake_word_silence_timeout_ms`) — so a short command submits
+ * promptly rather than waiting out this whole window.
  */
-wake_word_listen_seconds?: number;
+wake_word_listen_seconds?: number; 
 /**
  * Once the minimum window has elapsed AND the user has spoken, how long
- * (milliseconds) of continuous silence ends the command capture.
+ * (milliseconds) of continuous silence ends the command capture. This is what
+ * makes hands-free "smart": short commands finish quickly, long ones keep the
+ * mic open as long as speech continues. Clamped to a sane range at the command.
  */
-wake_word_silence_timeout_ms?: number;
+wake_word_silence_timeout_ms?: number; 
 /**
  * When true, hands-free plays short spoken acknowledgment cues: "Got it"
  * after a wake match (before the command mic opens) and "Now typing" just
  * before the transcribed text is injected. Reuses the audio-feedback volume
  * and selected output device. Default on.
  */
-hands_free_voice_feedback?: boolean }
+hands_free_voice_feedback?: boolean; 
+/**
+ * User-defined agents. Empty by default. Purely additive — an old store
+ * with no `agents` key deserializes to an empty list, so behavior with no
+ * agents configured is byte-for-byte identical to before this field existed.
+ */
+agents?: AgentDefinition[] }
 export type AppUsage = { app: string; dictations: number; words: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
@@ -1273,21 +1371,21 @@ export type CustomSounds = { start: boolean; stop: boolean }
  * Supersedes the flat `custom_words` list (legacy entries migrate to one entry
  * each with no aliases). See `audio_toolkit::text::apply_dictionary`.
  */
-export type DictionaryEntry = {
+export type DictionaryEntry = { 
 /**
  * Canonical spelling used in the output. Spaces are allowed (phrases).
  */
-word: string;
+word: string; 
 /**
  * Aliases / misheard forms that are replaced by `word`. Matched exactly
  * first (deterministic, threshold-independent) then fuzzily.
  */
-sounds_like?: string[];
+sounds_like?: string[]; 
 /**
  * When true, only deterministic alias replacement runs for this entry — the
  * fuzzy pass never matches against `word` (or its aliases).
  */
-replace_exact?: boolean;
+replace_exact?: boolean; 
 /**
  * When true, `word`'s exact casing is emitted verbatim (bypasses the
  * case-pattern preservation that otherwise mirrors the input token's case).
@@ -1307,8 +1405,16 @@ export type GpuDeviceOption = { id: number; name: string; total_vram_mb: number 
  * local model, even for users who dictate via a remote STT backend, so the UI
  * warns when it's missing (detection — and therefore dictation — can't work).
  */
-export type HandsFreeReadiness = { local_model_available: boolean; selected_model: string | null }
-export type HistoryEntry ={ id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean }
+export type HandsFreeReadiness = { 
+/**
+ * Whether the selected model exists on disk and can drive detection.
+ */
+local_model_available: boolean; 
+/**
+ * The currently selected model id, or `None` if nothing is selected.
+ */
+selected_model: string | null }
+export type HistoryEntry = { id: number; file_name: string; timestamp: number; saved: boolean; title: string; transcription_text: string; post_processed_text: string | null; post_process_prompt: string | null; post_process_requested: boolean }
 export type HistoryUpdatePayload = { action: "added"; entry: HistoryEntry } | { action: "updated"; entry: HistoryEntry } | { action: "deleted"; id: number } | { action: "toggled"; id: number }
 /**
  * Result of changing keyboard implementation
