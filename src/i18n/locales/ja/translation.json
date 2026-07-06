@@ -14,6 +14,7 @@
     "advanced": "詳細設定",
     "postProcessing": "後処理",
     "dictionary": "辞書",
+    "agents": "エージェント",
     "history": "履歴",
     "debug": "デバッグ",
     "about": "概要"
@@ -454,6 +455,85 @@
         "importSuccess": "{{count}} 件をインポートしました",
         "importError": "そのファイルを読み込めませんでした。辞書の JSON か、単語リストを使用してください。",
         "nothingToExport": "辞書が空です。エクスポートするものがありません。"
+      }
+    },
+    "agents": {
+      "title": "エージェント",
+      "intro": "好きなホットキーに専用のペルソナを設定できます。エージェントのホットキーに向かって話すと、OpenFlow は元の文字起こしをそのまま挿入する代わりに、そのエージェントの LLM を通してから結果を挿入します。",
+      "emptyState": "まだエージェントがありません。下から追加して、最初のホットキー起動ペルソナを作成しましょう。",
+      "addAgent": {
+        "title": "エージェントを追加",
+        "blank": "空のエージェント",
+        "templates": {
+          "formalRewriter": {
+            "name": "フォーマル書き換え",
+            "description": "文字起こしをフォーマルで洗練された文体に書き換えます。"
+          },
+          "commitMessage": {
+            "name": "コミットメッセージ",
+            "description": "話した内容を Conventional Commits 形式のメッセージに変換します。"
+          }
+        },
+        "created": "「{{name}}」を作成しました",
+        "error": "エージェントを作成できませんでした: {{error}}"
+      },
+      "card": {
+        "name": { "label": "名前", "placeholder": "例：フォーマル書き換え" },
+        "enabled": {
+          "label": "有効",
+          "description": "オフにすると、このエージェントのホットキーは登録解除されます。"
+        },
+        "provider": {
+          "label": "プロバイダー",
+          "description": "このエージェントのペルソナが動作する LLM バックエンド。"
+        },
+        "model": {
+          "label": "モデル",
+          "placeholder": "例：gpt-4o-mini",
+          "description": "選択したプロバイダーで使用するモデル ID。手入力のみで、エージェント用のモデル一覧はありません。"
+        },
+        "apiKey": {
+          "label": "API キー",
+          "description": "任意項目です。空欄のままにすると、このプロバイダーの後処理用キーにフォールバックします。",
+          "placeholderConfigured": "••••••••（保存済み — 変更しない場合は空欄のままにしてください）",
+          "placeholderEmpty": "このプロバイダーの後処理用キーにフォールバックします",
+          "clear": "キーを削除",
+          "cleared": "API キーを削除しました",
+          "saved": "API キーを保存しました",
+          "error": "API キーを保存できませんでした: {{error}}"
+        },
+        "outputMode": {
+          "label": "出力",
+          "description": "エージェントの応答をどう扱うか。",
+          "inject": "カーソル位置に挿入",
+          "clipboard": "クリップボードにコピー"
+        },
+        "systemPrompt": {
+          "label": "システムプロンプト",
+          "description": "文字起こしを変換する際に使われるペルソナと指示。",
+          "placeholder": "このエージェントのペルソナと、文字起こしをどう変換すべきかを記述してください..."
+        },
+        "test": {
+          "label": "テスト",
+          "description": "ホットキーに触れずに、サンプルの文字起こしでエージェントを試せます。",
+          "sampleText": {
+            "placeholder": "試したいサンプルの文字起こしを入力または貼り付けてください..."
+          },
+          "run": "テストを実行",
+          "running": "実行中...",
+          "latency": "{{ms}} ms",
+          "error": "テストに失敗しました: {{error}}"
+        },
+        "delete": {
+          "button": "エージェントを削除",
+          "confirmTitle": "「{{name}}」を削除しますか？",
+          "confirmDescription": "このエージェント、そのホットキー、保存された API キーが削除されます。この操作は元に戻せません。",
+          "confirm": "削除",
+          "cancel": "キャンセル",
+          "success": "「{{name}}」を削除しました",
+          "error": "エージェントを削除できませんでした: {{error}}"
+        },
+        "update": { "error": "エージェントを更新できませんでした: {{error}}" }
       }
     },
     "history": {

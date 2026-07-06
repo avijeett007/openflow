@@ -16,6 +16,7 @@
     "advanced": "Advanced",
     "postProcessing": "Post Process",
     "dictionary": "Dictionary",
+    "agents": "Agents",
     "history": "History",
     "dashboard": "Dashboard",
     "debug": "Debug",
@@ -620,6 +621,90 @@
         "importSuccess": "Imported {{count}} entries",
         "importError": "Couldn't read that file. Use a dictionary JSON or a plain word list.",
         "nothingToExport": "Your dictionary is empty — nothing to export."
+      }
+    },
+    "agents": {
+      "title": "Agents",
+      "intro": "Give any hotkey its own persona. Speak into an agent's hotkey and OpenFlow routes the transcript through that agent's LLM before injecting the result, instead of the raw transcript.",
+      "emptyState": "No agents yet. Add one below to get your first hotkey-triggered persona.",
+      "addAgent": {
+        "title": "Add an agent",
+        "blank": "Blank agent",
+        "templates": {
+          "formalRewriter": {
+            "name": "Formal Rewriter",
+            "description": "Rewrites your dictation in a formal, polished tone."
+          },
+          "commitMessage": {
+            "name": "Commit Message",
+            "description": "Turns a spoken description into a Conventional Commits message."
+          }
+        },
+        "created": "\"{{name}}\" created",
+        "error": "Couldn't create the agent: {{error}}"
+      },
+      "card": {
+        "name": {
+          "label": "Name",
+          "placeholder": "e.g. Formal Rewriter"
+        },
+        "enabled": {
+          "label": "Enabled",
+          "description": "When off, this agent's hotkey is unregistered."
+        },
+        "provider": {
+          "label": "Provider",
+          "description": "Which LLM backend this agent's persona runs on."
+        },
+        "model": {
+          "label": "Model",
+          "placeholder": "e.g. gpt-4o-mini",
+          "description": "Model id to use with the selected provider. Typed manually - there's no live model list for agents."
+        },
+        "apiKey": {
+          "label": "API key",
+          "description": "Optional. Leave blank to fall back to this provider's Post Processing key.",
+          "placeholderConfigured": "•••••••• (saved — leave blank to keep)",
+          "placeholderEmpty": "Falls back to the Post Processing key for this provider",
+          "clear": "Clear key",
+          "cleared": "API key cleared",
+          "saved": "API key saved",
+          "error": "Couldn't save the API key: {{error}}"
+        },
+        "outputMode": {
+          "label": "Output",
+          "description": "What happens with the agent's response.",
+          "inject": "Inject at cursor",
+          "clipboard": "Copy to clipboard"
+        },
+        "systemPrompt": {
+          "label": "System prompt",
+          "description": "The persona and instructions used to transform the dictation.",
+          "placeholder": "Describe this agent's persona and how it should transform the dictation..."
+        },
+        "test": {
+          "label": "Test",
+          "description": "Try the agent on a sample transcript without touching your hotkey.",
+          "sampleText": {
+            "placeholder": "Type or paste a sample transcript to try..."
+          },
+          "run": "Run test",
+          "running": "Running...",
+          "latency": "{{ms}} ms",
+          "error": "Test failed: {{error}}"
+        },
+        "delete": {
+          "button": "Delete agent",
+          "confirmTitle": "Delete \"{{name}}\"?",
+          "confirmDescription": "This removes the agent, its hotkey, and its saved API key. This can't be undone.",
+          "confirm": "Delete",
+          "cancel": "Cancel",
+          "success": "\"{{name}}\" deleted",
+          "error": "Couldn't delete the agent: {{error}}"
+        },
+        "update": {
+          "error": "Couldn't update the agent: {{error}}"
+        }
       }
     },
     "history": {

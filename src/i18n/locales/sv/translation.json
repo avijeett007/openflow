@@ -14,6 +14,7 @@
     "advanced": "Avancerat",
     "postProcessing": "Efterbearbetning",
     "dictionary": "Ordlista",
+    "agents": "Agenter",
     "history": "Historik",
     "debug": "Felsökning",
     "about": "Om"
@@ -454,6 +455,85 @@
         "importSuccess": "Importerade {{count}} poster",
         "importError": "Kunde inte läsa filen. Använd en ordliste-JSON eller en enkel ordlista.",
         "nothingToExport": "Din ordlista är tom — inget att exportera."
+      }
+    },
+    "agents": {
+      "title": "Agenter",
+      "intro": "Ge valfri snabbtangent sin egen persona. Tala in i en agents snabbtangent så dirigerar OpenFlow transkriptionen genom den agentens LLM innan resultatet infogas, istället för den råa transkriptionen.",
+      "emptyState": "Inga agenter än. Lägg till en nedan för att få din första snabbtangentstyrda persona.",
+      "addAgent": {
+        "title": "Lägg till en agent",
+        "blank": "Tom agent",
+        "templates": {
+          "formalRewriter": {
+            "name": "Formell omskrivare",
+            "description": "Skriver om din diktering i en formell, polerad ton."
+          },
+          "commitMessage": {
+            "name": "Commit-meddelande",
+            "description": "Omvandlar en talad beskrivning till ett meddelande enligt Conventional Commits."
+          }
+        },
+        "created": "”{{name}}” skapades",
+        "error": "Kunde inte skapa agenten: {{error}}"
+      },
+      "card": {
+        "name": { "label": "Namn", "placeholder": "t.ex. Formell omskrivare" },
+        "enabled": {
+          "label": "Aktiverad",
+          "description": "När avstängd är den här agentens snabbtangent avregistrerad."
+        },
+        "provider": {
+          "label": "Leverantör",
+          "description": "Vilken LLM-backend den här agentens persona körs på."
+        },
+        "model": {
+          "label": "Modell",
+          "placeholder": "t.ex. gpt-4o-mini",
+          "description": "Modell-id att använda med den valda leverantören. Skrivs in manuellt - det finns ingen aktuell modellista för agenter."
+        },
+        "apiKey": {
+          "label": "API-nyckel",
+          "description": "Valfritt. Lämna tomt för att falla tillbaka på leverantörens nyckel för efterbearbetning.",
+          "placeholderConfigured": "•••••••• (sparad — lämna tomt för att behålla)",
+          "placeholderEmpty": "Faller tillbaka på efterbearbetningsnyckeln för den här leverantören",
+          "clear": "Rensa nyckel",
+          "cleared": "API-nyckeln rensades",
+          "saved": "API-nyckeln sparades",
+          "error": "Kunde inte spara API-nyckeln: {{error}}"
+        },
+        "outputMode": {
+          "label": "Utdata",
+          "description": "Vad som händer med agentens svar.",
+          "inject": "Infoga vid markören",
+          "clipboard": "Kopiera till urklipp"
+        },
+        "systemPrompt": {
+          "label": "Systemprompt",
+          "description": "Personan och instruktionerna som används för att omvandla dikteringen.",
+          "placeholder": "Beskriv den här agentens persona och hur den ska omvandla dikteringen..."
+        },
+        "test": {
+          "label": "Test",
+          "description": "Prova agenten på en exempeltranskription utan att röra din snabbtangent.",
+          "sampleText": {
+            "placeholder": "Skriv eller klistra in en exempeltranskription att prova..."
+          },
+          "run": "Kör test",
+          "running": "Kör...",
+          "latency": "{{ms}} ms",
+          "error": "Testet misslyckades: {{error}}"
+        },
+        "delete": {
+          "button": "Ta bort agent",
+          "confirmTitle": "Ta bort ”{{name}}”?",
+          "confirmDescription": "Detta tar bort agenten, dess snabbtangent och dess sparade API-nyckel. Det här går inte att ångra.",
+          "confirm": "Ta bort",
+          "cancel": "Avbryt",
+          "success": "”{{name}}” togs bort",
+          "error": "Kunde inte ta bort agenten: {{error}}"
+        },
+        "update": { "error": "Kunde inte uppdatera agenten: {{error}}" }
       }
     },
     "history": {

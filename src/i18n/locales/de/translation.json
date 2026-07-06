@@ -14,6 +14,7 @@
     "advanced": "Erweitert",
     "postProcessing": "Nachbearbeitung",
     "dictionary": "Wörterbuch",
+    "agents": "Agenten",
     "history": "Verlauf",
     "debug": "Debug",
     "about": "Info"
@@ -454,6 +455,90 @@
         "importSuccess": "{{count}} Einträge importiert",
         "importError": "Diese Datei konnte nicht gelesen werden. Verwende eine Wörterbuch-JSON oder eine einfache Wortliste.",
         "nothingToExport": "Dein Wörterbuch ist leer — nichts zu exportieren."
+      }
+    },
+    "agents": {
+      "title": "Agenten",
+      "intro": "Gib jedem Tastenkürzel eine eigene Persona. Sprich in das Tastenkürzel eines Agenten, und OpenFlow leitet die Transkription durch das LLM dieses Agenten, bevor das Ergebnis eingefügt wird - statt der rohen Transkription.",
+      "emptyState": "Noch keine Agenten. Füge unten einen hinzu, um deine erste per Tastenkürzel ausgelöste Persona zu erhalten.",
+      "addAgent": {
+        "title": "Agent hinzufügen",
+        "blank": "Leerer Agent",
+        "templates": {
+          "formalRewriter": {
+            "name": "Formeller Umschreiber",
+            "description": "Formuliert deine Diktate in einem formellen, geschliffenen Ton um."
+          },
+          "commitMessage": {
+            "name": "Commit-Nachricht",
+            "description": "Verwandelt eine gesprochene Beschreibung in eine Nachricht im Conventional-Commits-Format."
+          }
+        },
+        "created": "„{{name}}“ erstellt",
+        "error": "Agent konnte nicht erstellt werden: {{error}}"
+      },
+      "card": {
+        "name": {
+          "label": "Name",
+          "placeholder": "z. B. Formeller Umschreiber"
+        },
+        "enabled": {
+          "label": "Aktiviert",
+          "description": "Wenn deaktiviert, wird das Tastenkürzel dieses Agenten abgemeldet."
+        },
+        "provider": {
+          "label": "Anbieter",
+          "description": "Auf welchem LLM-Backend die Persona dieses Agenten läuft."
+        },
+        "model": {
+          "label": "Modell",
+          "placeholder": "z. B. gpt-4o-mini",
+          "description": "Zu verwendende Modellkennung für den ausgewählten Anbieter. Wird manuell eingegeben - für Agenten gibt es keine Live-Modellliste."
+        },
+        "apiKey": {
+          "label": "API-Schlüssel",
+          "description": "Optional. Leer lassen, um auf den Nachbearbeitungs-Schlüssel dieses Anbieters zurückzugreifen.",
+          "placeholderConfigured": "•••••••• (gespeichert — leer lassen, um ihn zu behalten)",
+          "placeholderEmpty": "Fällt auf den Nachbearbeitungs-Schlüssel für diesen Anbieter zurück",
+          "clear": "Schlüssel löschen",
+          "cleared": "API-Schlüssel gelöscht",
+          "saved": "API-Schlüssel gespeichert",
+          "error": "API-Schlüssel konnte nicht gespeichert werden: {{error}}"
+        },
+        "outputMode": {
+          "label": "Ausgabe",
+          "description": "Was mit der Antwort des Agenten passiert.",
+          "inject": "An Cursorposition einfügen",
+          "clipboard": "In Zwischenablage kopieren"
+        },
+        "systemPrompt": {
+          "label": "Systemprompt",
+          "description": "Die Persona und Anweisungen, die zur Umwandlung der Transkription verwendet werden.",
+          "placeholder": "Beschreibe die Persona dieses Agenten und wie er die Transkription umwandeln soll..."
+        },
+        "test": {
+          "label": "Test",
+          "description": "Probiere den Agenten an einer Beispieltranskription aus, ohne dein Tastenkürzel anzufassen.",
+          "sampleText": {
+            "placeholder": "Tippe oder füge eine Beispieltranskription zum Ausprobieren ein..."
+          },
+          "run": "Test ausführen",
+          "running": "Wird ausgeführt...",
+          "latency": "{{ms}} ms",
+          "error": "Test fehlgeschlagen: {{error}}"
+        },
+        "delete": {
+          "button": "Agent löschen",
+          "confirmTitle": "„{{name}}“ löschen?",
+          "confirmDescription": "Dies entfernt den Agenten, sein Tastenkürzel und seinen gespeicherten API-Schlüssel. Dies kann nicht rückgängig gemacht werden.",
+          "confirm": "Löschen",
+          "cancel": "Abbrechen",
+          "success": "„{{name}}“ gelöscht",
+          "error": "Agent konnte nicht gelöscht werden: {{error}}"
+        },
+        "update": {
+          "error": "Agent konnte nicht aktualisiert werden: {{error}}"
+        }
       }
     },
     "history": {

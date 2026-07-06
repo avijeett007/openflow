@@ -14,6 +14,7 @@
     "advanced": "Avançado",
     "postProcessing": "Pós-Processamento",
     "dictionary": "Dicionário",
+    "agents": "Agentes",
     "history": "Histórico",
     "debug": "Depuração",
     "about": "Sobre"
@@ -454,6 +455,85 @@
         "importSuccess": "{{count}} entradas importadas",
         "importError": "Não foi possível ler esse arquivo. Use um JSON de dicionário ou uma lista de palavras simples.",
         "nothingToExport": "Seu dicionário está vazio — nada para exportar."
+      }
+    },
+    "agents": {
+      "title": "Agentes",
+      "intro": "Dê a qualquer atalho sua própria persona. Fale no atalho de um agente e o OpenFlow encaminha a transcrição pelo LLM desse agente antes de inserir o resultado, em vez da transcrição bruta.",
+      "emptyState": "Ainda não há agentes. Adicione um abaixo para criar sua primeira persona ativada por atalho.",
+      "addAgent": {
+        "title": "Adicionar um agente",
+        "blank": "Agente em branco",
+        "templates": {
+          "formalRewriter": {
+            "name": "Reescritor Formal",
+            "description": "Reescreve sua transcrição em um tom formal e refinado."
+          },
+          "commitMessage": {
+            "name": "Mensagem de Commit",
+            "description": "Transforma uma descrição falada em uma mensagem no padrão Conventional Commits."
+          }
+        },
+        "created": "\"{{name}}\" criado",
+        "error": "Não foi possível criar o agente: {{error}}"
+      },
+      "card": {
+        "name": { "label": "Nome", "placeholder": "ex.: Reescritor Formal" },
+        "enabled": {
+          "label": "Ativado",
+          "description": "Quando desativado, o atalho deste agente fica sem registro."
+        },
+        "provider": {
+          "label": "Provedor",
+          "description": "Em qual backend de LLM a persona deste agente é executada."
+        },
+        "model": {
+          "label": "Modelo",
+          "placeholder": "ex.: gpt-4o-mini",
+          "description": "ID do modelo a usar com o provedor selecionado. Digitado manualmente - não há lista de modelos em tempo real para agentes."
+        },
+        "apiKey": {
+          "label": "Chave de API",
+          "description": "Opcional. Deixe em branco para usar a chave de Pós-Processamento deste provedor.",
+          "placeholderConfigured": "•••••••• (salva — deixe em branco para manter)",
+          "placeholderEmpty": "Usa a chave de Pós-Processamento deste provedor",
+          "clear": "Limpar chave",
+          "cleared": "Chave de API removida",
+          "saved": "Chave de API salva",
+          "error": "Não foi possível salvar a chave de API: {{error}}"
+        },
+        "outputMode": {
+          "label": "Saída",
+          "description": "O que acontece com a resposta do agente.",
+          "inject": "Inserir no cursor",
+          "clipboard": "Copiar para a área de transferência"
+        },
+        "systemPrompt": {
+          "label": "Prompt do sistema",
+          "description": "A persona e as instruções usadas para transformar a transcrição.",
+          "placeholder": "Descreva a persona deste agente e como ele deve transformar a transcrição..."
+        },
+        "test": {
+          "label": "Teste",
+          "description": "Experimente o agente em uma transcrição de amostra sem alterar seu atalho.",
+          "sampleText": {
+            "placeholder": "Digite ou cole uma transcrição de amostra para testar..."
+          },
+          "run": "Executar teste",
+          "running": "Executando...",
+          "latency": "{{ms}} ms",
+          "error": "Falha no teste: {{error}}"
+        },
+        "delete": {
+          "button": "Excluir agente",
+          "confirmTitle": "Excluir \"{{name}}\"?",
+          "confirmDescription": "Isso remove o agente, seu atalho e a chave de API salva. Essa ação não pode ser desfeita.",
+          "confirm": "Excluir",
+          "cancel": "Cancelar",
+          "success": "\"{{name}}\" excluído",
+          "error": "Não foi possível excluir o agente: {{error}}"
+        },
+        "update": { "error": "Não foi possível atualizar o agente: {{error}}" }
       }
     },
     "history": {

@@ -14,6 +14,7 @@
     "advanced": "進階",
     "postProcessing": "後處理",
     "dictionary": "字典",
+    "agents": "代理人",
     "history": "歷史紀錄",
     "debug": "偵錯",
     "about": "關於"
@@ -454,6 +455,83 @@
         "importSuccess": "已匯入 {{count}} 筆",
         "importError": "無法讀取該檔案。請使用字典 JSON 或純字詞清單。",
         "nothingToExport": "你的字典是空的——沒有可匯出的內容。"
+      }
+    },
+    "agents": {
+      "title": "代理人",
+      "intro": "讓每個快捷鍵都有自己的角色。對著代理人的快捷鍵說話，OpenFlow 會先將轉錄文字透過該代理人的 LLM 處理，再插入結果，而不是插入原始轉錄文字。",
+      "emptyState": "還沒有代理人。在下方新增一個，取得你的第一個快捷鍵觸發角色。",
+      "addAgent": {
+        "title": "新增代理人",
+        "blank": "空白代理人",
+        "templates": {
+          "formalRewriter": {
+            "name": "正式改寫",
+            "description": "以正式、精煉的語氣改寫你的口述內容。"
+          },
+          "commitMessage": {
+            "name": "提交訊息",
+            "description": "將口述描述轉換為符合 Conventional Commits 規範的訊息。"
+          }
+        },
+        "created": "已建立「{{name}}」",
+        "error": "無法建立代理人：{{error}}"
+      },
+      "card": {
+        "name": { "label": "名稱", "placeholder": "例如：正式改寫" },
+        "enabled": {
+          "label": "啟用",
+          "description": "關閉時，此代理人的快捷鍵會取消註冊。"
+        },
+        "provider": {
+          "label": "供應商",
+          "description": "此代理人角色所使用的 LLM 後端。"
+        },
+        "model": {
+          "label": "模型",
+          "placeholder": "例如：gpt-4o-mini",
+          "description": "所選供應商使用的模型 ID。需手動輸入——代理人沒有即時模型清單。"
+        },
+        "apiKey": {
+          "label": "API 金鑰",
+          "description": "選填。留空則會使用此供應商的後處理金鑰。",
+          "placeholderConfigured": "••••••••（已儲存 — 留空以保留）",
+          "placeholderEmpty": "將使用此供應商的後處理金鑰",
+          "clear": "清除金鑰",
+          "cleared": "已清除 API 金鑰",
+          "saved": "已儲存 API 金鑰",
+          "error": "無法儲存 API 金鑰：{{error}}"
+        },
+        "outputMode": {
+          "label": "輸出",
+          "description": "代理人回應後會發生的動作。",
+          "inject": "在游標處插入",
+          "clipboard": "複製到剪貼簿"
+        },
+        "systemPrompt": {
+          "label": "系統提示詞",
+          "description": "用於轉換口述內容的角色設定與指示。",
+          "placeholder": "描述此代理人的角色，以及它應如何轉換口述內容……"
+        },
+        "test": {
+          "label": "測試",
+          "description": "在不影響你的快捷鍵的情況下，用範例轉錄文字試用此代理人。",
+          "sampleText": { "placeholder": "輸入或貼上範例轉錄文字以試用……" },
+          "run": "執行測試",
+          "running": "執行中……",
+          "latency": "{{ms}} 毫秒",
+          "error": "測試失敗：{{error}}"
+        },
+        "delete": {
+          "button": "刪除代理人",
+          "confirmTitle": "刪除「{{name}}」？",
+          "confirmDescription": "這會移除此代理人、其快捷鍵及已儲存的 API 金鑰。此動作無法復原。",
+          "confirm": "刪除",
+          "cancel": "取消",
+          "success": "已刪除「{{name}}」",
+          "error": "無法刪除代理人：{{error}}"
+        },
+        "update": { "error": "無法更新代理人：{{error}}" }
       }
     },
     "history": {

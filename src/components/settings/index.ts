@@ -6,6 +6,7 @@ export { HistorySettings } from "./history/HistorySettings";
 export { AboutSettings } from "./about/AboutSettings";
 export { PostProcessingSettings } from "./post-processing/PostProcessingSettings";
 export { DictionarySettings } from "./dictionary/DictionarySettings";
+export { AgentsSettings } from "./agents/AgentsSettings";
 export { ModelsSettings } from "./models/ModelsSettings";
 export { ModelSetupSettings } from "./model-setup/ModelSetupSettings";
 export { DashboardSettings } from "./dashboard/DashboardSettings";
