@@ -114,14 +114,31 @@ export const AgentRunsSettings: React.FC = () => {
 
   const isRunning = (status: RunStatus) => status.status === "running";
   const hasFinishedRuns = runs.some((run) => !isRunning(run.status));
+  const runningCount = runs.filter((run) => isRunning(run.status)).length;
+  const doneCount = runs.length - runningCount;
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
-      <SettingsGroup title={t("settings.agentRuns.title")}>
+      <SettingsGroup
+        title={t("settings.agentRuns.title")}
+        description={t("settings.agentRuns.intro")}
+      >
         <div className="px-4 py-3 flex items-center justify-between gap-3">
-          <p className="text-sm text-mid-gray">
-            {t("settings.agentRuns.intro")}
-          </p>
+          <div className="flex items-center gap-2 text-xs text-mid-gray min-w-0">
+            {runningCount > 0 && (
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-logo-primary opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-logo-primary" />
+              </span>
+            )}
+            <span className="truncate">
+              {t("settings.agentRuns.summary", {
+                total: runs.length,
+                running: runningCount,
+                done: doneCount,
+              })}
+            </span>
+          </div>
           <Button
             type="button"
             variant="secondary"
@@ -142,7 +159,7 @@ export const AgentRunsSettings: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {runs.map((run) => (
+          {runs.map((run, index) => (
             <AgentRunRow
               key={run.run_id}
               run={run}
@@ -153,6 +170,7 @@ export const AgentRunsSettings: React.FC = () => {
                   ? () => void handleReveal(run.output_file as string)
                   : undefined
               }
+              defaultExpanded={isRunning(run.status) || index === 0}
             />
           ))}
         </div>

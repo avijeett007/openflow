@@ -763,10 +763,33 @@
         "reveal": "显示"
       },
       "instruction": {
-        "label": "指令"
+        "label": "指令",
+        "show": "显示指令",
+        "hide": "隐藏指令"
       },
       "output": {
-        "label": "输出"
+        "label": "输出",
+        "show": "显示输出",
+        "hide": "隐藏输出",
+        "empty": "暂无输出。"
+      },
+      "summary": "共 {{total}} 次运行 · {{running}} 个进行中 · {{done}} 个已完成",
+      "copyReadable": "复制",
+      "copyRaw": "复制原始数据",
+      "copied": "已复制",
+      "copyError": "无法复制到剪贴板: {{error}}",
+      "result": {
+        "label": "结果"
+      },
+      "session": {
+        "started": "会话已开始",
+        "tooltip": "模型: {{model}} · 工作目录: {{cwd}}"
+      },
+      "actions": {
+        "edited": "已编辑 {{target}}",
+        "ran": "已运行 {{command}}",
+        "read": "已读取 {{target}}",
+        "used": "已使用 {{tool}}"
       }
     }
   },

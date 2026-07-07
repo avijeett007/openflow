@@ -763,10 +763,33 @@
         "reveal": "Anzeigen"
       },
       "instruction": {
-        "label": "Anweisung"
+        "label": "Anweisung",
+        "show": "Anweisung anzeigen",
+        "hide": "Anweisung ausblenden"
       },
       "output": {
-        "label": "Ausgabe"
+        "label": "Ausgabe",
+        "show": "Ausgabe anzeigen",
+        "hide": "Ausgabe ausblenden",
+        "empty": "Noch keine Ausgabe."
+      },
+      "summary": "{{total}} Ausführungen · {{running}} laufend · {{done}} abgeschlossen",
+      "copyReadable": "Kopieren",
+      "copyRaw": "Rohdaten kopieren",
+      "copied": "Kopiert",
+      "copyError": "Konnte nicht in die Zwischenablage kopiert werden: {{error}}",
+      "result": {
+        "label": "Ergebnis"
+      },
+      "session": {
+        "started": "Sitzung gestartet",
+        "tooltip": "Modell: {{model}} · Arbeitsverzeichnis: {{cwd}}"
+      },
+      "actions": {
+        "edited": "{{target}} bearbeitet",
+        "ran": "Ausgeführt: {{command}}",
+        "read": "{{target}} gelesen",
+        "used": "{{tool}} verwendet"
       }
     }
   },

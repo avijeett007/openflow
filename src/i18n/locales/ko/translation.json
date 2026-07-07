@@ -763,10 +763,33 @@
         "reveal": "표시"
       },
       "instruction": {
-        "label": "지시"
+        "label": "지시",
+        "show": "지침 표시",
+        "hide": "지침 숨기기"
       },
       "output": {
-        "label": "출력"
+        "label": "출력",
+        "show": "출력 표시",
+        "hide": "출력 숨기기",
+        "empty": "아직 출력이 없습니다."
+      },
+      "summary": "실행 {{total}}개 · 실행 중 {{running}} · 완료 {{done}}",
+      "copyReadable": "복사",
+      "copyRaw": "원본 복사",
+      "copied": "복사됨",
+      "copyError": "클립보드에 복사하지 못했습니다: {{error}}",
+      "result": {
+        "label": "결과"
+      },
+      "session": {
+        "started": "세션 시작됨",
+        "tooltip": "모델: {{model}} · 작업 디렉토리: {{cwd}}"
+      },
+      "actions": {
+        "edited": "{{target}} 편집됨",
+        "ran": "{{command}} 실행됨",
+        "read": "{{target}} 읽음",
+        "used": "{{tool}} 사용됨"
       }
     }
   },

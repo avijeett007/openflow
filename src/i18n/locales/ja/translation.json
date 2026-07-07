@@ -763,10 +763,33 @@
         "reveal": "表示"
       },
       "instruction": {
-        "label": "指示"
+        "label": "指示",
+        "show": "指示を表示",
+        "hide": "指示を非表示"
       },
       "output": {
-        "label": "出力"
+        "label": "出力",
+        "show": "出力を表示",
+        "hide": "出力を非表示",
+        "empty": "まだ出力はありません。"
+      },
+      "summary": "実行 {{total}} 件 · 実行中 {{running}} · 完了 {{done}}",
+      "copyReadable": "コピー",
+      "copyRaw": "生データをコピー",
+      "copied": "コピーしました",
+      "copyError": "クリップボードにコピーできませんでした: {{error}}",
+      "result": {
+        "label": "結果"
+      },
+      "session": {
+        "started": "セッション開始",
+        "tooltip": "モデル: {{model}} · 作業ディレクトリ: {{cwd}}"
+      },
+      "actions": {
+        "edited": "{{target}} を編集",
+        "ran": "{{command}} を実行",
+        "read": "{{target}} を読み込み",
+        "used": "{{tool}} を使用"
       }
     }
   },

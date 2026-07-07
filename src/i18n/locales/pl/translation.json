@@ -763,10 +763,33 @@
         "reveal": "Pokaż"
       },
       "instruction": {
-        "label": "Instrukcja"
+        "label": "Instrukcja",
+        "show": "Pokaż instrukcję",
+        "hide": "Ukryj instrukcję"
       },
       "output": {
-        "label": "Wyjście"
+        "label": "Wyjście",
+        "show": "Pokaż wyjście",
+        "hide": "Ukryj wyjście",
+        "empty": "Brak wyjścia."
+      },
+      "summary": "{{total}} uruchomień · {{running}} w toku · {{done}} zakończonych",
+      "copyReadable": "Kopiuj",
+      "copyRaw": "Kopiuj surowe dane",
+      "copied": "Skopiowano",
+      "copyError": "Nie udało się skopiować do schowka: {{error}}",
+      "result": {
+        "label": "Wynik"
+      },
+      "session": {
+        "started": "Sesja rozpoczęta",
+        "tooltip": "Model: {{model}} · Katalog roboczy: {{cwd}}"
+      },
+      "actions": {
+        "edited": "Edytowano {{target}}",
+        "ran": "Uruchomiono {{command}}",
+        "read": "Odczytano {{target}}",
+        "used": "Użyto {{tool}}"
       }
     }
   },

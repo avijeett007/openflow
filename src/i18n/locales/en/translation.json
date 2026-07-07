@@ -1009,10 +1009,33 @@
         "reveal": "Reveal"
       },
       "instruction": {
-        "label": "Instruction"
+        "label": "Instruction",
+        "show": "Show instruction",
+        "hide": "Hide instruction"
       },
       "output": {
-        "label": "Output"
+        "label": "Output",
+        "show": "Show output",
+        "hide": "Hide output",
+        "empty": "No output yet."
+      },
+      "summary": "{{total}} runs · {{running}} running · {{done}} done",
+      "copyReadable": "Copy",
+      "copyRaw": "Copy raw",
+      "copied": "Copied",
+      "copyError": "Couldn't copy to the clipboard: {{error}}",
+      "result": {
+        "label": "Result"
+      },
+      "session": {
+        "started": "Session started",
+        "tooltip": "Model: {{model}} · Working directory: {{cwd}}"
+      },
+      "actions": {
+        "edited": "Edited {{target}}",
+        "ran": "Ran {{command}}",
+        "read": "Read {{target}}",
+        "used": "Used {{tool}}"
       }
     }
   },

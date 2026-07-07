@@ -763,10 +763,33 @@
         "reveal": "Hiển thị"
       },
       "instruction": {
-        "label": "Hướng dẫn"
+        "label": "Hướng dẫn",
+        "show": "Hiện hướng dẫn",
+        "hide": "Ẩn hướng dẫn"
       },
       "output": {
-        "label": "Đầu ra"
+        "label": "Đầu ra",
+        "show": "Hiện đầu ra",
+        "hide": "Ẩn đầu ra",
+        "empty": "Chưa có đầu ra."
+      },
+      "summary": "{{total}} lượt chạy · {{running}} đang chạy · {{done}} đã xong",
+      "copyReadable": "Sao chép",
+      "copyRaw": "Sao chép dữ liệu thô",
+      "copied": "Đã sao chép",
+      "copyError": "Không thể sao chép vào bộ nhớ tạm: {{error}}",
+      "result": {
+        "label": "Kết quả"
+      },
+      "session": {
+        "started": "Phiên đã bắt đầu",
+        "tooltip": "Mô hình: {{model}} · Thư mục làm việc: {{cwd}}"
+      },
+      "actions": {
+        "edited": "Đã chỉnh sửa {{target}}",
+        "ran": "Đã chạy {{command}}",
+        "read": "Đã đọc {{target}}",
+        "used": "Đã dùng {{tool}}"
       }
     }
   },

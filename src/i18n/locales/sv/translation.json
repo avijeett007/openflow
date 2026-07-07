@@ -763,10 +763,33 @@
         "reveal": "Visa"
       },
       "instruction": {
-        "label": "Instruktion"
+        "label": "Instruktion",
+        "show": "Visa instruktion",
+        "hide": "Dölj instruktion"
       },
       "output": {
-        "label": "Utdata"
+        "label": "Utdata",
+        "show": "Visa utdata",
+        "hide": "Dölj utdata",
+        "empty": "Ingen utdata än."
+      },
+      "summary": "{{total}} körningar · {{running}} pågår · {{done}} klara",
+      "copyReadable": "Kopiera",
+      "copyRaw": "Kopiera rådata",
+      "copied": "Kopierat",
+      "copyError": "Det gick inte att kopiera till urklipp: {{error}}",
+      "result": {
+        "label": "Resultat"
+      },
+      "session": {
+        "started": "Sessionen startad",
+        "tooltip": "Modell: {{model}} · Arbetskatalog: {{cwd}}"
+      },
+      "actions": {
+        "edited": "Redigerade {{target}}",
+        "ran": "Körde {{command}}",
+        "read": "Läste {{target}}",
+        "used": "Använde {{tool}}"
       }
     }
   },

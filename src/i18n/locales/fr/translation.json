@@ -763,10 +763,33 @@
         "reveal": "Afficher"
       },
       "instruction": {
-        "label": "Instruction"
+        "label": "Instruction",
+        "show": "Afficher l'instruction",
+        "hide": "Masquer l'instruction"
       },
       "output": {
-        "label": "Sortie"
+        "label": "Sortie",
+        "show": "Afficher la sortie",
+        "hide": "Masquer la sortie",
+        "empty": "Pas encore de sortie."
+      },
+      "summary": "{{total}} exécutions · {{running}} en cours · {{done}} terminées",
+      "copyReadable": "Copier",
+      "copyRaw": "Copier le brut",
+      "copied": "Copié",
+      "copyError": "Impossible de copier dans le presse-papiers : {{error}}",
+      "result": {
+        "label": "Résultat"
+      },
+      "session": {
+        "started": "Session démarrée",
+        "tooltip": "Modèle : {{model}} · Répertoire de travail : {{cwd}}"
+      },
+      "actions": {
+        "edited": "{{target}} modifié",
+        "ran": "Exécuté {{command}}",
+        "read": "{{target}} lu",
+        "used": "{{tool}} utilisé"
       }
     }
   },

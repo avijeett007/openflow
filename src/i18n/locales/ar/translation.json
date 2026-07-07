@@ -763,10 +763,33 @@
         "reveal": "إظهار"
       },
       "instruction": {
-        "label": "التعليمات"
+        "label": "التعليمات",
+        "show": "إظهار التعليمات",
+        "hide": "إخفاء التعليمات"
       },
       "output": {
-        "label": "المخرجات"
+        "label": "المخرجات",
+        "show": "إظهار المخرجات",
+        "hide": "إخفاء المخرجات",
+        "empty": "لا توجد مخرجات بعد."
+      },
+      "summary": "{{total}} تشغيلة · {{running}} قيد التشغيل · {{done}} مكتملة",
+      "copyReadable": "نسخ",
+      "copyRaw": "نسخ البيانات الخام",
+      "copied": "تم النسخ",
+      "copyError": "تعذّر النسخ إلى الحافظة: {{error}}",
+      "result": {
+        "label": "النتيجة"
+      },
+      "session": {
+        "started": "بدأت الجلسة",
+        "tooltip": "النموذج: {{model}} · دليل العمل: {{cwd}}"
+      },
+      "actions": {
+        "edited": "تم تعديل {{target}}",
+        "ran": "تم تشغيل {{command}}",
+        "read": "تمت قراءة {{target}}",
+        "used": "تم استخدام {{tool}}"
       }
     }
   },
