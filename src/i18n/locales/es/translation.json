@@ -17,7 +17,8 @@
     "agents": "Agentes",
     "history": "Historial",
     "debug": "Depuración",
-    "about": "Acerca de"
+    "about": "Acerca de",
+    "agentRuns": "Ejecuciones de agentes"
   },
   "onboarding": {
     "subtitle": "Para comenzar, elige un modelo de transcripción",
@@ -475,7 +476,11 @@
           }
         },
         "created": "«{{name}}» creado",
-        "error": "No se pudo crear el agente: {{error}}"
+        "error": "No se pudo crear el agente: {{error}}",
+        "promptSectionTitle": "Agentes de prompt",
+        "cliSectionTitle": "Agentes CLI",
+        "cliAgent": "Agente CLI",
+        "cliDescription": "Ejecuta una CLI de agente de programación real (Claude Code, Codex, …) como subproceso en una carpeta de proyecto."
       },
       "card": {
         "name": {
@@ -536,7 +541,58 @@
           "success": "«{{name}}» eliminado",
           "error": "No se pudo eliminar el agente: {{error}}"
         },
-        "update": { "error": "No se pudo actualizar el agente: {{error}}" }
+        "update": {
+          "error": "No se pudo actualizar el agente: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "Tipo de agente",
+            "description": "Qué CLI de agente de programación se ejecuta. Al seleccionar una se rellena la plantilla de comando y se detecta el binario automáticamente.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "Personalizado"
+            },
+            "defaultsError": "No se pudieron cargar los valores predeterminados para este tipo de agente: {{error}}"
+          },
+          "binaryPath": {
+            "label": "Ruta del binario",
+            "description": "Ruta al ejecutable de la CLI que ejecuta este agente.",
+            "placeholder": "p. ej. /usr/local/bin/claude",
+            "detect": "Detectar",
+            "detecting": "Detectando…",
+            "detectError": "No se pudo detectar el binario: {{error}}",
+            "test": "Probar",
+            "testing": "Probando…",
+            "testError": "La prueba falló: {{error}}",
+            "testOk": "El binario funciona: {{output}}",
+            "testFailed": "El binario no se ejecutó correctamente: {{output}}"
+          },
+          "projectPath": {
+            "label": "Carpeta del proyecto",
+            "description": "El repositorio/carpeta en el que se ejecuta este agente (su cwd). Déjalo vacío para ejecutarlo en un directorio predeterminado.",
+            "placeholder": "Ninguna carpeta seleccionada",
+            "choose": "Elegir carpeta…",
+            "clear": "Borrar",
+            "error": "No se pudo abrir el selector de carpetas: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "Plantilla de comando",
+            "description": "Avanzado: la plantilla argv que se añade después del binario. Admite los marcadores {cwd} y {prompt}.",
+            "placeholder": "p. ej. -p --output-format stream-json --verbose",
+            "show": "Mostrar avanzado",
+            "hide": "Ocultar avanzado"
+          },
+          "outputSinks": {
+            "label": "Salida",
+            "description": "A dónde va la salida de esta ejecución cuando finaliza.",
+            "panel": "Panel",
+            "notify": "Notificar",
+            "file": "Archivo"
+          }
+        }
       }
     },
     "history": {
@@ -679,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "Mostrar novedades",
         "description": "Mostrar notas de la versión después de las actualizaciones de OpenFlow"
+      }
+    },
+    "agentRuns": {
+      "title": "Ejecuciones de agentes",
+      "intro": "Vista en vivo de las ejecuciones de agentes de programación CLI: salida transmitida, estado y dónde se escribieron los resultados.",
+      "emptyState": "Aún no hay ejecuciones de agentes. Activa el atajo de un agente CLI para iniciar una.",
+      "clearFinished": "Borrar finalizadas",
+      "stop": "Detener",
+      "stopping": "Deteniendo…",
+      "stopError": "No se pudo detener la ejecución: {{error}}",
+      "clearError": "No se pudieron borrar las ejecuciones finalizadas: {{error}}",
+      "revealError": "No se pudo mostrar el archivo: {{error}}",
+      "noProject": "Sin carpeta de proyecto",
+      "status": {
+        "running": "En ejecución",
+        "finished": "Finalizado (salida {{code}})",
+        "failed": "Falló: {{error}}",
+        "stopped": "Detenido"
+      },
+      "startedAt": "Iniciado {{time}}",
+      "elapsed": "Transcurrido {{value}}",
+      "outputFile": {
+        "label": "Archivo de salida: {{path}}",
+        "reveal": "Mostrar"
+      },
+      "instruction": {
+        "label": "Instrucción"
+      },
+      "output": {
+        "label": "Salida"
       }
     }
   },

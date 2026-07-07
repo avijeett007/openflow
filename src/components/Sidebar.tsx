@@ -1,6 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import {
+  Activity,
   BarChart3,
   Bot,
   Cog,
@@ -28,6 +29,7 @@ import {
   DashboardSettings,
   HandsFreeSettings,
   AgentsSettings,
+  AgentRunsSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -100,6 +102,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.agents",
     icon: Bot,
     component: AgentsSettings,
+    enabled: () => true,
+  },
+  agentRuns: {
+    labelKey: "sidebar.agentRuns",
+    icon: Activity,
+    component: AgentRunsSettings,
     enabled: () => true,
   },
   postprocessing: {

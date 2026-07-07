@@ -17,7 +17,8 @@
     "agents": "Agenti",
     "history": "Historie",
     "debug": "Ladění",
-    "about": "O aplikaci"
+    "about": "O aplikaci",
+    "agentRuns": "Běhy agentů"
   },
   "onboarding": {
     "subtitle": "Pro začátek vyberte model pro přepis",
@@ -475,7 +476,11 @@
           }
         },
         "created": "„{{name}}“ vytvořen",
-        "error": "Agenta se nepodařilo vytvořit: {{error}}"
+        "error": "Agenta se nepodařilo vytvořit: {{error}}",
+        "promptSectionTitle": "Promptoví agenti",
+        "cliSectionTitle": "CLI agenti",
+        "cliAgent": "CLI agent",
+        "cliDescription": "Spusťte skutečné CLI programovacího agenta (Claude Code, Codex, …) jako podproces ve složce projektu."
       },
       "card": {
         "name": {
@@ -536,7 +541,58 @@
           "success": "„{{name}}“ smazán",
           "error": "Agenta se nepodařilo smazat: {{error}}"
         },
-        "update": { "error": "Agenta se nepodařilo aktualizovat: {{error}}" }
+        "update": {
+          "error": "Agenta se nepodařilo aktualizovat: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "Typ agenta",
+            "description": "Které CLI programovacího agenta se spouští. Výběrem se předvyplní šablona příkazu a automaticky se rozpozná binární soubor.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "Vlastní"
+            },
+            "defaultsError": "Nepodařilo se načíst výchozí hodnoty pro tento typ agenta: {{error}}"
+          },
+          "binaryPath": {
+            "label": "Cesta k binárnímu souboru",
+            "description": "Cesta ke spustitelnému souboru CLI, který tento agent spouští.",
+            "placeholder": "např. /usr/local/bin/claude",
+            "detect": "Rozpoznat",
+            "detecting": "Rozpoznávání…",
+            "detectError": "Nepodařilo se rozpoznat binární soubor: {{error}}",
+            "test": "Test",
+            "testing": "Testování…",
+            "testError": "Test se nezdařil: {{error}}",
+            "testOk": "Binární soubor funguje: {{output}}",
+            "testFailed": "Binární soubor neproběhl správně: {{output}}"
+          },
+          "projectPath": {
+            "label": "Složka projektu",
+            "description": "Repozitář/složka, ve které tento agent běží (jeho cwd). Ponechte prázdné pro spuštění ve výchozím adresáři.",
+            "placeholder": "Není vybrána žádná složka",
+            "choose": "Vybrat složku…",
+            "clear": "Vymazat",
+            "error": "Nepodařilo se otevřít výběr složky: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "Šablona příkazu",
+            "description": "Pokročilé: šablona argv připojená za binární soubor. Podporuje zástupné symboly {cwd} a {prompt}.",
+            "placeholder": "např. -p --output-format stream-json --verbose",
+            "show": "Zobrazit pokročilé",
+            "hide": "Skrýt pokročilé"
+          },
+          "outputSinks": {
+            "label": "Výstup",
+            "description": "Kam jde výstup tohoto běhu po dokončení.",
+            "panel": "Panel",
+            "notify": "Upozornit",
+            "file": "Soubor"
+          }
+        }
       }
     },
     "history": {
@@ -679,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "Zobrazovat novinky",
         "description": "Zobrazovat poznámky k vydání po aktualizacích OpenFlow"
+      }
+    },
+    "agentRuns": {
+      "title": "Běhy agentů",
+      "intro": "Živý přehled běhů CLI programovacích agentů: streamovaný výstup, stav a kam byly zapsány výsledky.",
+      "emptyState": "Zatím žádné běhy agentů. Spusťte klávesovou zkratku CLI agenta.",
+      "clearFinished": "Vymazat dokončené",
+      "stop": "Zastavit",
+      "stopping": "Zastavování…",
+      "stopError": "Nepodařilo se zastavit běh: {{error}}",
+      "clearError": "Nepodařilo se vymazat dokončené běhy: {{error}}",
+      "revealError": "Nepodařilo se zobrazit soubor: {{error}}",
+      "noProject": "Žádná složka projektu",
+      "status": {
+        "running": "Běží",
+        "finished": "Dokončeno (ukončení {{code}})",
+        "failed": "Selhalo: {{error}}",
+        "stopped": "Zastaveno"
+      },
+      "startedAt": "Spuštěno {{time}}",
+      "elapsed": "Uplynulo {{value}}",
+      "outputFile": {
+        "label": "Výstupní soubor: {{path}}",
+        "reveal": "Zobrazit"
+      },
+      "instruction": {
+        "label": "Pokyn"
+      },
+      "output": {
+        "label": "Výstup"
       }
     }
   },

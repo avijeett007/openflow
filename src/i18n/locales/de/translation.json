@@ -17,7 +17,8 @@
     "agents": "Agenten",
     "history": "Verlauf",
     "debug": "Debug",
-    "about": "Info"
+    "about": "Info",
+    "agentRuns": "Agent-Läufe"
   },
   "onboarding": {
     "subtitle": "Wähle ein Transkriptionsmodell, um loszulegen",
@@ -475,7 +476,11 @@
           }
         },
         "created": "„{{name}}“ erstellt",
-        "error": "Agent konnte nicht erstellt werden: {{error}}"
+        "error": "Agent konnte nicht erstellt werden: {{error}}",
+        "promptSectionTitle": "Prompt-Agenten",
+        "cliSectionTitle": "CLI-Agenten",
+        "cliAgent": "CLI-Agent",
+        "cliDescription": "Steuere eine echte Coding-Agent-CLI (Claude Code, Codex, …) als Subprozess in einem Projektordner."
       },
       "card": {
         "name": {
@@ -538,6 +543,55 @@
         },
         "update": {
           "error": "Agent konnte nicht aktualisiert werden: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "Agententyp",
+            "description": "Welche Coding-Agent-CLI hier ausgeführt wird. Die Auswahl füllt die Befehlsvorlage vor und erkennt die Binärdatei automatisch.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "Benutzerdefiniert"
+            },
+            "defaultsError": "Standardwerte für diesen Agententyp konnten nicht geladen werden: {{error}}"
+          },
+          "binaryPath": {
+            "label": "Binärpfad",
+            "description": "Pfad zur ausführbaren CLI-Datei, die dieser Agent ausführt.",
+            "placeholder": "z. B. /usr/local/bin/claude",
+            "detect": "Erkennen",
+            "detecting": "Wird erkannt…",
+            "detectError": "Binärdatei konnte nicht erkannt werden: {{error}}",
+            "test": "Testen",
+            "testing": "Wird getestet…",
+            "testError": "Test fehlgeschlagen: {{error}}",
+            "testOk": "Binärdatei funktioniert: {{output}}",
+            "testFailed": "Binärdatei lief nicht sauber: {{output}}"
+          },
+          "projectPath": {
+            "label": "Projektordner",
+            "description": "Das Repository/der Ordner, in dem dieser Agent läuft (sein cwd). Leer lassen, um in einem Standardverzeichnis auszuführen.",
+            "placeholder": "Kein Ordner ausgewählt",
+            "choose": "Ordner auswählen…",
+            "clear": "Löschen",
+            "error": "Der Ordnerauswahldialog konnte nicht geöffnet werden: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "Befehlsvorlage",
+            "description": "Erweitert: die argv-Vorlage, die nach der Binärdatei angehängt wird. Unterstützt die Platzhalter {cwd} und {prompt}.",
+            "placeholder": "z. B. -p --output-format stream-json --verbose",
+            "show": "Erweitert anzeigen",
+            "hide": "Erweitert ausblenden"
+          },
+          "outputSinks": {
+            "label": "Ausgabe",
+            "description": "Wohin die Ausgabe dieses Laufs geht, wenn er abgeschlossen ist.",
+            "panel": "Panel",
+            "notify": "Benachrichtigen",
+            "file": "Datei"
+          }
         }
       }
     },
@@ -681,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "Neuerungen anzeigen",
         "description": "Versionshinweise nach OpenFlow-Updates anzeigen"
+      }
+    },
+    "agentRuns": {
+      "title": "Agent-Läufe",
+      "intro": "Live-Ansicht der CLI-Coding-Agent-Läufe: gestreamte Ausgabe, Status und wo die Ergebnisse geschrieben wurden.",
+      "emptyState": "Noch keine Agent-Läufe. Löse das Hotkey eines CLI-Agenten aus, um einen zu starten.",
+      "clearFinished": "Abgeschlossene löschen",
+      "stop": "Stoppen",
+      "stopping": "Wird gestoppt…",
+      "stopError": "Der Lauf konnte nicht gestoppt werden: {{error}}",
+      "clearError": "Abgeschlossene Läufe konnten nicht gelöscht werden: {{error}}",
+      "revealError": "Die Datei konnte nicht angezeigt werden: {{error}}",
+      "noProject": "Kein Projektordner",
+      "status": {
+        "running": "Läuft",
+        "finished": "Abgeschlossen (Beendigung {{code}})",
+        "failed": "Fehlgeschlagen: {{error}}",
+        "stopped": "Gestoppt"
+      },
+      "startedAt": "Gestartet {{time}}",
+      "elapsed": "Verstrichen {{value}}",
+      "outputFile": {
+        "label": "Ausgabedatei: {{path}}",
+        "reveal": "Anzeigen"
+      },
+      "instruction": {
+        "label": "Anweisung"
+      },
+      "output": {
+        "label": "Ausgabe"
       }
     }
   },

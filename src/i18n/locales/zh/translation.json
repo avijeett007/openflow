@@ -17,7 +17,8 @@
     "agents": "智能体",
     "history": "历史记录",
     "debug": "调试",
-    "about": "关于"
+    "about": "关于",
+    "agentRuns": "智能体运行"
   },
   "onboarding": {
     "subtitle": "请选择一个转录模型以开始使用",
@@ -475,10 +476,17 @@
           }
         },
         "created": "已创建“{{name}}”",
-        "error": "无法创建智能体：{{error}}"
+        "error": "无法创建智能体：{{error}}",
+        "promptSectionTitle": "提示词智能体",
+        "cliSectionTitle": "CLI 智能体",
+        "cliAgent": "CLI 智能体",
+        "cliDescription": "在项目文件夹中以子进程方式驱动真实的编程智能体 CLI（Claude Code、Codex、…）。"
       },
       "card": {
-        "name": { "label": "名称", "placeholder": "例如：正式改写" },
+        "name": {
+          "label": "名称",
+          "placeholder": "例如：正式改写"
+        },
         "enabled": {
           "label": "启用",
           "description": "关闭时，此智能体的快捷键将被取消注册。"
@@ -516,7 +524,9 @@
         "test": {
           "label": "测试",
           "description": "在不影响你的快捷键的情况下，用示例转录文本试用此智能体。",
-          "sampleText": { "placeholder": "输入或粘贴示例转录文本以试用……" },
+          "sampleText": {
+            "placeholder": "输入或粘贴示例转录文本以试用……"
+          },
           "run": "运行测试",
           "running": "运行中……",
           "latency": "{{ms}} 毫秒",
@@ -531,7 +541,58 @@
           "success": "已删除“{{name}}”",
           "error": "无法删除智能体：{{error}}"
         },
-        "update": { "error": "无法更新智能体：{{error}}" }
+        "update": {
+          "error": "无法更新智能体：{{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "智能体类型",
+            "description": "运行哪个编程智能体 CLI。选择后会预填命令模板并自动检测可执行文件。",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "自定义"
+            },
+            "defaultsError": "无法加载此智能体类型的默认设置：{{error}}"
+          },
+          "binaryPath": {
+            "label": "可执行文件路径",
+            "description": "此智能体运行的 CLI 可执行文件的路径。",
+            "placeholder": "例如 /usr/local/bin/claude",
+            "detect": "检测",
+            "detecting": "检测中…",
+            "detectError": "无法检测可执行文件：{{error}}",
+            "test": "测试",
+            "testing": "测试中…",
+            "testError": "测试失败：{{error}}",
+            "testOk": "可执行文件正常：{{output}}",
+            "testFailed": "可执行文件未正常运行：{{output}}"
+          },
+          "projectPath": {
+            "label": "项目文件夹",
+            "description": "此智能体运行所在的仓库/文件夹（其 cwd）。留空则在默认目录中运行。",
+            "placeholder": "未选择文件夹",
+            "choose": "选择文件夹…",
+            "clear": "清除",
+            "error": "无法打开文件夹选择器：{{error}}"
+          },
+          "commandTemplate": {
+            "label": "命令模板",
+            "description": "高级：附加在可执行文件之后的 argv 模板。支持 {cwd} 和 {prompt} 占位符。",
+            "placeholder": "例如 -p --output-format stream-json --verbose",
+            "show": "显示高级",
+            "hide": "隐藏高级"
+          },
+          "outputSinks": {
+            "label": "输出",
+            "description": "此次运行完成后输出的去向。",
+            "panel": "面板",
+            "notify": "通知",
+            "file": "文件"
+          }
+        }
       }
     },
     "history": {
@@ -674,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "显示新功能",
         "description": "OpenFlow 更新后显示发行说明"
+      }
+    },
+    "agentRuns": {
+      "title": "智能体运行",
+      "intro": "CLI 编程智能体运行的实时视图：流式输出、状态以及结果写入的位置。",
+      "emptyState": "暂无智能体运行。触发 CLI 智能体的快捷键即可开始。",
+      "clearFinished": "清除已完成",
+      "stop": "停止",
+      "stopping": "停止中…",
+      "stopError": "无法停止运行：{{error}}",
+      "clearError": "无法清除已完成的运行：{{error}}",
+      "revealError": "无法显示文件：{{error}}",
+      "noProject": "无项目文件夹",
+      "status": {
+        "running": "运行中",
+        "finished": "已完成（退出码 {{code}}）",
+        "failed": "失败：{{error}}",
+        "stopped": "已停止"
+      },
+      "startedAt": "开始于 {{time}}",
+      "elapsed": "已用 {{value}}",
+      "outputFile": {
+        "label": "输出文件：{{path}}",
+        "reveal": "显示"
+      },
+      "instruction": {
+        "label": "指令"
+      },
+      "output": {
+        "label": "输出"
       }
     }
   },

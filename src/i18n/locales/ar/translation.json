@@ -17,7 +17,8 @@
     "history": "السجل",
     "debug": "تصحيح الأخطاء",
     "about": "حول",
-    "models": "النماذج"
+    "models": "النماذج",
+    "agentRuns": "عمليات تشغيل الوكلاء"
   },
   "onboarding": {
     "subtitle": "للبدء، اختر نموذج التفريغ الصوتي",
@@ -454,7 +455,11 @@
           }
         },
         "created": "تم إنشاء \"{{name}}\"",
-        "error": "تعذّر إنشاء الوكيل: {{error}}"
+        "error": "تعذّر إنشاء الوكيل: {{error}}",
+        "promptSectionTitle": "وكلاء المطالبات",
+        "cliSectionTitle": "وكلاء CLI",
+        "cliAgent": "وكيل CLI",
+        "cliDescription": "شغّل واجهة سطر أوامر حقيقية لوكيل برمجة (Claude Code، Codex، …) كعملية فرعية في مجلد مشروع."
       },
       "card": {
         "name": {
@@ -515,7 +520,58 @@
           "success": "تم حذف \"{{name}}\"",
           "error": "تعذّر حذف الوكيل: {{error}}"
         },
-        "update": { "error": "تعذّر تحديث الوكيل: {{error}}" }
+        "update": {
+          "error": "تعذّر تحديث الوكيل: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "نوع الوكيل",
+            "description": "أي واجهة سطر أوامر لوكيل البرمجة سيتم تشغيلها. يؤدي اختيار أحدها إلى تعبئة قالب الأمر مسبقًا واكتشاف الملف الثنائي تلقائيًا.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "مخصّص"
+            },
+            "defaultsError": "تعذّر تحميل الإعدادات الافتراضية لهذا النوع من الوكلاء: {{error}}"
+          },
+          "binaryPath": {
+            "label": "مسار الملف الثنائي",
+            "description": "المسار إلى الملف التنفيذي لواجهة سطر الأوامر الذي يشغّله هذا الوكيل.",
+            "placeholder": "مثال /usr/local/bin/claude",
+            "detect": "اكتشاف",
+            "detecting": "جارٍ الاكتشاف…",
+            "detectError": "تعذّر اكتشاف الملف الثنائي: {{error}}",
+            "test": "اختبار",
+            "testing": "جارٍ الاختبار…",
+            "testError": "فشل الاختبار: {{error}}",
+            "testOk": "الملف الثنائي يعمل: {{output}}",
+            "testFailed": "لم يعمل الملف الثنائي بشكل سليم: {{output}}"
+          },
+          "projectPath": {
+            "label": "مجلد المشروع",
+            "description": "المستودع/المجلد الذي يعمل فيه هذا الوكيل (cwd الخاص به). اتركه فارغًا للتشغيل في دليل افتراضي.",
+            "placeholder": "لم يتم اختيار مجلد",
+            "choose": "اختيار مجلد…",
+            "clear": "مسح",
+            "error": "تعذّر فتح أداة اختيار المجلد: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "قالب الأمر",
+            "description": "متقدّم: قالب argv المُلحق بعد الملف الثنائي. يدعم العناصر النائبة {cwd} و{prompt}.",
+            "placeholder": "مثال -p --output-format stream-json --verbose",
+            "show": "إظهار المتقدّم",
+            "hide": "إخفاء المتقدّم"
+          },
+          "outputSinks": {
+            "label": "المخرجات",
+            "description": "إلى أين تذهب مخرجات هذا التشغيل عند انتهائه.",
+            "panel": "اللوحة",
+            "notify": "إشعار",
+            "file": "ملف"
+          }
+        }
       }
     },
     "history": {
@@ -679,6 +735,36 @@
       "rescan": {
         "label": "إعادة الفحص",
         "tooltip": "إعادة الفحص بحثًا عن النماذج المضافة إلى مجلد النماذج أو ذاكرة Hugging Face التخزينية المؤقتة خارج OpenFlow"
+      }
+    },
+    "agentRuns": {
+      "title": "عمليات تشغيل الوكلاء",
+      "intro": "عرض مباشر لعمليات تشغيل وكلاء البرمجة عبر CLI: مخرجات متدفقة، وحالة، ومكان كتابة النتائج.",
+      "emptyState": "لا توجد عمليات تشغيل للوكلاء بعد. شغّل اختصار وكيل CLI لبدء واحدة.",
+      "clearFinished": "مسح المنتهية",
+      "stop": "إيقاف",
+      "stopping": "جارٍ الإيقاف…",
+      "stopError": "تعذّر إيقاف التشغيل: {{error}}",
+      "clearError": "تعذّر مسح عمليات التشغيل المنتهية: {{error}}",
+      "revealError": "تعذّر إظهار الملف: {{error}}",
+      "noProject": "لا يوجد مجلد مشروع",
+      "status": {
+        "running": "قيد التشغيل",
+        "finished": "انتهى (رمز الخروج {{code}})",
+        "failed": "فشل: {{error}}",
+        "stopped": "متوقّف"
+      },
+      "startedAt": "بدأ {{time}}",
+      "elapsed": "المنقضي {{value}}",
+      "outputFile": {
+        "label": "ملف المخرجات: {{path}}",
+        "reveal": "إظهار"
+      },
+      "instruction": {
+        "label": "التعليمات"
+      },
+      "output": {
+        "label": "المخرجات"
       }
     }
   },

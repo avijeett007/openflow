@@ -17,7 +17,8 @@
     "agents": "Ajanlar",
     "history": "Geçmiş",
     "debug": "Hata Ayıklama",
-    "about": "Hakkında"
+    "about": "Hakkında",
+    "agentRuns": "Ajan Çalıştırmaları"
   },
   "onboarding": {
     "subtitle": "Başlamak için bir transkripsiyon modeli seçin",
@@ -475,10 +476,17 @@
           }
         },
         "created": "\"{{name}}\" oluşturuldu",
-        "error": "Ajan oluşturulamadı: {{error}}"
+        "error": "Ajan oluşturulamadı: {{error}}",
+        "promptSectionTitle": "İstem ajanları",
+        "cliSectionTitle": "CLI ajanları",
+        "cliAgent": "CLI ajanı",
+        "cliDescription": "Gerçek bir kodlama ajanı CLI'sini (Claude Code, Codex, …) bir proje klasöründe alt süreç olarak çalıştırın."
       },
       "card": {
-        "name": { "label": "Ad", "placeholder": "örn. Resmi Yeniden Yazıcı" },
+        "name": {
+          "label": "Ad",
+          "placeholder": "örn. Resmi Yeniden Yazıcı"
+        },
         "enabled": {
           "label": "Etkin",
           "description": "Kapalıyken bu ajanın kısayol tuşunun kaydı kaldırılır."
@@ -533,7 +541,58 @@
           "success": "\"{{name}}\" silindi",
           "error": "Ajan silinemedi: {{error}}"
         },
-        "update": { "error": "Ajan güncellenemedi: {{error}}" }
+        "update": {
+          "error": "Ajan güncellenemedi: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "Ajan türü",
+            "description": "Hangi kodlama ajanı CLI'sinin çalıştırılacağı. Birini seçmek komut şablonunu önceden doldurur ve ikili dosyayı otomatik algılar.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "Özel"
+            },
+            "defaultsError": "Bu ajan türü için varsayılanlar yüklenemedi: {{error}}"
+          },
+          "binaryPath": {
+            "label": "İkili dosya yolu",
+            "description": "Bu ajanın çalıştırdığı CLI yürütülebilir dosyasının yolu.",
+            "placeholder": "örn. /usr/local/bin/claude",
+            "detect": "Algıla",
+            "detecting": "Algılanıyor…",
+            "detectError": "İkili dosya algılanamadı: {{error}}",
+            "test": "Test et",
+            "testing": "Test ediliyor…",
+            "testError": "Test başarısız oldu: {{error}}",
+            "testOk": "İkili dosya çalışıyor: {{output}}",
+            "testFailed": "İkili dosya düzgün çalışmadı: {{output}}"
+          },
+          "projectPath": {
+            "label": "Proje klasörü",
+            "description": "Bu ajanın çalıştığı depo/klasör (cwd'si). Varsayılan bir dizinde çalıştırmak için boş bırakın.",
+            "placeholder": "Klasör seçilmedi",
+            "choose": "Klasör seç…",
+            "clear": "Temizle",
+            "error": "Klasör seçici açılamadı: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "Komut şablonu",
+            "description": "Gelişmiş: ikili dosyadan sonra eklenen argv şablonu. {cwd} ve {prompt} yer tutucularını destekler.",
+            "placeholder": "örn. -p --output-format stream-json --verbose",
+            "show": "Gelişmişi göster",
+            "hide": "Gelişmişi gizle"
+          },
+          "outputSinks": {
+            "label": "Çıktı",
+            "description": "Bu çalıştırmanın çıktısının bittiğinde nereye gideceği.",
+            "panel": "Panel",
+            "notify": "Bildir",
+            "file": "Dosya"
+          }
+        }
       }
     },
     "history": {
@@ -676,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "Yenilikleri Göster",
         "description": "OpenFlow güncellemelerinden sonra sürüm notlarını göster"
+      }
+    },
+    "agentRuns": {
+      "title": "Ajan Çalıştırmaları",
+      "intro": "CLI kodlama ajanı çalıştırmalarının canlı görünümü: akışlı çıktı, durum ve sonuçların nereye yazıldığı.",
+      "emptyState": "Henüz ajan çalıştırması yok. Başlatmak için bir CLI ajanının kısayolunu tetikleyin.",
+      "clearFinished": "Tamamlananları temizle",
+      "stop": "Durdur",
+      "stopping": "Durduruluyor…",
+      "stopError": "Çalıştırma durdurulamadı: {{error}}",
+      "clearError": "Tamamlanan çalıştırmalar temizlenemedi: {{error}}",
+      "revealError": "Dosya gösterilemedi: {{error}}",
+      "noProject": "Proje klasörü yok",
+      "status": {
+        "running": "Çalışıyor",
+        "finished": "Tamamlandı (çıkış {{code}})",
+        "failed": "Başarısız: {{error}}",
+        "stopped": "Durduruldu"
+      },
+      "startedAt": "Başladı {{time}}",
+      "elapsed": "Geçen {{value}}",
+      "outputFile": {
+        "label": "Çıktı dosyası: {{path}}",
+        "reveal": "Göster"
+      },
+      "instruction": {
+        "label": "Talimat"
+      },
+      "output": {
+        "label": "Çıktı"
       }
     }
   },

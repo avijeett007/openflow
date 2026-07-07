@@ -20,7 +20,8 @@
     "history": "History",
     "dashboard": "Dashboard",
     "debug": "Debug",
-    "about": "About"
+    "about": "About",
+    "agentRuns": "Agent Runs"
   },
   "onboarding": {
     "subtitle": "To get started, choose a transcription model",
@@ -641,7 +642,11 @@
           }
         },
         "created": "\"{{name}}\" created",
-        "error": "Couldn't create the agent: {{error}}"
+        "error": "Couldn't create the agent: {{error}}",
+        "promptSectionTitle": "Prompt agents",
+        "cliSectionTitle": "CLI agents",
+        "cliAgent": "CLI agent",
+        "cliDescription": "Drive a real coding-agent CLI (Claude Code, Codex, …) as a subprocess in a project folder."
       },
       "card": {
         "name": {
@@ -704,6 +709,55 @@
         },
         "update": {
           "error": "Couldn't update the agent: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "Agent type",
+            "description": "Which coding-agent CLI this runs. Selecting one prefills the command template and auto-detects the binary.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "Custom"
+            },
+            "defaultsError": "Couldn't load defaults for this agent type: {{error}}"
+          },
+          "binaryPath": {
+            "label": "Binary path",
+            "description": "Path to the CLI executable this agent runs.",
+            "placeholder": "e.g. /usr/local/bin/claude",
+            "detect": "Detect",
+            "detecting": "Detecting…",
+            "detectError": "Couldn't detect the binary: {{error}}",
+            "test": "Test",
+            "testing": "Testing…",
+            "testError": "Test failed: {{error}}",
+            "testOk": "Binary works: {{output}}",
+            "testFailed": "Binary did not run cleanly: {{output}}"
+          },
+          "projectPath": {
+            "label": "Project folder",
+            "description": "The repo/folder this agent runs in (its cwd). Leave empty to run in a default directory.",
+            "placeholder": "No folder selected",
+            "choose": "Choose folder…",
+            "clear": "Clear",
+            "error": "Couldn't open the folder picker: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "Command template",
+            "description": "Advanced: the argv template appended after the binary. Supports {cwd} and {prompt} placeholders.",
+            "placeholder": "e.g. -p --output-format stream-json --verbose",
+            "show": "Show advanced",
+            "hide": "Hide advanced"
+          },
+          "outputSinks": {
+            "label": "Output",
+            "description": "Where this run's output goes when it finishes.",
+            "panel": "Panel",
+            "notify": "Notify",
+            "file": "File"
+          }
         }
       }
     },
@@ -927,6 +981,36 @@
           "description": "High-performance tensor library for on-device machine learning inference",
           "details": "OpenFlow's local speech-to-text is built on transcribe.cpp and ggml. Thanks to the amazing work by Georgi Gerganov and contributors."
         }
+      }
+    },
+    "agentRuns": {
+      "title": "Agent Runs",
+      "intro": "Live view of CLI coding-agent runs: streamed output, status, and where results were written.",
+      "emptyState": "No agent runs yet. Trigger a CLI agent's hotkey to start one.",
+      "clearFinished": "Clear finished",
+      "stop": "Stop",
+      "stopping": "Stopping…",
+      "stopError": "Couldn't stop the run: {{error}}",
+      "clearError": "Couldn't clear finished runs: {{error}}",
+      "revealError": "Couldn't reveal the file: {{error}}",
+      "noProject": "No project folder",
+      "status": {
+        "running": "Running",
+        "finished": "Finished (exit {{code}})",
+        "failed": "Failed: {{error}}",
+        "stopped": "Stopped"
+      },
+      "startedAt": "Started {{time}}",
+      "elapsed": "Elapsed {{value}}",
+      "outputFile": {
+        "label": "Output file: {{path}}",
+        "reveal": "Reveal"
+      },
+      "instruction": {
+        "label": "Instruction"
+      },
+      "output": {
+        "label": "Output"
       }
     }
   },

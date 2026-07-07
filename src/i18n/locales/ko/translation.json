@@ -17,7 +17,8 @@
     "agents": "에이전트",
     "history": "히스토리",
     "debug": "디버그",
-    "about": "정보"
+    "about": "정보",
+    "agentRuns": "에이전트 실행"
   },
   "onboarding": {
     "subtitle": "시작하려면 음성 인식 모델을 선택하세요",
@@ -475,10 +476,17 @@
           }
         },
         "created": "\"{{name}}\" 생성됨",
-        "error": "에이전트를 만들 수 없습니다: {{error}}"
+        "error": "에이전트를 만들 수 없습니다: {{error}}",
+        "promptSectionTitle": "프롬프트 에이전트",
+        "cliSectionTitle": "CLI 에이전트",
+        "cliAgent": "CLI 에이전트",
+        "cliDescription": "실제 코딩 에이전트 CLI(Claude Code, Codex, …)를 프로젝트 폴더에서 하위 프로세스로 실행합니다."
       },
       "card": {
-        "name": { "label": "이름", "placeholder": "예: 격식체 다듬기" },
+        "name": {
+          "label": "이름",
+          "placeholder": "예: 격식체 다듬기"
+        },
         "enabled": {
           "label": "사용",
           "description": "끄면 이 에이전트의 단축키 등록이 해제됩니다."
@@ -533,7 +541,58 @@
           "success": "\"{{name}}\" 삭제됨",
           "error": "에이전트를 삭제할 수 없습니다: {{error}}"
         },
-        "update": { "error": "에이전트를 업데이트할 수 없습니다: {{error}}" }
+        "update": {
+          "error": "에이전트를 업데이트할 수 없습니다: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "에이전트 유형",
+            "description": "어떤 코딩 에이전트 CLI를 실행할지. 하나를 선택하면 명령 템플릿이 미리 채워지고 바이너리가 자동 감지됩니다.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "사용자 지정"
+            },
+            "defaultsError": "이 에이전트 유형의 기본값을 불러올 수 없습니다: {{error}}"
+          },
+          "binaryPath": {
+            "label": "바이너리 경로",
+            "description": "이 에이전트가 실행하는 CLI 실행 파일의 경로입니다.",
+            "placeholder": "예: /usr/local/bin/claude",
+            "detect": "감지",
+            "detecting": "감지 중…",
+            "detectError": "바이너리를 감지할 수 없습니다: {{error}}",
+            "test": "테스트",
+            "testing": "테스트 중…",
+            "testError": "테스트 실패: {{error}}",
+            "testOk": "바이너리가 작동합니다: {{output}}",
+            "testFailed": "바이너리가 정상적으로 실행되지 않았습니다: {{output}}"
+          },
+          "projectPath": {
+            "label": "프로젝트 폴더",
+            "description": "이 에이전트가 실행되는 저장소/폴더(cwd)입니다. 기본 디렉터리에서 실행하려면 비워 두세요.",
+            "placeholder": "선택된 폴더 없음",
+            "choose": "폴더 선택…",
+            "clear": "지우기",
+            "error": "폴더 선택기를 열 수 없습니다: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "명령 템플릿",
+            "description": "고급: 바이너리 뒤에 추가되는 argv 템플릿입니다. {cwd} 및 {prompt} 자리 표시자를 지원합니다.",
+            "placeholder": "예: -p --output-format stream-json --verbose",
+            "show": "고급 표시",
+            "hide": "고급 숨기기"
+          },
+          "outputSinks": {
+            "label": "출력",
+            "description": "이 실행이 완료되면 출력이 전달되는 위치입니다.",
+            "panel": "패널",
+            "notify": "알림",
+            "file": "파일"
+          }
+        }
       }
     },
     "history": {
@@ -676,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "새 소식 표시",
         "description": "OpenFlow 업데이트 후 릴리스 노트를 표시합니다"
+      }
+    },
+    "agentRuns": {
+      "title": "에이전트 실행",
+      "intro": "CLI 코딩 에이전트 실행의 실시간 보기: 스트리밍 출력, 상태 및 결과가 기록된 위치.",
+      "emptyState": "아직 에이전트 실행이 없습니다. CLI 에이전트의 단축키를 눌러 시작하세요.",
+      "clearFinished": "완료된 항목 지우기",
+      "stop": "중지",
+      "stopping": "중지 중…",
+      "stopError": "실행을 중지할 수 없습니다: {{error}}",
+      "clearError": "완료된 실행을 지울 수 없습니다: {{error}}",
+      "revealError": "파일을 표시할 수 없습니다: {{error}}",
+      "noProject": "프로젝트 폴더 없음",
+      "status": {
+        "running": "실행 중",
+        "finished": "완료됨(종료 {{code}})",
+        "failed": "실패: {{error}}",
+        "stopped": "중지됨"
+      },
+      "startedAt": "시작 {{time}}",
+      "elapsed": "경과 {{value}}",
+      "outputFile": {
+        "label": "출력 파일: {{path}}",
+        "reveal": "표시"
+      },
+      "instruction": {
+        "label": "지시"
+      },
+      "output": {
+        "label": "출력"
       }
     }
   },

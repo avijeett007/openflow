@@ -17,7 +17,8 @@
     "agents": "Agenter",
     "history": "Historik",
     "debug": "Felsökning",
-    "about": "Om"
+    "about": "Om",
+    "agentRuns": "Agentkörningar"
   },
   "onboarding": {
     "subtitle": "För att komma igång, välj en transkriptionsmodell",
@@ -475,10 +476,17 @@
           }
         },
         "created": "”{{name}}” skapades",
-        "error": "Kunde inte skapa agenten: {{error}}"
+        "error": "Kunde inte skapa agenten: {{error}}",
+        "promptSectionTitle": "Promptagenter",
+        "cliSectionTitle": "CLI-agenter",
+        "cliAgent": "CLI-agent",
+        "cliDescription": "Kör ett riktigt kodningsagent-CLI (Claude Code, Codex, …) som en underprocess i en projektmapp."
       },
       "card": {
-        "name": { "label": "Namn", "placeholder": "t.ex. Formell omskrivare" },
+        "name": {
+          "label": "Namn",
+          "placeholder": "t.ex. Formell omskrivare"
+        },
         "enabled": {
           "label": "Aktiverad",
           "description": "När avstängd är den här agentens snabbtangent avregistrerad."
@@ -533,7 +541,58 @@
           "success": "”{{name}}” togs bort",
           "error": "Kunde inte ta bort agenten: {{error}}"
         },
-        "update": { "error": "Kunde inte uppdatera agenten: {{error}}" }
+        "update": {
+          "error": "Kunde inte uppdatera agenten: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "Agenttyp",
+            "description": "Vilket kodningsagent-CLI som körs. Att välja ett fyller i kommandomallen och identifierar binärfilen automatiskt.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "Anpassad"
+            },
+            "defaultsError": "Det gick inte att läsa in standardvärden för den här agenttypen: {{error}}"
+          },
+          "binaryPath": {
+            "label": "Binärsökväg",
+            "description": "Sökväg till den körbara CLI-filen som denna agent kör.",
+            "placeholder": "t.ex. /usr/local/bin/claude",
+            "detect": "Identifiera",
+            "detecting": "Identifierar…",
+            "detectError": "Det gick inte att identifiera binärfilen: {{error}}",
+            "test": "Testa",
+            "testing": "Testar…",
+            "testError": "Testet misslyckades: {{error}}",
+            "testOk": "Binärfilen fungerar: {{output}}",
+            "testFailed": "Binärfilen kördes inte korrekt: {{output}}"
+          },
+          "projectPath": {
+            "label": "Projektmapp",
+            "description": "Repot/mappen där denna agent körs (dess cwd). Lämna tomt för att köra i en standardkatalog.",
+            "placeholder": "Ingen mapp vald",
+            "choose": "Välj mapp…",
+            "clear": "Rensa",
+            "error": "Det gick inte att öppna mappväljaren: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "Kommandomall",
+            "description": "Avancerat: argv-mallen som läggs till efter binärfilen. Stöder platshållarna {cwd} och {prompt}.",
+            "placeholder": "t.ex. -p --output-format stream-json --verbose",
+            "show": "Visa avancerat",
+            "hide": "Dölj avancerat"
+          },
+          "outputSinks": {
+            "label": "Utdata",
+            "description": "Vart utdata från denna körning går när den är klar.",
+            "panel": "Panel",
+            "notify": "Avisera",
+            "file": "Fil"
+          }
+        }
       }
     },
     "history": {
@@ -676,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "Visa nyheter",
         "description": "Visa versionsinformation efter OpenFlow-uppdateringar"
+      }
+    },
+    "agentRuns": {
+      "title": "Agentkörningar",
+      "intro": "Livevy över CLI-kodningsagentkörningar: strömmad utdata, status och var resultaten skrevs.",
+      "emptyState": "Inga agentkörningar än. Utlös en CLI-agents snabbtangent för att starta en.",
+      "clearFinished": "Rensa slutförda",
+      "stop": "Stoppa",
+      "stopping": "Stoppar…",
+      "stopError": "Det gick inte att stoppa körningen: {{error}}",
+      "clearError": "Det gick inte att rensa slutförda körningar: {{error}}",
+      "revealError": "Det gick inte att visa filen: {{error}}",
+      "noProject": "Ingen projektmapp",
+      "status": {
+        "running": "Körs",
+        "finished": "Slutförd (avslut {{code}})",
+        "failed": "Misslyckades: {{error}}",
+        "stopped": "Stoppad"
+      },
+      "startedAt": "Startad {{time}}",
+      "elapsed": "Förfluten {{value}}",
+      "outputFile": {
+        "label": "Utdatafil: {{path}}",
+        "reveal": "Visa"
+      },
+      "instruction": {
+        "label": "Instruktion"
+      },
+      "output": {
+        "label": "Utdata"
       }
     }
   },
