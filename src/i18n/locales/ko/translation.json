@@ -18,7 +18,9 @@
     "history": "히스토리",
     "debug": "디버그",
     "about": "정보",
-    "agentRuns": "에이전트 실행"
+    "agentRuns": "에이전트 실행",
+    "advancedMode": "고급 모드",
+    "advancedModeTooltip": "모든 설정 및 고급 기능 표시"
   },
   "onboarding": {
     "subtitle": "시작하려면 음성 인식 모델을 선택하세요",
@@ -788,7 +790,8 @@
     "open": "열기",
     "copy": "복사",
     "clear": "지우기",
-    "noOptionsFound": "옵션을 찾을 수 없습니다"
+    "noOptionsFound": "옵션을 찾을 수 없습니다",
+    "experimental": "실험적"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow는 녹음된 텍스트를 입력하기 위해 접근성 권한이 필요합니다.",

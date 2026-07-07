@@ -16,6 +16,7 @@ import {
   BookA,
 } from "lucide-react";
 import { useSettings } from "../hooks/useSettings";
+import openflowLogo from "../assets/openflow-logo.png";
 import {
   GeneralSettings,
   AdvancedSettings,
@@ -130,6 +131,33 @@ export const SECTIONS_CONFIG = {
   },
 } as const satisfies Record<string, SectionConfig>;
 
+// BASIC_SECTIONS: the core speech-to-text sections a normal (Basic-mode) user
+// sees. Everything else is hidden until "Advanced mode" is turned on in the
+// sidebar footer. Edit this array to change what counts as "essential".
+// (`about` is intentionally NOT listed here — it is help/info and is ALWAYS
+// visible in both Basic and Advanced mode; see visibility logic below.)
+const BASIC_SECTIONS: SidebarSection[] = ["general", "models", "modelSetup"];
+
+// Sections badged as experimental in the sidebar (a small "Experimental" tag is
+// shown next to the label). These are advanced-only, still-maturing features.
+const EXPERIMENTAL_SECTIONS: SidebarSection[] = ["handsFree"];
+
+// A section is visible iff:
+//   - it is `about` (always shown, both modes), OR
+//   - Advanced mode is on AND its own enabled() predicate passes, OR
+//   - it is a BASIC_SECTIONS id AND its own enabled() predicate passes.
+// The enabled() predicate is always honoured, so e.g. `postprocessing` still
+// also requires `post_process_enabled` and `debug` still requires `debug_mode`.
+export const isSectionVisible = (
+  id: SidebarSection,
+  config: SectionConfig,
+  settings: any,
+): boolean => {
+  if (id === "about") return true;
+  if (!config.enabled(settings)) return false;
+  return (settings?.advanced_mode ?? false) || BASIC_SECTIONS.includes(id);
+};
+
 interface SidebarProps {
   activeSection: SidebarSection;
   onSectionChange: (section: SidebarSection) => void;
@@ -140,28 +168,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSectionChange,
 }) => {
   const { t } = useTranslation();
-  const { settings } = useSettings();
+  const { settings, updateSetting } = useSettings();
+
+  const advancedMode = settings?.advanced_mode ?? false;
 
   const availableSections = Object.entries(SECTIONS_CONFIG)
-    .filter(([_, config]) => config.enabled(settings))
+    .filter(([id, config]) =>
+      isSectionVisible(id as SidebarSection, config, settings),
+    )
     .map(([id, config]) => ({ id: id as SidebarSection, ...config }));
 
   return (
-    <div className="flex flex-col w-40 h-full border-e border-mid-gray/20 items-center px-2">
-      <div className="m-4 flex items-baseline gap-0.5 select-none">
-        {/* eslint-disable-next-line i18next/no-literal-string -- brand wordmark, not translatable content */}
-        <span className="text-2xl font-extrabold tracking-tight text-logo-primary">
-          Open
-        </span>
-        {/* eslint-disable-next-line i18next/no-literal-string -- brand wordmark, not translatable content */}
-        <span className="text-2xl font-extrabold tracking-tight text-text">
-          Flow
-        </span>
+    <div className="flex flex-col w-40 h-full border-e border-mid-gray/20 px-2">
+      {/* Fixed header: logo mark + wordmark */}
+      <div className="m-4 flex items-center gap-1.5 select-none shrink-0">
+        <img
+          src={openflowLogo}
+          alt=""
+          aria-hidden="true"
+          className="w-6 h-6 rounded-md shrink-0"
+        />
+        <div className="flex items-baseline gap-0.5">
+          {/* eslint-disable-next-line i18next/no-literal-string -- brand wordmark, not translatable content */}
+          <span className="text-xl font-extrabold tracking-tight text-logo-primary">
+            Open
+          </span>
+          {/* eslint-disable-next-line i18next/no-literal-string -- brand wordmark, not translatable content */}
+          <span className="text-xl font-extrabold tracking-tight text-text">
+            Flow
+          </span>
+        </div>
       </div>
-      <div className="flex flex-col w-full items-center gap-1 pt-2 border-t border-mid-gray/20">
+
+      {/* Scrollable section list — only this region scrolls */}
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col w-full items-center gap-1 pt-2 border-t border-mid-gray/20">
         {availableSections.map((section) => {
           const Icon = section.icon;
           const isActive = activeSection === section.id;
+          const isExperimental = EXPERIMENTAL_SECTIONS.includes(section.id);
 
           return (
             <div
@@ -174,15 +218,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => onSectionChange(section.id)}
             >
               <Icon width={24} height={24} className="shrink-0" />
-              <p
-                className="text-sm font-medium truncate"
-                title={t(section.labelKey)}
-              >
-                {t(section.labelKey)}
-              </p>
+              <div className="flex flex-col min-w-0">
+                <p
+                  className="text-sm font-medium truncate"
+                  title={t(section.labelKey)}
+                >
+                  {t(section.labelKey)}
+                </p>
+                {isExperimental && (
+                  <span className="text-[9px] leading-tight font-semibold uppercase tracking-wide text-logo-primary">
+                    {t("common.experimental")}
+                  </span>
+                )}
+              </div>
             </div>
           );
         })}
+      </div>
+
+      {/* Fixed footer: Advanced mode toggle (always visible in both modes) */}
+      <div className="shrink-0 w-full border-t border-mid-gray/20 py-3">
+        <label
+          className="flex items-center justify-between gap-2 cursor-pointer px-1"
+          title={t("sidebar.advancedModeTooltip")}
+        >
+          <span className="text-xs font-medium truncate">
+            {t("sidebar.advancedMode")}
+          </span>
+          <input
+            type="checkbox"
+            className="sr-only peer"
+            checked={advancedMode}
+            onChange={(e) => updateSetting("advanced_mode", e.target.checked)}
+          />
+          <div className="relative w-9 h-5 bg-mid-gray/20 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-logo-primary rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-background-ui shrink-0"></div>
+        </label>
       </div>
     </div>
   );

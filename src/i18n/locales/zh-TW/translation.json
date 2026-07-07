@@ -18,7 +18,9 @@
     "history": "歷史紀錄",
     "debug": "偵錯",
     "about": "關於",
-    "agentRuns": "代理執行"
+    "agentRuns": "代理執行",
+    "advancedMode": "進階模式",
+    "advancedModeTooltip": "顯示所有設定與進階功能"
   },
   "onboarding": {
     "subtitle": "首先，請選擇一種模型",
@@ -788,7 +790,8 @@
     "open": "開啟",
     "copy": "複製",
     "clear": "清除",
-    "noOptionsFound": "未找到選項"
+    "noOptionsFound": "未找到選項",
+    "experimental": "實驗性"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow 需要輔助使用權限才能輸入轉錄的文字",

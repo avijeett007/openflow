@@ -18,7 +18,9 @@
     "history": "История",
     "debug": "Отладка",
     "about": "О программе",
-    "agentRuns": "Запуски агентов"
+    "agentRuns": "Запуски агентов",
+    "advancedMode": "Расширенный режим",
+    "advancedModeTooltip": "Показать все настройки и расширенные функции"
   },
   "onboarding": {
     "subtitle": "Для начала выберите модель транскрипции",
@@ -788,7 +790,8 @@
     "open": "Открыть",
     "copy": "Копировать",
     "clear": "Очистить",
-    "noOptionsFound": "Вариантов не найдено"
+    "noOptionsFound": "Вариантов не найдено",
+    "experimental": "Экспериментально"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow необходимы разрешения на доступ для ввода расшифрованного текста.",

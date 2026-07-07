@@ -12,7 +12,12 @@ import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
 import Footer from "./components/footer";
 import Onboarding, { AccessibilityOnboarding } from "./components/onboarding";
-import { Sidebar, SidebarSection, SECTIONS_CONFIG } from "./components/Sidebar";
+import {
+  Sidebar,
+  SidebarSection,
+  SECTIONS_CONFIG,
+  isSectionVisible,
+} from "./components/Sidebar";
 import { WhatsNewGate } from "./components/whats-new";
 import { useSettings } from "./hooks/useSettings";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -42,6 +47,18 @@ function App() {
   );
   const { settings, updateSetting } = useSettings();
   const direction = getLanguageDirection(i18n.language);
+
+  // Active-section safety: if the current section becomes hidden (e.g. Advanced
+  // mode is turned off while viewing an advanced-only section), fall back to a
+  // visible basic section so the settings pane never goes blank.
+  useEffect(() => {
+    if (!settings) return;
+    const config = SECTIONS_CONFIG[currentSection];
+    if (config && !isSectionVisible(currentSection, config, settings)) {
+      setCurrentSection("general");
+    }
+  }, [settings, currentSection, setCurrentSection]);
+
   const refreshAudioDevices = useSettingsStore(
     (state) => state.refreshAudioDevices,
   );

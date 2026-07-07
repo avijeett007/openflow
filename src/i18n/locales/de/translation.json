@@ -18,7 +18,9 @@
     "history": "Verlauf",
     "debug": "Debug",
     "about": "Info",
-    "agentRuns": "Agent-Läufe"
+    "agentRuns": "Agent-Läufe",
+    "advancedMode": "Erweiterter Modus",
+    "advancedModeTooltip": "Alle Einstellungen und erweiterten Funktionen anzeigen"
   },
   "onboarding": {
     "subtitle": "Wähle ein Transkriptionsmodell, um loszulegen",
@@ -788,7 +790,8 @@
     "open": "Öffnen",
     "copy": "Kopieren",
     "clear": "Leeren",
-    "noOptionsFound": "Keine Optionen gefunden"
+    "noOptionsFound": "Keine Optionen gefunden",
+    "experimental": "Experimentell"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow benötigt Bedienungshilfen-Berechtigungen, um transkribierten Text einzugeben.",

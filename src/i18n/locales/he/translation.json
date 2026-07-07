@@ -18,7 +18,9 @@
     "history": "היסטוריה",
     "debug": "ניפוי שגיאות",
     "about": "אודות",
-    "agentRuns": "הרצות סוכן"
+    "agentRuns": "הרצות סוכן",
+    "advancedMode": "מצב מתקדם",
+    "advancedModeTooltip": "הצג את כל ההגדרות והתכונות המתקדמות"
   },
   "onboarding": {
     "subtitle": "כדי להתחיל, בחר מודל תמלול",
@@ -788,7 +790,8 @@
     "open": "פתח",
     "copy": "העתק",
     "clear": "נקה",
-    "noOptionsFound": "לא נמצאו אפשרויות"
+    "noOptionsFound": "לא נמצאו אפשרויות",
+    "experimental": "ניסיוני"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow צריך הרשאות נגישות כדי להקליד את הטקסט המתומלל.",

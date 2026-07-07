@@ -18,7 +18,9 @@
     "history": "Lịch sử",
     "debug": "Gỡ lỗi",
     "about": "Giới thiệu",
-    "agentRuns": "Lần chạy tác nhân"
+    "agentRuns": "Lần chạy tác nhân",
+    "advancedMode": "Chế độ nâng cao",
+    "advancedModeTooltip": "Hiển thị tất cả cài đặt và tính năng nâng cao"
   },
   "onboarding": {
     "subtitle": "Để bắt đầu, hãy chọn một mô hình chuyển đổi giọng nói",
@@ -788,7 +790,8 @@
     "open": "Mở",
     "copy": "Sao chép",
     "clear": "Xóa",
-    "noOptionsFound": "Không tìm thấy tùy chọn"
+    "noOptionsFound": "Không tìm thấy tùy chọn",
+    "experimental": "Thử nghiệm"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow cần quyền truy cập để gõ văn bản đã chuyển đổi.",

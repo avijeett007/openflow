@@ -18,7 +18,9 @@
     "history": "Historial",
     "debug": "Depuración",
     "about": "Acerca de",
-    "agentRuns": "Ejecuciones de agentes"
+    "agentRuns": "Ejecuciones de agentes",
+    "advancedMode": "Modo avanzado",
+    "advancedModeTooltip": "Mostrar todos los ajustes y las funciones avanzadas"
   },
   "onboarding": {
     "subtitle": "Para comenzar, elige un modelo de transcripción",
@@ -788,7 +790,8 @@
     "open": "Abrir",
     "copy": "Copiar",
     "clear": "Limpiar",
-    "noOptionsFound": "No se encontraron opciones"
+    "noOptionsFound": "No se encontraron opciones",
+    "experimental": "Experimental"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow necesita permisos de accesibilidad para escribir texto transcrito.",

@@ -18,7 +18,9 @@
     "debug": "تصحيح الأخطاء",
     "about": "حول",
     "models": "النماذج",
-    "agentRuns": "عمليات تشغيل الوكلاء"
+    "agentRuns": "عمليات تشغيل الوكلاء",
+    "advancedMode": "الوضع المتقدم",
+    "advancedModeTooltip": "إظهار جميع الإعدادات والميزات المتقدمة"
   },
   "onboarding": {
     "subtitle": "للبدء، اختر نموذج التفريغ الصوتي",
@@ -788,7 +790,8 @@
     "open": "فتح",
     "copy": "نسخ",
     "clear": "مسح",
-    "noOptionsFound": "لم يتم العثور على خيارات"
+    "noOptionsFound": "لم يتم العثور على خيارات",
+    "experimental": "تجريبي"
   },
   "accessibility": {
     "permissionsDescription": ".يحتاج OpenFlow إلى أذونات إمكانية الوصول لكتابة النص المفرغ",

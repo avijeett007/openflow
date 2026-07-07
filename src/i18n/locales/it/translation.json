@@ -18,7 +18,9 @@
     "history": "Cronologia",
     "debug": "Debug",
     "about": "Informazioni",
-    "agentRuns": "Esecuzioni agenti"
+    "agentRuns": "Esecuzioni agenti",
+    "advancedMode": "Modalità avanzata",
+    "advancedModeTooltip": "Mostra tutte le impostazioni e le funzionalità avanzate"
   },
   "onboarding": {
     "subtitle": "Per cominciare, scegli un modello di riconoscimento vocale",
@@ -788,7 +790,8 @@
     "open": "Apri",
     "copy": "Copia",
     "clear": "Svuota",
-    "noOptionsFound": "Nessuna opzione trovata"
+    "noOptionsFound": "Nessuna opzione trovata",
+    "experimental": "Sperimentale"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow ha bisogno dei permessi di accessibilità per digitare il testo trascritto.",

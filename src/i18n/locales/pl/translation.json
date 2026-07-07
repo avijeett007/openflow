@@ -18,7 +18,9 @@
     "history": "Historia",
     "debug": "Debugowanie",
     "about": "O programie",
-    "agentRuns": "Uruchomienia agentów"
+    "agentRuns": "Uruchomienia agentów",
+    "advancedMode": "Tryb zaawansowany",
+    "advancedModeTooltip": "Pokaż wszystkie ustawienia i zaawansowane funkcje"
   },
   "onboarding": {
     "subtitle": "Aby rozpocząć, wybierz model transkrypcji",
@@ -788,7 +790,8 @@
     "open": "Otwórz",
     "copy": "Kopiuj",
     "clear": "Wyczyść",
-    "noOptionsFound": "Nie znaleziono opcji"
+    "noOptionsFound": "Nie znaleziono opcji",
+    "experimental": "Eksperymentalne"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow potrzebuje uprawnień dostępności, aby wpisywać transkrybowany tekst.",

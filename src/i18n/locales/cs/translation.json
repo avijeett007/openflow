@@ -18,7 +18,9 @@
     "history": "Historie",
     "debug": "Ladění",
     "about": "O aplikaci",
-    "agentRuns": "Běhy agentů"
+    "agentRuns": "Běhy agentů",
+    "advancedMode": "Rozšířený režim",
+    "advancedModeTooltip": "Zobrazit všechna nastavení a pokročilé funkce"
   },
   "onboarding": {
     "subtitle": "Pro začátek vyberte model pro přepis",
@@ -788,7 +790,8 @@
     "open": "Otevřít",
     "copy": "Kopírovat",
     "clear": "Vymazat",
-    "noOptionsFound": "Nenalezeny žádné možnosti"
+    "noOptionsFound": "Nenalezeny žádné možnosti",
+    "experimental": "Experimentální"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow potřebuje oprávnění usnadnění přístupu, aby mohlo psát přepsaný text.",

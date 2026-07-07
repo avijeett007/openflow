@@ -18,7 +18,9 @@
     "history": "Історія",
     "debug": "Дебаг",
     "about": "Інфо",
-    "agentRuns": "Запуски агентів"
+    "agentRuns": "Запуски агентів",
+    "advancedMode": "Розширений режим",
+    "advancedModeTooltip": "Показати всі налаштування та розширені функції"
   },
   "onboarding": {
     "subtitle": "Для початку оберіть модель транскрипції",
@@ -788,7 +790,8 @@
     "open": "Відкрити",
     "copy": "Копіювати",
     "clear": "Очистити",
-    "noOptionsFound": "Опцій не знайдено"
+    "noOptionsFound": "Опцій не знайдено",
+    "experimental": "Експериментально"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow потребує дозволи доступності для введення транскрибованого тексту.",

@@ -18,7 +18,9 @@
     "history": "Historik",
     "debug": "Felsökning",
     "about": "Om",
-    "agentRuns": "Agentkörningar"
+    "agentRuns": "Agentkörningar",
+    "advancedMode": "Avancerat läge",
+    "advancedModeTooltip": "Visa alla inställningar och avancerade funktioner"
   },
   "onboarding": {
     "subtitle": "För att komma igång, välj en transkriptionsmodell",
@@ -788,7 +790,8 @@
     "open": "Öppna",
     "copy": "Kopiera",
     "clear": "Rensa",
-    "noOptionsFound": "Inga alternativ hittades"
+    "noOptionsFound": "Inga alternativ hittades",
+    "experimental": "Experimentell"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow behöver behörighet för hjälpmedel för att kunna skriva transkriberad text.",

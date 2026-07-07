@@ -18,7 +18,9 @@
     "history": "履歴",
     "debug": "デバッグ",
     "about": "概要",
-    "agentRuns": "エージェント実行"
+    "agentRuns": "エージェント実行",
+    "advancedMode": "詳細モード",
+    "advancedModeTooltip": "すべての設定と詳細機能を表示"
   },
   "onboarding": {
     "subtitle": "開始するには、文字起こしモデルを選択してください",
@@ -788,7 +790,8 @@
     "open": "開く",
     "copy": "コピー",
     "clear": "クリア",
-    "noOptionsFound": "オプションが見つかりません"
+    "noOptionsFound": "オプションが見つかりません",
+    "experimental": "実験的"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlowが文字起こしテキストを入力するには、アクセシビリティ権限が必要です。",

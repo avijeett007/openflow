@@ -21,7 +21,9 @@
     "dashboard": "Dashboard",
     "debug": "Debug",
     "about": "About",
-    "agentRuns": "Agent Runs"
+    "agentRuns": "Agent Runs",
+    "advancedMode": "Advanced mode",
+    "advancedModeTooltip": "Show all settings and advanced features"
   },
   "onboarding": {
     "subtitle": "To get started, choose a transcription model",
@@ -1037,7 +1039,8 @@
     "open": "Open",
     "copy": "Copy",
     "clear": "Clear",
-    "noOptionsFound": "No options found"
+    "noOptionsFound": "No options found",
+    "experimental": "Experimental"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow needs accessibility permissions to type transcribed text.",
