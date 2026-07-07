@@ -17,7 +17,8 @@
     "agents": "代理人",
     "history": "歷史紀錄",
     "debug": "偵錯",
-    "about": "關於"
+    "about": "關於",
+    "agentRuns": "代理執行"
   },
   "onboarding": {
     "subtitle": "首先，請選擇一種模型",
@@ -475,10 +476,17 @@
           }
         },
         "created": "已建立「{{name}}」",
-        "error": "無法建立代理人：{{error}}"
+        "error": "無法建立代理人：{{error}}",
+        "promptSectionTitle": "提示詞代理",
+        "cliSectionTitle": "CLI 代理",
+        "cliAgent": "CLI 代理",
+        "cliDescription": "在專案資料夾中以子行程方式驅動真實的程式設計代理 CLI（Claude Code、Codex、…）。"
       },
       "card": {
-        "name": { "label": "名稱", "placeholder": "例如：正式改寫" },
+        "name": {
+          "label": "名稱",
+          "placeholder": "例如：正式改寫"
+        },
         "enabled": {
           "label": "啟用",
           "description": "關閉時，此代理人的快捷鍵會取消註冊。"
@@ -516,7 +524,9 @@
         "test": {
           "label": "測試",
           "description": "在不影響你的快捷鍵的情況下，用範例轉錄文字試用此代理人。",
-          "sampleText": { "placeholder": "輸入或貼上範例轉錄文字以試用……" },
+          "sampleText": {
+            "placeholder": "輸入或貼上範例轉錄文字以試用……"
+          },
           "run": "執行測試",
           "running": "執行中……",
           "latency": "{{ms}} 毫秒",
@@ -531,7 +541,58 @@
           "success": "已刪除「{{name}}」",
           "error": "無法刪除代理人：{{error}}"
         },
-        "update": { "error": "無法更新代理人：{{error}}" }
+        "update": {
+          "error": "無法更新代理人：{{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "代理類型",
+            "description": "執行哪個程式設計代理 CLI。選擇後會預先填入命令範本並自動偵測執行檔。",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "自訂"
+            },
+            "defaultsError": "無法載入此代理類型的預設值：{{error}}"
+          },
+          "binaryPath": {
+            "label": "執行檔路徑",
+            "description": "此代理執行的 CLI 執行檔的路徑。",
+            "placeholder": "例如 /usr/local/bin/claude",
+            "detect": "偵測",
+            "detecting": "偵測中…",
+            "detectError": "無法偵測執行檔：{{error}}",
+            "test": "測試",
+            "testing": "測試中…",
+            "testError": "測試失敗：{{error}}",
+            "testOk": "執行檔正常：{{output}}",
+            "testFailed": "執行檔未正常執行：{{output}}"
+          },
+          "projectPath": {
+            "label": "專案資料夾",
+            "description": "此代理執行所在的儲存庫/資料夾（其 cwd）。留空則在預設目錄中執行。",
+            "placeholder": "未選擇資料夾",
+            "choose": "選擇資料夾…",
+            "clear": "清除",
+            "error": "無法開啟資料夾選擇器：{{error}}"
+          },
+          "commandTemplate": {
+            "label": "命令範本",
+            "description": "進階：附加在執行檔之後的 argv 範本。支援 {cwd} 和 {prompt} 佔位符。",
+            "placeholder": "例如 -p --output-format stream-json --verbose",
+            "show": "顯示進階",
+            "hide": "隱藏進階"
+          },
+          "outputSinks": {
+            "label": "輸出",
+            "description": "此次執行完成後輸出的去向。",
+            "panel": "面板",
+            "notify": "通知",
+            "file": "檔案"
+          }
+        }
       }
     },
     "history": {
@@ -674,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "顯示新功能",
         "description": "OpenFlow 更新後顯示版本資訊"
+      }
+    },
+    "agentRuns": {
+      "title": "代理執行",
+      "intro": "CLI 程式設計代理執行的即時檢視：串流輸出、狀態以及結果寫入的位置。",
+      "emptyState": "尚無代理執行。觸發 CLI 代理的快速鍵即可開始。",
+      "clearFinished": "清除已完成",
+      "stop": "停止",
+      "stopping": "停止中…",
+      "stopError": "無法停止執行：{{error}}",
+      "clearError": "無法清除已完成的執行：{{error}}",
+      "revealError": "無法顯示檔案：{{error}}",
+      "noProject": "無專案資料夾",
+      "status": {
+        "running": "執行中",
+        "finished": "已完成（退出碼 {{code}}）",
+        "failed": "失敗：{{error}}",
+        "stopped": "已停止"
+      },
+      "startedAt": "開始於 {{time}}",
+      "elapsed": "已經過 {{value}}",
+      "outputFile": {
+        "label": "輸出檔案：{{path}}",
+        "reveal": "顯示"
+      },
+      "instruction": {
+        "label": "指令"
+      },
+      "output": {
+        "label": "輸出"
       }
     }
   },

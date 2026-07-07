@@ -17,7 +17,8 @@
     "agents": "Agenti",
     "history": "Cronologia",
     "debug": "Debug",
-    "about": "Informazioni"
+    "about": "Informazioni",
+    "agentRuns": "Esecuzioni agenti"
   },
   "onboarding": {
     "subtitle": "Per cominciare, scegli un modello di riconoscimento vocale",
@@ -475,10 +476,17 @@
           }
         },
         "created": "\"{{name}}\" creato",
-        "error": "Impossibile creare l'agente: {{error}}"
+        "error": "Impossibile creare l'agente: {{error}}",
+        "promptSectionTitle": "Agenti prompt",
+        "cliSectionTitle": "Agenti CLI",
+        "cliAgent": "Agente CLI",
+        "cliDescription": "Avvia una vera CLI di agente di programmazione (Claude Code, Codex, …) come sottoprocesso in una cartella di progetto."
       },
       "card": {
-        "name": { "label": "Nome", "placeholder": "es. Riscrittore Formale" },
+        "name": {
+          "label": "Nome",
+          "placeholder": "es. Riscrittore Formale"
+        },
         "enabled": {
           "label": "Abilitato",
           "description": "Quando disattivato, la scorciatoia di questo agente viene deregistrata."
@@ -533,7 +541,58 @@
           "success": "\"{{name}}\" eliminato",
           "error": "Impossibile eliminare l'agente: {{error}}"
         },
-        "update": { "error": "Impossibile aggiornare l'agente: {{error}}" }
+        "update": {
+          "error": "Impossibile aggiornare l'agente: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "Tipo di agente",
+            "description": "Quale CLI di agente di programmazione viene eseguita. Selezionandone una si precompila il modello di comando e si rileva automaticamente il binario.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "Personalizzato"
+            },
+            "defaultsError": "Impossibile caricare i valori predefiniti per questo tipo di agente: {{error}}"
+          },
+          "binaryPath": {
+            "label": "Percorso del binario",
+            "description": "Percorso all'eseguibile CLI che questo agente avvia.",
+            "placeholder": "es. /usr/local/bin/claude",
+            "detect": "Rileva",
+            "detecting": "Rilevamento…",
+            "detectError": "Impossibile rilevare il binario: {{error}}",
+            "test": "Prova",
+            "testing": "Prova in corso…",
+            "testError": "Prova non riuscita: {{error}}",
+            "testOk": "Il binario funziona: {{output}}",
+            "testFailed": "Il binario non è stato eseguito correttamente: {{output}}"
+          },
+          "projectPath": {
+            "label": "Cartella del progetto",
+            "description": "Il repository/la cartella in cui viene eseguito questo agente (il suo cwd). Lascia vuoto per eseguirlo in una directory predefinita.",
+            "placeholder": "Nessuna cartella selezionata",
+            "choose": "Scegli cartella…",
+            "clear": "Cancella",
+            "error": "Impossibile aprire il selettore di cartelle: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "Modello di comando",
+            "description": "Avanzato: il modello argv aggiunto dopo il binario. Supporta i segnaposto {cwd} e {prompt}.",
+            "placeholder": "es. -p --output-format stream-json --verbose",
+            "show": "Mostra avanzate",
+            "hide": "Nascondi avanzate"
+          },
+          "outputSinks": {
+            "label": "Output",
+            "description": "Dove va l'output di questa esecuzione al termine.",
+            "panel": "Pannello",
+            "notify": "Notifica",
+            "file": "File"
+          }
+        }
       }
     },
     "history": {
@@ -676,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "Mostra novità",
         "description": "Mostra le note di rilascio dopo gli aggiornamenti di OpenFlow"
+      }
+    },
+    "agentRuns": {
+      "title": "Esecuzioni agenti",
+      "intro": "Vista in tempo reale delle esecuzioni degli agenti di programmazione CLI: output in streaming, stato e dove sono stati scritti i risultati.",
+      "emptyState": "Nessuna esecuzione di agenti ancora. Attiva la scorciatoia di un agente CLI per avviarne una.",
+      "clearFinished": "Cancella completate",
+      "stop": "Ferma",
+      "stopping": "Arresto…",
+      "stopError": "Impossibile fermare l'esecuzione: {{error}}",
+      "clearError": "Impossibile cancellare le esecuzioni completate: {{error}}",
+      "revealError": "Impossibile mostrare il file: {{error}}",
+      "noProject": "Nessuna cartella di progetto",
+      "status": {
+        "running": "In esecuzione",
+        "finished": "Completato (uscita {{code}})",
+        "failed": "Non riuscito: {{error}}",
+        "stopped": "Fermato"
+      },
+      "startedAt": "Avviato {{time}}",
+      "elapsed": "Trascorso {{value}}",
+      "outputFile": {
+        "label": "File di output: {{path}}",
+        "reveal": "Mostra"
+      },
+      "instruction": {
+        "label": "Istruzione"
+      },
+      "output": {
+        "label": "Output"
       }
     }
   },

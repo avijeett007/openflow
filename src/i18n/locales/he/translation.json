@@ -17,7 +17,8 @@
     "agents": "סוכנים",
     "history": "היסטוריה",
     "debug": "ניפוי שגיאות",
-    "about": "אודות"
+    "about": "אודות",
+    "agentRuns": "הרצות סוכן"
   },
   "onboarding": {
     "subtitle": "כדי להתחיל, בחר מודל תמלול",
@@ -475,10 +476,17 @@
           }
         },
         "created": "\"{{name}}\" נוצר",
-        "error": "לא ניתן היה ליצור את הסוכן: {{error}}"
+        "error": "לא ניתן היה ליצור את הסוכן: {{error}}",
+        "promptSectionTitle": "סוכני פרומפט",
+        "cliSectionTitle": "סוכני CLI",
+        "cliAgent": "סוכן CLI",
+        "cliDescription": "הפעל ממשק שורת פקודה אמיתי של סוכן קידוד (Claude Code, Codex, …) כתהליך משנה בתיקיית פרויקט."
       },
       "card": {
-        "name": { "label": "שם", "placeholder": "לדוגמה: משכתב פורמלי" },
+        "name": {
+          "label": "שם",
+          "placeholder": "לדוגמה: משכתב פורמלי"
+        },
         "enabled": {
           "label": "מופעל",
           "description": "כשכבוי, מקש החם של הסוכן הזה אינו רשום."
@@ -533,7 +541,58 @@
           "success": "\"{{name}}\" נמחק",
           "error": "לא ניתן היה למחוק את הסוכן: {{error}}"
         },
-        "update": { "error": "לא ניתן היה לעדכן את הסוכן: {{error}}" }
+        "update": {
+          "error": "לא ניתן היה לעדכן את הסוכן: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "סוג סוכן",
+            "description": "איזה ממשק שורת פקודה של סוכן קידוד יורץ. בחירה באחד ממלאת מראש את תבנית הפקודה ומזהה אוטומטית את הקובץ הבינארי.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "מותאם אישית"
+            },
+            "defaultsError": "לא ניתן לטעון את ברירות המחדל עבור סוג סוכן זה: {{error}}"
+          },
+          "binaryPath": {
+            "label": "נתיב קובץ בינארי",
+            "description": "הנתיב לקובץ ההפעלה של ה-CLI שסוכן זה מריץ.",
+            "placeholder": "לדוגמה /usr/local/bin/claude",
+            "detect": "זהה",
+            "detecting": "מזהה…",
+            "detectError": "לא ניתן לזהות את הקובץ הבינארי: {{error}}",
+            "test": "בדוק",
+            "testing": "בודק…",
+            "testError": "הבדיקה נכשלה: {{error}}",
+            "testOk": "הקובץ הבינארי עובד: {{output}}",
+            "testFailed": "הקובץ הבינארי לא רץ כראוי: {{output}}"
+          },
+          "projectPath": {
+            "label": "תיקיית פרויקט",
+            "description": "המאגר/התיקייה שבה סוכן זה רץ (ה-cwd שלו). השאר ריק כדי להריץ בספריית ברירת מחדל.",
+            "placeholder": "לא נבחרה תיקייה",
+            "choose": "בחר תיקייה…",
+            "clear": "נקה",
+            "error": "לא ניתן לפתוח את בורר התיקיות: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "תבנית פקודה",
+            "description": "מתקדם: תבנית ה-argv שמצורפת אחרי הקובץ הבינארי. תומכת ברכיבי המיקום {cwd} ו-{prompt}.",
+            "placeholder": "לדוגמה -p --output-format stream-json --verbose",
+            "show": "הצג מתקדם",
+            "hide": "הסתר מתקדם"
+          },
+          "outputSinks": {
+            "label": "פלט",
+            "description": "לאן מגיע הפלט של הרצה זו בסיומה.",
+            "panel": "פאנל",
+            "notify": "התראה",
+            "file": "קובץ"
+          }
+        }
       }
     },
     "history": {
@@ -676,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "הצג מה חדש",
         "description": "הצג הערות גרסה לאחר עדכוני OpenFlow"
+      }
+    },
+    "agentRuns": {
+      "title": "הרצות סוכן",
+      "intro": "תצוגה חיה של הרצות סוכני קידוד CLI: פלט בזרימה, סטטוס ומיקום כתיבת התוצאות.",
+      "emptyState": "אין עדיין הרצות סוכן. הפעל את מקש הקיצור של סוכן CLI כדי להתחיל.",
+      "clearFinished": "נקה שהושלמו",
+      "stop": "עצור",
+      "stopping": "עוצר…",
+      "stopError": "לא ניתן לעצור את ההרצה: {{error}}",
+      "clearError": "לא ניתן לנקות הרצות שהושלמו: {{error}}",
+      "revealError": "לא ניתן להציג את הקובץ: {{error}}",
+      "noProject": "אין תיקיית פרויקט",
+      "status": {
+        "running": "פועל",
+        "finished": "הושלם (יציאה {{code}})",
+        "failed": "נכשל: {{error}}",
+        "stopped": "נעצר"
+      },
+      "startedAt": "התחיל {{time}}",
+      "elapsed": "חלף {{value}}",
+      "outputFile": {
+        "label": "קובץ פלט: {{path}}",
+        "reveal": "הצג"
+      },
+      "instruction": {
+        "label": "הוראה"
+      },
+      "output": {
+        "label": "פלט"
       }
     }
   },

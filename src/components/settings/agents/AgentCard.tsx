@@ -18,47 +18,26 @@ import { Dropdown } from "../../ui/Dropdown";
 import { ShortcutInput } from "../ShortcutInput";
 import { AgentApiKeyField } from "./AgentApiKeyField";
 import { AgentTestPanel } from "./AgentTestPanel";
+import { AgentInlineToggle } from "./AgentInlineToggle";
+import { CliAgentCard } from "./CliAgentCard";
 
 interface AgentCardProps {
   agent: AgentDefinition;
   providers: PostProcessProvider[];
 }
 
-interface InlineToggleProps {
-  checked: boolean;
-  onChange: (value: boolean) => void;
-  disabled?: boolean;
-  label: string;
-}
-
-const InlineToggle: React.FC<InlineToggleProps> = ({
-  checked,
-  onChange,
-  disabled = false,
-  label,
-}) => (
-  <label
-    className={`flex items-center gap-2 text-sm shrink-0 ${
-      disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-    }`}
-  >
-    <span>{label}</span>
-    <span className="relative inline-flex shrink-0">
-      <input
-        type="checkbox"
-        className="sr-only peer"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span className="w-9 h-5 bg-mid-gray/20 rounded-full transition-colors after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-background-ui peer-checked:after:translate-x-4" />
-    </span>
-  </label>
-);
-
 export const AgentCard: React.FC<AgentCardProps> = ({ agent, providers }) => {
   const { t } = useTranslation();
   const { refreshSettings } = useSettings();
+
+  // CLI agents (increment 2) render an entirely different card - the
+  // prompt-agent fields below (provider/model/system prompt/output mode)
+  // don't apply to them. `kind` defaults to "prompt" for every agent stored
+  // before this discriminator existed, so this branch never affects
+  // increment-1 agents.
+  if (agent.kind === "cli") {
+    return <CliAgentCard agent={agent} />;
+  }
 
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [nameDraft, setNameDraft] = useState(agent.name);
@@ -171,7 +150,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, providers }) => {
           className="flex-1 min-w-0 font-semibold"
           aria-label={t("settings.agents.card.name.label")}
         />
-        <InlineToggle
+        <AgentInlineToggle
           checked={agent.enabled ?? true}
           disabled={isPending("enabled")}
           onChange={(checked) => void persist({ enabled: checked }, "enabled")}

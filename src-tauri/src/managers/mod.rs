@@ -1,3 +1,4 @@
+pub mod agent_run;
 pub mod analytics;
 pub mod audio;
 pub mod gguf_meta;

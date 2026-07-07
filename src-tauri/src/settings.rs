@@ -109,6 +109,106 @@ impl Default for AgentOutputMode {
     }
 }
 
+/// Flow OS increment 2 — what KIND of agent this is. `Prompt` is the increment-1
+/// behavior (dictation routed through a persona LLM before injection). `Cli`
+/// drives a REAL local coding-agent binary (Claude Code, Codex, …) as a
+/// subprocess in a chosen project folder. Defaults to `Prompt` so every agent
+/// stored before this field existed stays a prompt agent, byte-for-byte.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentKind {
+    Prompt,
+    Cli,
+}
+
+impl Default for AgentKind {
+    fn default() -> Self {
+        AgentKind::Prompt
+    }
+}
+
+/// Which local coding-agent CLI a `Cli` agent drives. Selects the prefilled
+/// invocation template (see `default_command_template_for`). `Custom` is a
+/// fully user-defined template for any other binary.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentCliType {
+    Claude,
+    Codex,
+    Openclaw,
+    Hermes,
+    Custom,
+}
+
+/// Where a CLI agent run's output goes (multi-select). `Panel` is the live
+/// streamed in-app view (always effectively on for a running view). `Notify`
+/// fires a desktop notification on completion. `File` writes the full
+/// instruction+output to a markdown file in the project.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentOutputSink {
+    Panel,
+    Notify,
+    File,
+}
+
+/// How a CLI agent receives the instruction (transcript). `Stdin` (default)
+/// writes it to the process stdin — no OS arg-length limit, mirroring Agent OS.
+/// `Arg` substitutes it into the `{prompt}` placeholder in the command template.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptDelivery {
+    Stdin,
+    Arg,
+}
+
+impl Default for PromptDelivery {
+    fn default() -> Self {
+        PromptDelivery::Stdin
+    }
+}
+
+/// `#[serde(default)]` helper: a CLI agent's output sinks default to just the
+/// live panel when the stored value is absent.
+fn default_output_sinks() -> Vec<AgentOutputSink> {
+    vec![AgentOutputSink::Panel]
+}
+
+/// Default binary name for a CLI type — what `detect_agent_binary` looks up on
+/// PATH. `Custom` has no canonical binary (the user supplies the path).
+pub fn default_cli_binary_name(cli_type: AgentCliType) -> Option<&'static str> {
+    match cli_type {
+        AgentCliType::Claude => Some("claude"),
+        AgentCliType::Codex => Some("codex"),
+        AgentCliType::Openclaw => Some("openclaw"),
+        AgentCliType::Hermes => Some("hermes"),
+        AgentCliType::Custom => None,
+    }
+}
+
+/// Prefilled `(command_template, prompt_via)` per CLI type. Claude Code's flags
+/// are LIVE-VERIFIED against `claude` 2.1.x: `-p --output-format stream-json
+/// --verbose` runs headless and streams line-delimited JSON; `acceptEdits`
+/// auto-accepts file edits so the agent can actually modify the repo without an
+/// interactive permission prompt (git is the safety net, per DESIGN §9). The
+/// instruction is delivered on stdin (no arg-length limit). codex/openclaw/
+/// hermes are best-effort (binaries not installed here — see BLOCKERS).
+pub fn default_cli_template(cli_type: AgentCliType) -> (String, PromptDelivery) {
+    match cli_type {
+        AgentCliType::Claude => (
+            "-p --output-format stream-json --verbose --permission-mode acceptEdits".to_string(),
+            PromptDelivery::Stdin,
+        ),
+        // Codex CLI: `codex exec` is the non-interactive mode; `--json` streams
+        // JSONL. The prompt is passed as the trailing positional arg.
+        AgentCliType::Codex => ("exec --json {prompt}".to_string(), PromptDelivery::Arg),
+        // Best-effort placeholders until the binaries are available to verify.
+        AgentCliType::Openclaw => ("run {prompt}".to_string(), PromptDelivery::Arg),
+        AgentCliType::Hermes => ("run {prompt}".to_string(), PromptDelivery::Arg),
+        AgentCliType::Custom => (String::new(), PromptDelivery::Stdin),
+    }
+}
+
 /// A Flow OS agent: dictation routed through a persona LLM before injection.
 /// Each agent has its own global hotkey (via a seeded `ShortcutBinding` keyed
 /// `agent:<id>`). All optional fields are `#[serde(default)]` so an old settings
@@ -133,6 +233,32 @@ pub struct AgentDefinition {
     pub system_prompt: String,
     #[serde(default)]
     pub output_mode: AgentOutputMode,
+
+    // ---- Flow OS increment 2: CLI agents ----
+    /// Discriminator. `Prompt` (default) → increment-1 persona-LLM behavior,
+    /// unchanged. `Cli` → drive a real coding-agent subprocess (fields below).
+    #[serde(default)]
+    pub kind: AgentKind,
+    /// Which coding CLI this agent drives (only meaningful when `kind == Cli`).
+    #[serde(default)]
+    pub cli_type: Option<AgentCliType>,
+    /// Resolved/overridable path to the agent binary (e.g. `/usr/local/bin/claude`).
+    #[serde(default)]
+    pub binary_path: String,
+    /// Argv template appended after the binary; supports `{cwd}`/`{prompt}`
+    /// placeholders (see `AgentRunManager::build_argv`). Prefilled per `cli_type`.
+    #[serde(default)]
+    pub command_template: String,
+    /// Project folder the agent runs in (`cwd`). `""` = no fixed project (a
+    /// sensible default dir is used at run time).
+    #[serde(default)]
+    pub project_path: String,
+    /// Where run output goes. Defaults to `[Panel]` (live in-app stream only).
+    #[serde(default = "default_output_sinks")]
+    pub output_sinks: Vec<AgentOutputSink>,
+    /// How the instruction reaches the CLI. `Stdin` (default) or `Arg`.
+    #[serde(default)]
+    pub prompt_via: PromptDelivery,
 }
 
 /// A user dictionary entry: a canonical spelling plus optional "sounds like"
@@ -1650,6 +1776,87 @@ mod tests {
         assert!(!debug_output.contains("sk-proj-secret-key-12345"));
         assert!(!debug_output.contains("sk-ant-secret-key-67890"));
         assert!(debug_output.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn legacy_agent_without_cli_fields_defaults_to_prompt_kind() {
+        // An increment-1 stored agent has none of the CLI fields. It MUST
+        // deserialize cleanly (the store wipes to defaults on any parse
+        // failure) and default to `kind == Prompt`, so the finish_dictation
+        // dispatch keeps routing it through the increment-1 persona-LLM
+        // transform — byte-for-byte unchanged.
+        let raw = serde_json::json!({
+            "id": "coder",
+            "name": "Coder",
+            "enabled": true,
+            "binding_id": "agent:coder",
+            "provider_id": "openrouter",
+            "model": "gpt-4o-mini",
+            "system_prompt": "You are a coder.",
+            "output_mode": "inject"
+        });
+        let agent: AgentDefinition = serde_json::from_value(raw).unwrap();
+        assert_eq!(agent.kind, AgentKind::Prompt);
+        assert!(agent.cli_type.is_none());
+        assert!(agent.binary_path.is_empty());
+        assert!(agent.command_template.is_empty());
+        assert!(agent.project_path.is_empty());
+        assert_eq!(agent.output_sinks, vec![AgentOutputSink::Panel]);
+        assert_eq!(agent.prompt_via, PromptDelivery::Stdin);
+    }
+
+    #[test]
+    fn cli_agent_round_trips_through_serde() {
+        // A CLI agent's new fields must survive a serialize→deserialize cycle
+        // (this is what create_agent/update_agent persist through).
+        let raw = serde_json::json!({
+            "id": "claude",
+            "name": "Claude Code",
+            "enabled": true,
+            "binding_id": "agent:claude",
+            "provider_id": "",
+            "kind": "cli",
+            "cli_type": "claude",
+            "binary_path": "/usr/local/bin/claude",
+            "command_template": "-p --output-format stream-json --verbose",
+            "project_path": "/tmp/proj",
+            "output_sinks": ["panel", "notify", "file"],
+            "prompt_via": "stdin"
+        });
+        let agent: AgentDefinition = serde_json::from_value(raw).unwrap();
+        assert_eq!(agent.kind, AgentKind::Cli);
+        assert_eq!(agent.cli_type, Some(AgentCliType::Claude));
+        assert_eq!(agent.binary_path, "/usr/local/bin/claude");
+        assert_eq!(agent.project_path, "/tmp/proj");
+        assert_eq!(
+            agent.output_sinks,
+            vec![
+                AgentOutputSink::Panel,
+                AgentOutputSink::Notify,
+                AgentOutputSink::File
+            ]
+        );
+
+        // Re-serialize and back to confirm stability.
+        let value = serde_json::to_value(&agent).unwrap();
+        let again: AgentDefinition = serde_json::from_value(value).unwrap();
+        assert_eq!(again.kind, AgentKind::Cli);
+        assert_eq!(again.command_template, agent.command_template);
+    }
+
+    #[test]
+    fn claude_default_template_matches_verified_flags() {
+        let (template, via) = default_cli_template(AgentCliType::Claude);
+        assert_eq!(
+            template,
+            "-p --output-format stream-json --verbose --permission-mode acceptEdits"
+        );
+        assert_eq!(via, PromptDelivery::Stdin);
+        assert_eq!(
+            default_cli_binary_name(AgentCliType::Claude),
+            Some("claude")
+        );
+        assert_eq!(default_cli_binary_name(AgentCliType::Custom), None);
     }
 
     #[test]

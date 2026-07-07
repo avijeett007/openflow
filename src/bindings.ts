@@ -918,6 +918,67 @@ async testAgent(id: string, sampleText: string) : Promise<Result<AgentTestResult
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Resolve a CLI agent's binary path by looking up its canonical name on PATH
+ * (`which`-style). Returns the absolute path, or an error if not found. The
+ * PATH searched is the baseline-augmented one (Homebrew etc.), matching how the
+ * run will actually be spawned.
+ */
+async detectAgentBinary(cliType: AgentCliType) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("detect_agent_binary", { cliType }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Return the prefilled `command_template` / `prompt_via` / binary name for a
+ * CLI type. The frontend calls this when the user picks an agent type.
+ */
+async getCliAgentDefaults(cliType: AgentCliType) : Promise<CliAgentDefaults> {
+    return await TAURI_INVOKE("get_cli_agent_defaults", { cliType });
+},
+/**
+ * Run `<binary> --version` (best-effort) and report success + captured output.
+ * Never fails the command itself on a non-zero exit — the caller inspects `ok`.
+ */
+async testAgentBinary(binaryPath: string) : Promise<Result<AgentBinaryTest, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_agent_binary", { binaryPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Snapshot of all CLI agent runs (running + recent), newest first.
+ */
+async listAgentRuns() : Promise<AgentRunInfo[]> {
+    return await TAURI_INVOKE("list_agent_runs");
+},
+/**
+ * Request a stop (SIGTERM→SIGKILL) for a running CLI agent run.
+ */
+async stopAgentRun(runId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("stop_agent_run", { runId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Drop all terminal (finished/failed/stopped) runs from the registry.
+ */
+async clearFinishedAgentRuns() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_finished_agent_runs") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateMicrophoneMode(alwaysOn: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_microphone_mode", { alwaysOn }) };
@@ -1169,10 +1230,14 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 
 export const events = __makeEvents__<{
+agentRunOutput: AgentRunOutput,
+agentRunStatus: AgentRunStatus,
 historyUpdatePayload: HistoryUpdatePayload,
 streamPhaseEvent: StreamPhaseEvent,
 streamTextEvent: StreamTextEvent
 }>({
+agentRunOutput: "agent-run-output",
+agentRunStatus: "agent-run-status",
 historyUpdatePayload: "history-update-payload",
 streamPhaseEvent: "stream-phase-event",
 streamTextEvent: "stream-text-event"
@@ -1184,6 +1249,16 @@ streamTextEvent: "stream-text-event"
 
 /** user-defined types **/
 
+/**
+ * Result of `test_agent_binary`: whether the binary ran and its version output.
+ */
+export type AgentBinaryTest = { ok: boolean; output: string }
+/**
+ * Which local coding-agent CLI a `Cli` agent drives. Selects the prefilled
+ * invocation template (see `default_command_template_for`). `Custom` is a
+ * fully user-defined template for any other binary.
+ */
+export type AgentCliType = "claude" | "codex" | "openclaw" | "hermes" | "custom"
 /**
  * A Flow OS agent: dictation routed through a persona LLM before injection.
  * Each agent has its own global hotkey (via a seeded `ShortcutBinding` keyed
@@ -1211,13 +1286,91 @@ provider_id: string; model?: string;
 /**
  * The persona used as the LLM system prompt.
  */
-system_prompt?: string; output_mode?: AgentOutputMode }
+system_prompt?: string; output_mode?: AgentOutputMode; 
+/**
+ * Discriminator. `Prompt` (default) → increment-1 persona-LLM behavior,
+ * unchanged. `Cli` → drive a real coding-agent subprocess (fields below).
+ */
+kind?: AgentKind; 
+/**
+ * Which coding CLI this agent drives (only meaningful when `kind == Cli`).
+ */
+cli_type?: AgentCliType | null; 
+/**
+ * Resolved/overridable path to the agent binary (e.g. `/usr/local/bin/claude`).
+ */
+binary_path?: string; 
+/**
+ * Argv template appended after the binary; supports `{cwd}`/`{prompt}`
+ * placeholders (see `AgentRunManager::build_argv`). Prefilled per `cli_type`.
+ */
+command_template?: string; 
+/**
+ * Project folder the agent runs in (`cwd`). `""` = no fixed project (a
+ * sensible default dir is used at run time).
+ */
+project_path?: string; 
+/**
+ * Where run output goes. Defaults to `[Panel]` (live in-app stream only).
+ */
+output_sinks?: AgentOutputSink[]; 
+/**
+ * How the instruction reaches the CLI. `Stdin` (default) or `Arg`.
+ */
+prompt_via?: PromptDelivery }
+/**
+ * Flow OS increment 2 — what KIND of agent this is. `Prompt` is the increment-1
+ * behavior (dictation routed through a persona LLM before injection). `Cli`
+ * drives a REAL local coding-agent binary (Claude Code, Codex, …) as a
+ * subprocess in a chosen project folder. Defaults to `Prompt` so every agent
+ * stored before this field existed stays a prompt agent, byte-for-byte.
+ */
+export type AgentKind = "prompt" | "cli"
 /**
  * What an agent does with its LLM response. `Inject` pastes it at the cursor
  * exactly like a normal dictation; `Clipboard` only copies it (no paste, no
  * auto-submit) and shows a brief confirmation. Defaults to `Inject`.
  */
 export type AgentOutputMode = "inject" | "clipboard"
+/**
+ * Where a CLI agent run's output goes (multi-select). `Panel` is the live
+ * streamed in-app view (always effectively on for a running view). `Notify`
+ * fires a desktop notification on completion. `File` writes the full
+ * instruction+output to a markdown file in the project.
+ */
+export type AgentOutputSink = "panel" | "notify" | "file"
+/**
+ * A snapshot of a run for the frontend (`list_agent_runs`).
+ */
+export type AgentRunInfo = { run_id: string; agent_id: string; agent_name: string; project_path: string; status: RunStatus; 
+/**
+ * RFC3339 local start time (for display).
+ */
+started_at: string; 
+/**
+ * Epoch milliseconds — for stable sorting and elapsed-time computation.
+ */
+started_at_ms: number; 
+/**
+ * Rolling (capped) combined stdout+stderr buffer.
+ */
+output: string; 
+/**
+ * The instruction (transcript) that drove the run.
+ */
+instruction: string; 
+/**
+ * Absolute path to the written run file, once the File sink has run.
+ */
+output_file: string | null }
+/**
+ * Emitted per output line while a run streams. Event name: `agent-run-output`.
+ */
+export type AgentRunOutput = { run_id: string; chunk: string }
+/**
+ * Emitted when a run reaches a terminal status. Event name: `agent-run-status`.
+ */
+export type AgentRunStatus = { run_id: string; status: RunStatus }
 /**
  * Result of the agent "Test" action: the LLM's output plus how long it took.
  * Mirrors `BackendTestResult` / `test_cleanup_backend`.
@@ -1363,6 +1516,16 @@ text: string; latency_ms: number;
  */
 backend: string }
 export type BindingResponse = { success: boolean; binding: ShortcutBinding | null; error: string | null }
+/**
+ * The prefilled config for a CLI agent type — one source of truth shared with
+ * the frontend so its "Add CLI agent" form matches exactly what the backend
+ * verified (esp. the live-tested `claude` template).
+ */
+export type CliAgentDefaults = { command_template: string; prompt_via: PromptDelivery; 
+/**
+ * Canonical binary name to auto-detect on PATH (`None` for `custom`).
+ */
+binary_name: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CustomSounds = { start: boolean; stop: boolean }
 /**
@@ -1470,7 +1633,19 @@ export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_
 export type PermissionAccess = "allowed" | "denied" | "unknown"
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; models_endpoint?: string | null; supports_structured_output?: boolean }
 export type ProjectUsage = { project: string; dictations: number; words: number }
+/**
+ * How a CLI agent receives the instruction (transcript). `Stdin` (default)
+ * writes it to the process stdin — no OS arg-length limit, mirroring Agent OS.
+ * `Arg` substitutes it into the `{prompt}` placeholder in the command template.
+ */
+export type PromptDelivery = "stdin" | "arg"
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
+/**
+ * Terminal/live status of a run. Internally tagged so the TS side is a clean
+ * discriminated union: `{ status: "running" } | { status: "finished", code }`
+ * | `{ status: "failed", error }` | `{ status: "stopped" }`.
+ */
+export type RunStatus = { status: "running" } | { status: "finished"; code: number } | { status: "failed"; error: string } | { status: "stopped" }
 export type SecretMap = Partial<{ [key in string]: string }>
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "custom"

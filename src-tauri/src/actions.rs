@@ -3,6 +3,7 @@ use crate::active_app;
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
 use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error, VadPolicy};
+use crate::managers::agent_run::AgentRunManager;
 use crate::managers::analytics::{AnalyticsManager, DictationEvent};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
@@ -775,6 +776,39 @@ pub(crate) async fn finish_dictation(
     });
     let agent_active = agent.is_some();
 
+    // Flow OS increment 2: a CLI agent does NOT run the persona-LLM transform or
+    // inject anything — it drives a real coding-agent subprocess. Hand the
+    // transcript to the AgentRunManager (which spawns the process + a detached
+    // streaming task and returns at once) and RETURN IMMEDIATELY so the
+    // coordinator's Processing stage ends promptly and dictation is never
+    // blocked by a long agent run. Prompt agents and normal dictation fall
+    // through to the unchanged increment-1 path below.
+    if let Some(agent) = agent.as_ref() {
+        if agent.kind == crate::settings::AgentKind::Cli {
+            let instruction = raw_text.trim().to_string();
+            if instruction.is_empty() {
+                debug!(
+                    "CLI agent '{}' triggered with an empty transcript; skipping run",
+                    agent.id
+                );
+            } else if let Some(mgr) = ah.try_state::<Arc<AgentRunManager>>() {
+                let run_id = mgr.inner().start(&ah, agent.clone(), instruction);
+                debug!(
+                    "Started CLI agent run '{}' for agent '{}' (project: '{}')",
+                    run_id, agent.id, agent.project_path
+                );
+            } else {
+                error!(
+                    "AgentRunManager not initialized; cannot start CLI agent '{}'",
+                    agent.id
+                );
+            }
+            utils::hide_recording_overlay(&ah);
+            change_tray_icon(&ah, TrayIconState::Idle);
+            return;
+        }
+    }
+
     // Show the "working" overlay while either the cleanup LLM or the agent LLM
     // runs, so an agent invocation isn't a silent gap between stop and paste.
     if post_process || agent_active {
@@ -1407,7 +1441,10 @@ mod tests {
         build_system_prompt, dictionary_vocabulary_block, is_blank_transcription,
         resolve_agent_api_key_with, strip_leaked_vocabulary_block, VOCABULARY_BLOCK_MAX_CHARS,
     };
-    use crate::settings::{AgentDefinition, AgentOutputMode, DictionaryEntry};
+    use crate::settings::{
+        AgentDefinition, AgentKind, AgentOutputMode, AgentOutputSink, DictionaryEntry,
+        PromptDelivery,
+    };
 
     fn test_agent(id: &str, provider_id: &str) -> AgentDefinition {
         AgentDefinition {
@@ -1419,6 +1456,13 @@ mod tests {
             model: "some-model".to_string(),
             system_prompt: String::new(),
             output_mode: AgentOutputMode::Inject,
+            kind: AgentKind::Prompt,
+            cli_type: None,
+            binary_path: String::new(),
+            command_template: String::new(),
+            project_path: String::new(),
+            output_sinks: vec![AgentOutputSink::Panel],
+            prompt_via: PromptDelivery::Stdin,
         }
     }
 

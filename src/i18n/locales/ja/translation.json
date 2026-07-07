@@ -17,7 +17,8 @@
     "agents": "エージェント",
     "history": "履歴",
     "debug": "デバッグ",
-    "about": "概要"
+    "about": "概要",
+    "agentRuns": "エージェント実行"
   },
   "onboarding": {
     "subtitle": "開始するには、文字起こしモデルを選択してください",
@@ -475,10 +476,17 @@
           }
         },
         "created": "「{{name}}」を作成しました",
-        "error": "エージェントを作成できませんでした: {{error}}"
+        "error": "エージェントを作成できませんでした: {{error}}",
+        "promptSectionTitle": "プロンプトエージェント",
+        "cliSectionTitle": "CLI エージェント",
+        "cliAgent": "CLI エージェント",
+        "cliDescription": "実際のコーディングエージェント CLI（Claude Code、Codex、…）をプロジェクトフォルダー内のサブプロセスとして実行します。"
       },
       "card": {
-        "name": { "label": "名前", "placeholder": "例：フォーマル書き換え" },
+        "name": {
+          "label": "名前",
+          "placeholder": "例：フォーマル書き換え"
+        },
         "enabled": {
           "label": "有効",
           "description": "オフにすると、このエージェントのホットキーは登録解除されます。"
@@ -533,7 +541,58 @@
           "success": "「{{name}}」を削除しました",
           "error": "エージェントを削除できませんでした: {{error}}"
         },
-        "update": { "error": "エージェントを更新できませんでした: {{error}}" }
+        "update": {
+          "error": "エージェントを更新できませんでした: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "エージェントの種類",
+            "description": "どのコーディングエージェント CLI を実行するか。選択するとコマンドテンプレートが自動入力され、バイナリが自動検出されます。",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "カスタム"
+            },
+            "defaultsError": "このエージェントの種類の既定値を読み込めませんでした: {{error}}"
+          },
+          "binaryPath": {
+            "label": "バイナリパス",
+            "description": "このエージェントが実行する CLI 実行ファイルへのパス。",
+            "placeholder": "例: /usr/local/bin/claude",
+            "detect": "検出",
+            "detecting": "検出中…",
+            "detectError": "バイナリを検出できませんでした: {{error}}",
+            "test": "テスト",
+            "testing": "テスト中…",
+            "testError": "テストに失敗しました: {{error}}",
+            "testOk": "バイナリは動作します: {{output}}",
+            "testFailed": "バイナリが正常に実行されませんでした: {{output}}"
+          },
+          "projectPath": {
+            "label": "プロジェクトフォルダー",
+            "description": "このエージェントが実行されるリポジトリ／フォルダー（その cwd）。空にすると既定のディレクトリで実行されます。",
+            "placeholder": "フォルダーが選択されていません",
+            "choose": "フォルダーを選択…",
+            "clear": "クリア",
+            "error": "フォルダー選択を開けませんでした: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "コマンドテンプレート",
+            "description": "詳細設定: バイナリの後に追加される argv テンプレート。{cwd} と {prompt} のプレースホルダーをサポートします。",
+            "placeholder": "例: -p --output-format stream-json --verbose",
+            "show": "詳細を表示",
+            "hide": "詳細を非表示"
+          },
+          "outputSinks": {
+            "label": "出力",
+            "description": "この実行が完了したときに出力が送られる先。",
+            "panel": "パネル",
+            "notify": "通知",
+            "file": "ファイル"
+          }
+        }
       }
     },
     "history": {
@@ -676,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "新機能を表示",
         "description": "OpenFlowのアップデート後にリリースノートを表示"
+      }
+    },
+    "agentRuns": {
+      "title": "エージェント実行",
+      "intro": "CLI コーディングエージェント実行のライブビュー: ストリーミング出力、ステータス、結果の書き込み先。",
+      "emptyState": "エージェントの実行はまだありません。CLI エージェントのホットキーを押して開始してください。",
+      "clearFinished": "完了済みをクリア",
+      "stop": "停止",
+      "stopping": "停止中…",
+      "stopError": "実行を停止できませんでした: {{error}}",
+      "clearError": "完了済みの実行をクリアできませんでした: {{error}}",
+      "revealError": "ファイルを表示できませんでした: {{error}}",
+      "noProject": "プロジェクトフォルダーなし",
+      "status": {
+        "running": "実行中",
+        "finished": "完了（終了コード {{code}}）",
+        "failed": "失敗: {{error}}",
+        "stopped": "停止済み"
+      },
+      "startedAt": "開始 {{time}}",
+      "elapsed": "経過 {{value}}",
+      "outputFile": {
+        "label": "出力ファイル: {{path}}",
+        "reveal": "表示"
+      },
+      "instruction": {
+        "label": "指示"
+      },
+      "output": {
+        "label": "出力"
       }
     }
   },

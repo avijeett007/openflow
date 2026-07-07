@@ -17,7 +17,8 @@
     "agents": "Tác nhân",
     "history": "Lịch sử",
     "debug": "Gỡ lỗi",
-    "about": "Giới thiệu"
+    "about": "Giới thiệu",
+    "agentRuns": "Lần chạy tác nhân"
   },
   "onboarding": {
     "subtitle": "Để bắt đầu, hãy chọn một mô hình chuyển đổi giọng nói",
@@ -475,7 +476,11 @@
           }
         },
         "created": "Đã tạo \"{{name}}\"",
-        "error": "Không thể tạo tác nhân: {{error}}"
+        "error": "Không thể tạo tác nhân: {{error}}",
+        "promptSectionTitle": "Tác nhân prompt",
+        "cliSectionTitle": "Tác nhân CLI",
+        "cliAgent": "Tác nhân CLI",
+        "cliDescription": "Chạy một CLI tác nhân lập trình thực sự (Claude Code, Codex, …) dưới dạng tiến trình con trong một thư mục dự án."
       },
       "card": {
         "name": {
@@ -536,7 +541,58 @@
           "success": "Đã xóa \"{{name}}\"",
           "error": "Không thể xóa tác nhân: {{error}}"
         },
-        "update": { "error": "Không thể cập nhật tác nhân: {{error}}" }
+        "update": {
+          "error": "Không thể cập nhật tác nhân: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "Loại tác nhân",
+            "description": "CLI tác nhân lập trình nào sẽ chạy. Chọn một loại sẽ điền sẵn mẫu lệnh và tự động phát hiện tệp nhị phân.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "Tùy chỉnh"
+            },
+            "defaultsError": "Không thể tải các giá trị mặc định cho loại tác nhân này: {{error}}"
+          },
+          "binaryPath": {
+            "label": "Đường dẫn tệp nhị phân",
+            "description": "Đường dẫn đến tệp thực thi CLI mà tác nhân này chạy.",
+            "placeholder": "ví dụ /usr/local/bin/claude",
+            "detect": "Phát hiện",
+            "detecting": "Đang phát hiện…",
+            "detectError": "Không thể phát hiện tệp nhị phân: {{error}}",
+            "test": "Kiểm tra",
+            "testing": "Đang kiểm tra…",
+            "testError": "Kiểm tra thất bại: {{error}}",
+            "testOk": "Tệp nhị phân hoạt động: {{output}}",
+            "testFailed": "Tệp nhị phân không chạy đúng cách: {{output}}"
+          },
+          "projectPath": {
+            "label": "Thư mục dự án",
+            "description": "Kho lưu trữ/thư mục nơi tác nhân này chạy (cwd của nó). Để trống để chạy trong thư mục mặc định.",
+            "placeholder": "Chưa chọn thư mục",
+            "choose": "Chọn thư mục…",
+            "clear": "Xóa",
+            "error": "Không thể mở trình chọn thư mục: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "Mẫu lệnh",
+            "description": "Nâng cao: mẫu argv được thêm sau tệp nhị phân. Hỗ trợ các trình giữ chỗ {cwd} và {prompt}.",
+            "placeholder": "ví dụ -p --output-format stream-json --verbose",
+            "show": "Hiện nâng cao",
+            "hide": "Ẩn nâng cao"
+          },
+          "outputSinks": {
+            "label": "Đầu ra",
+            "description": "Đầu ra của lần chạy này sẽ đi đâu khi hoàn tất.",
+            "panel": "Bảng điều khiển",
+            "notify": "Thông báo",
+            "file": "Tệp"
+          }
+        }
       }
     },
     "history": {
@@ -679,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "Hiển thị điểm mới",
         "description": "Hiển thị ghi chú phát hành sau khi OpenFlow cập nhật"
+      }
+    },
+    "agentRuns": {
+      "title": "Lần chạy tác nhân",
+      "intro": "Chế độ xem trực tiếp các lần chạy tác nhân lập trình CLI: đầu ra được truyền phát, trạng thái và nơi ghi kết quả.",
+      "emptyState": "Chưa có lần chạy tác nhân nào. Kích hoạt phím tắt của tác nhân CLI để bắt đầu.",
+      "clearFinished": "Xóa các lần đã hoàn tất",
+      "stop": "Dừng",
+      "stopping": "Đang dừng…",
+      "stopError": "Không thể dừng lần chạy: {{error}}",
+      "clearError": "Không thể xóa các lần chạy đã hoàn tất: {{error}}",
+      "revealError": "Không thể hiển thị tệp: {{error}}",
+      "noProject": "Không có thư mục dự án",
+      "status": {
+        "running": "Đang chạy",
+        "finished": "Đã hoàn tất (thoát {{code}})",
+        "failed": "Thất bại: {{error}}",
+        "stopped": "Đã dừng"
+      },
+      "startedAt": "Bắt đầu {{time}}",
+      "elapsed": "Đã trôi qua {{value}}",
+      "outputFile": {
+        "label": "Tệp đầu ra: {{path}}",
+        "reveal": "Hiển thị"
+      },
+      "instruction": {
+        "label": "Hướng dẫn"
+      },
+      "output": {
+        "label": "Đầu ra"
       }
     }
   },

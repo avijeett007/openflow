@@ -17,7 +17,8 @@
     "agents": "Agenci",
     "history": "Historia",
     "debug": "Debugowanie",
-    "about": "O programie"
+    "about": "O programie",
+    "agentRuns": "Uruchomienia agentów"
   },
   "onboarding": {
     "subtitle": "Aby rozpocząć, wybierz model transkrypcji",
@@ -475,7 +476,11 @@
           }
         },
         "created": "Utworzono „{{name}}”",
-        "error": "Nie udało się utworzyć agenta: {{error}}"
+        "error": "Nie udało się utworzyć agenta: {{error}}",
+        "promptSectionTitle": "Agenci promptów",
+        "cliSectionTitle": "Agenci CLI",
+        "cliAgent": "Agent CLI",
+        "cliDescription": "Uruchom prawdziwe CLI agenta programistycznego (Claude Code, Codex, …) jako podproces w folderze projektu."
       },
       "card": {
         "name": {
@@ -536,7 +541,58 @@
           "success": "Usunięto „{{name}}”",
           "error": "Nie udało się usunąć agenta: {{error}}"
         },
-        "update": { "error": "Nie udało się zaktualizować agenta: {{error}}" }
+        "update": {
+          "error": "Nie udało się zaktualizować agenta: {{error}}"
+        },
+        "cli": {
+          "agentType": {
+            "label": "Typ agenta",
+            "description": "Które CLI agenta programistycznego jest uruchamiane. Wybranie jednego wstępnie wypełnia szablon polecenia i automatycznie wykrywa plik binarny.",
+            "options": {
+              "claude": "Claude Code",
+              "codex": "Codex",
+              "openclaw": "OpenClaw",
+              "hermes": "Hermes",
+              "custom": "Niestandardowy"
+            },
+            "defaultsError": "Nie udało się wczytać ustawień domyślnych dla tego typu agenta: {{error}}"
+          },
+          "binaryPath": {
+            "label": "Ścieżka pliku binarnego",
+            "description": "Ścieżka do pliku wykonywalnego CLI, który uruchamia ten agent.",
+            "placeholder": "np. /usr/local/bin/claude",
+            "detect": "Wykryj",
+            "detecting": "Wykrywanie…",
+            "detectError": "Nie udało się wykryć pliku binarnego: {{error}}",
+            "test": "Testuj",
+            "testing": "Testowanie…",
+            "testError": "Test nie powiódł się: {{error}}",
+            "testOk": "Plik binarny działa: {{output}}",
+            "testFailed": "Plik binarny nie uruchomił się poprawnie: {{output}}"
+          },
+          "projectPath": {
+            "label": "Folder projektu",
+            "description": "Repozytorium/folder, w którym uruchamiany jest ten agent (jego cwd). Pozostaw puste, aby uruchomić w katalogu domyślnym.",
+            "placeholder": "Nie wybrano folderu",
+            "choose": "Wybierz folder…",
+            "clear": "Wyczyść",
+            "error": "Nie udało się otworzyć okna wyboru folderu: {{error}}"
+          },
+          "commandTemplate": {
+            "label": "Szablon polecenia",
+            "description": "Zaawansowane: szablon argv dołączany po pliku binarnym. Obsługuje symbole zastępcze {cwd} i {prompt}.",
+            "placeholder": "np. -p --output-format stream-json --verbose",
+            "show": "Pokaż zaawansowane",
+            "hide": "Ukryj zaawansowane"
+          },
+          "outputSinks": {
+            "label": "Wyjście",
+            "description": "Dokąd trafia wynik tego uruchomienia po zakończeniu.",
+            "panel": "Panel",
+            "notify": "Powiadom",
+            "file": "Plik"
+          }
+        }
       }
     },
     "history": {
@@ -679,6 +735,36 @@
       "whatsNewUpdates": {
         "label": "Pokaż nowości",
         "description": "Pokazuj informacje o wydaniu po aktualizacjach OpenFlow"
+      }
+    },
+    "agentRuns": {
+      "title": "Uruchomienia agentów",
+      "intro": "Podgląd na żywo uruchomień agentów programistycznych CLI: strumieniowane wyjście, status i miejsce zapisu wyników.",
+      "emptyState": "Brak uruchomień agentów. Uruchom skrót agenta CLI, aby rozpocząć.",
+      "clearFinished": "Wyczyść zakończone",
+      "stop": "Zatrzymaj",
+      "stopping": "Zatrzymywanie…",
+      "stopError": "Nie udało się zatrzymać uruchomienia: {{error}}",
+      "clearError": "Nie udało się wyczyścić zakończonych uruchomień: {{error}}",
+      "revealError": "Nie udało się pokazać pliku: {{error}}",
+      "noProject": "Brak folderu projektu",
+      "status": {
+        "running": "W trakcie",
+        "finished": "Zakończono (kod {{code}})",
+        "failed": "Niepowodzenie: {{error}}",
+        "stopped": "Zatrzymano"
+      },
+      "startedAt": "Rozpoczęto {{time}}",
+      "elapsed": "Upłynęło {{value}}",
+      "outputFile": {
+        "label": "Plik wyjściowy: {{path}}",
+        "reveal": "Pokaż"
+      },
+      "instruction": {
+        "label": "Instrukcja"
+      },
+      "output": {
+        "label": "Wyjście"
       }
     }
   },
