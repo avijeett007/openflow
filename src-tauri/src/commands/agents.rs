@@ -189,7 +189,9 @@ pub async fn test_agent(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::{get_default_settings, AgentOutputMode};
+    use crate::settings::{
+        get_default_settings, AgentKind, AgentOutputMode, AgentOutputSink, PromptDelivery,
+    };
 
     fn agent(id: &str) -> AgentDefinition {
         AgentDefinition {
@@ -201,6 +203,13 @@ mod tests {
             model: "gpt-4o-mini".to_string(),
             system_prompt: "You are a coder.".to_string(),
             output_mode: AgentOutputMode::Inject,
+            kind: AgentKind::Prompt,
+            cli_type: None,
+            binary_path: String::new(),
+            command_template: String::new(),
+            project_path: String::new(),
+            output_sinks: vec![AgentOutputSink::Panel],
+            prompt_via: PromptDelivery::Stdin,
         }
     }
 
@@ -242,6 +251,34 @@ mod tests {
         assert_eq!(binding.description, "Agent: Coder");
         assert!(binding.current_binding.is_empty());
         assert!(binding.default_binding.is_empty());
+    }
+
+    #[test]
+    fn create_agent_preserves_cli_fields() {
+        // A CLI agent created through the same code path must keep its CLI
+        // fields intact (only binding_id is forced) — the frontend relies on
+        // create/update round-tripping the whole AgentDefinition.
+        let mut settings = get_default_settings();
+        let mut cli = agent("claude");
+        cli.kind = AgentKind::Cli;
+        cli.cli_type = Some(crate::settings::AgentCliType::Claude);
+        cli.binary_path = "/usr/local/bin/claude".to_string();
+        cli.command_template = "-p --output-format stream-json --verbose".to_string();
+        cli.project_path = "/tmp/proj".to_string();
+        cli.output_sinks = vec![AgentOutputSink::Panel, AgentOutputSink::File];
+        cli.prompt_via = PromptDelivery::Stdin;
+
+        apply_create_agent(&mut settings, cli).unwrap();
+
+        let stored = settings.agents.iter().find(|a| a.id == "claude").unwrap();
+        assert_eq!(stored.kind, AgentKind::Cli);
+        assert_eq!(stored.binary_path, "/usr/local/bin/claude");
+        assert_eq!(stored.project_path, "/tmp/proj");
+        assert_eq!(stored.binding_id, "agent:claude");
+        assert_eq!(
+            stored.output_sinks,
+            vec![AgentOutputSink::Panel, AgentOutputSink::File]
+        );
     }
 
     #[test]

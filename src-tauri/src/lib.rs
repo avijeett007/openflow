@@ -188,6 +188,9 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // and started later in this function if hands-free is enabled in settings.
     let wake_word_manager = Arc::new(managers::wake_word::WakeWordManager::new(app_handle));
 
+    // Flow OS increment 2: registry of live/recent CLI-agent subprocess runs.
+    let agent_run_manager = Arc::new(managers::agent_run::AgentRunManager::new());
+
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
@@ -195,6 +198,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(history_manager.clone());
     app_handle.manage(analytics_manager.clone());
     app_handle.manage(wake_word_manager.clone());
+    app_handle.manage(agent_run_manager.clone());
 
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
@@ -658,6 +662,12 @@ pub fn run(cli_args: CliArgs) {
             commands::agents::update_agent,
             commands::agents::delete_agent,
             commands::agents::test_agent,
+            commands::agent_runs::detect_agent_binary,
+            commands::agent_runs::get_cli_agent_defaults,
+            commands::agent_runs::test_agent_binary,
+            commands::agent_runs::list_agent_runs,
+            commands::agent_runs::stop_agent_run,
+            commands::agent_runs::clear_finished_agent_runs,
             commands::audio::update_microphone_mode,
             commands::audio::get_microphone_mode,
             commands::audio::get_windows_microphone_permission_status,
@@ -696,6 +706,8 @@ pub fn run(cli_args: CliArgs) {
             managers::history::HistoryUpdatePayload,
             managers::transcription::StreamTextEvent,
             managers::transcription::StreamPhaseEvent,
+            managers::agent_run::AgentRunOutput,
+            managers::agent_run::AgentRunStatus,
         ]);
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds
@@ -792,6 +804,7 @@ pub fn run(cli_args: CliArgs) {
     builder
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_clipboard_manager::init())
