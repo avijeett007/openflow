@@ -41,6 +41,14 @@ use crate::meeting::MeetingChannel;
 /// recorder's `VAD_THRESHOLD`).
 const VAD_THRESHOLD: f32 = 0.3;
 
+/// Meeting-chunk transcription retry budget. A chunk can transiently fail when
+/// the shared STT engine is loading or leased to the streaming dictation worker;
+/// we retry with a short backoff so the (latency-tolerant) chunk queues behind
+/// dictation instead of being dropped. ~12 × 500 ms ≈ 6 s covers a typical
+/// dictation utterance plus a cold model load.
+const MEETING_TRANSCRIBE_MAX_ATTEMPTS: u32 = 12;
+const MEETING_TRANSCRIBE_RETRY_MS: u64 = 500;
+
 /* ─────────────────────────────  events  ──────────────────────────────── */
 
 /// A known meeting app is running and the mic is in use — offer to capture.
@@ -694,12 +702,41 @@ fn spawn_worker(
                 }
             };
             while let Ok(SegJob(seg)) = seg_rx.recv() {
-                let text = match tm.transcribe(seg.samples.clone()) {
-                    Ok(t) => t.trim().to_string(),
-                    Err(e) => {
-                        warn!("meeting {meeting_id}: transcribe failed: {e}");
-                        String::new()
+                // Transcribe on the shared engine, tolerating the two ways it can
+                // be unavailable for a meeting chunk (DESIGN-meetings.md §4.2 —
+                // "meeting chunks queue behind dictation"). `transcribe()` does
+                // NOT load on its own; it errors when the engine isn't in the
+                // mutex, so we drive the same on-demand load dictation uses and
+                // retry with backoff:
+                //  1. Not loaded (fresh session / idle-unload mid-meeting):
+                //     `initiate_model_load()` kicks off a load and `transcribe()`
+                //     blocks on the load condvar.
+                //  2. Loaded but leased out to the streaming dictation worker
+                //     (`is_model_loaded()` true, `lock_engine()` None): the chunk
+                //     must wait for the lease to return rather than be dropped.
+                // No change to TranscriptionManager's locking; dictation keeps
+                // priority and the meeting chunk (latency-tolerant) queues behind.
+                let text = {
+                    let mut out = String::new();
+                    for attempt in 0..MEETING_TRANSCRIBE_MAX_ATTEMPTS {
+                        tm.initiate_model_load();
+                        match tm.transcribe(seg.samples.clone()) {
+                            Ok(t) => {
+                                out = t.trim().to_string();
+                                break;
+                            }
+                            Err(e) => {
+                                if attempt + 1 == MEETING_TRANSCRIBE_MAX_ATTEMPTS {
+                                    warn!("meeting {meeting_id}: transcribe failed after {} attempts: {e}", attempt + 1);
+                                } else {
+                                    std::thread::sleep(std::time::Duration::from_millis(
+                                        MEETING_TRANSCRIBE_RETRY_MS,
+                                    ));
+                                }
+                            }
+                        }
                     }
+                    out
                 };
                 if text.is_empty() {
                     continue;
