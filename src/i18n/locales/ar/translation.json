@@ -21,7 +21,8 @@
     "agentRuns": "عمليات تشغيل الوكلاء",
     "advancedMode": "الوضع المتقدم",
     "advancedModeTooltip": "إظهار جميع الإعدادات والميزات المتقدمة",
-    "missionControl": "مركز التحكم"
+    "missionControl": "مركز التحكم",
+    "resizeHandle": "تغيير حجم الشريط الجانبي"
   },
   "onboarding": {
     "subtitle": "للبدء، اختر نموذج التفريغ الصوتي",

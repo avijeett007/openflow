@@ -21,7 +21,8 @@
     "agentRuns": "代理執行",
     "advancedMode": "進階模式",
     "advancedModeTooltip": "顯示所有設定與進階功能",
-    "missionControl": "任務控制"
+    "missionControl": "任務控制",
+    "resizeHandle": "調整側邊欄寬度"
   },
   "onboarding": {
     "subtitle": "首先，請選擇一種模型",

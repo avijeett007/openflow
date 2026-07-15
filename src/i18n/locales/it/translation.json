@@ -21,7 +21,8 @@
     "agentRuns": "Esecuzioni agenti",
     "advancedMode": "Modalità avanzata",
     "advancedModeTooltip": "Mostra tutte le impostazioni e le funzionalità avanzate",
-    "missionControl": "Centro di Controllo"
+    "missionControl": "Centro di Controllo",
+    "resizeHandle": "Ridimensiona la barra laterale"
   },
   "onboarding": {
     "subtitle": "Per cominciare, scegli un modello di riconoscimento vocale",

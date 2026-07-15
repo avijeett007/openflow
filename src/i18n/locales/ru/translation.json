@@ -21,7 +21,8 @@
     "agentRuns": "Запуски агентов",
     "advancedMode": "Расширенный режим",
     "advancedModeTooltip": "Показать все настройки и расширенные функции",
-    "missionControl": "Центр управления"
+    "missionControl": "Центр управления",
+    "resizeHandle": "Изменить размер боковой панели"
   },
   "onboarding": {
     "subtitle": "Для начала выберите модель транскрипции",

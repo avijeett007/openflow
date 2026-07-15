@@ -21,7 +21,8 @@
     "agentRuns": "הרצות סוכן",
     "advancedMode": "מצב מתקדם",
     "advancedModeTooltip": "הצג את כל ההגדרות והתכונות המתקדמות",
-    "missionControl": "מרכז הבקרה"
+    "missionControl": "מרכז הבקרה",
+    "resizeHandle": "שנה את גודל הסרגל הצדי"
   },
   "onboarding": {
     "subtitle": "כדי להתחיל, בחר מודל תמלול",

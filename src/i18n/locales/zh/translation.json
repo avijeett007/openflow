@@ -21,7 +21,8 @@
     "agentRuns": "智能体运行",
     "advancedMode": "高级模式",
     "advancedModeTooltip": "显示所有设置和高级功能",
-    "missionControl": "任务控制"
+    "missionControl": "任务控制",
+    "resizeHandle": "调整侧边栏宽度"
   },
   "onboarding": {
     "subtitle": "请选择一个转录模型以开始使用",

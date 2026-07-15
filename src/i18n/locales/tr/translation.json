@@ -21,7 +21,8 @@
     "agentRuns": "Ajan Çalıştırmaları",
     "advancedMode": "Gelişmiş mod",
     "advancedModeTooltip": "Tüm ayarları ve gelişmiş özellikleri göster",
-    "missionControl": "Görev Kontrol"
+    "missionControl": "Görev Kontrol",
+    "resizeHandle": "Kenar çubuğunu yeniden boyutlandır"
   },
   "onboarding": {
     "subtitle": "Başlamak için bir transkripsiyon modeli seçin",

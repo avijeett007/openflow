@@ -21,7 +21,8 @@
     "agentRuns": "Uruchomienia agentów",
     "advancedMode": "Tryb zaawansowany",
     "advancedModeTooltip": "Pokaż wszystkie ustawienia i zaawansowane funkcje",
-    "missionControl": "Centrum sterowania"
+    "missionControl": "Centrum sterowania",
+    "resizeHandle": "Zmień rozmiar paska bocznego"
   },
   "onboarding": {
     "subtitle": "Aby rozpocząć, wybierz model transkrypcji",

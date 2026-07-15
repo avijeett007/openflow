@@ -21,7 +21,8 @@
     "agentRuns": "Běhy agentů",
     "advancedMode": "Rozšířený režim",
     "advancedModeTooltip": "Zobrazit všechna nastavení a pokročilé funkce",
-    "missionControl": "Řídicí centrum"
+    "missionControl": "Řídicí centrum",
+    "resizeHandle": "Změnit velikost postranního panelu"
   },
   "onboarding": {
     "subtitle": "Pro začátek vyberte model pro přepis",

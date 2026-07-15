@@ -21,7 +21,8 @@
     "agentRuns": "Agentkörningar",
     "advancedMode": "Avancerat läge",
     "advancedModeTooltip": "Visa alla inställningar och avancerade funktioner",
-    "missionControl": "Kontrollcenter"
+    "missionControl": "Kontrollcenter",
+    "resizeHandle": "Ändra storlek på sidofältet"
   },
   "onboarding": {
     "subtitle": "För att komma igång, välj en transkriptionsmodell",

@@ -21,7 +21,8 @@
     "agentRuns": "Exécutions d'agents",
     "advancedMode": "Mode avancé",
     "advancedModeTooltip": "Afficher tous les paramètres et les fonctionnalités avancées",
-    "missionControl": "Centre de Contrôle"
+    "missionControl": "Centre de Contrôle",
+    "resizeHandle": "Redimensionner la barre latérale"
   },
   "onboarding": {
     "subtitle": "Pour commencer, choisissez un modèle de transcription",

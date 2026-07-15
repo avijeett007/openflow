@@ -21,7 +21,8 @@
     "agentRuns": "Lần chạy tác nhân",
     "advancedMode": "Chế độ nâng cao",
     "advancedModeTooltip": "Hiển thị tất cả cài đặt và tính năng nâng cao",
-    "missionControl": "Trung tâm điều khiển"
+    "missionControl": "Trung tâm điều khiển",
+    "resizeHandle": "Thay đổi kích thước thanh bên"
   },
   "onboarding": {
     "subtitle": "Để bắt đầu, hãy chọn một mô hình chuyển đổi giọng nói",

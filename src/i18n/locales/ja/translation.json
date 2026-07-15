@@ -21,7 +21,8 @@
     "agentRuns": "エージェント実行",
     "advancedMode": "詳細モード",
     "advancedModeTooltip": "すべての設定と詳細機能を表示",
-    "missionControl": "ミッションコントロール"
+    "missionControl": "ミッションコントロール",
+    "resizeHandle": "サイドバーのサイズを変更"
   },
   "onboarding": {
     "subtitle": "開始するには、文字起こしモデルを選択してください",

@@ -21,7 +21,8 @@
     "agentRuns": "Agent-Läufe",
     "advancedMode": "Erweiterter Modus",
     "advancedModeTooltip": "Alle Einstellungen und erweiterten Funktionen anzeigen",
-    "missionControl": "Mission Control"
+    "missionControl": "Mission Control",
+    "resizeHandle": "Seitenleiste in der Größe ändern"
   },
   "onboarding": {
     "subtitle": "Wähle ein Transkriptionsmodell, um loszulegen",
