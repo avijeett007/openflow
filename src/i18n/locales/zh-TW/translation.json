@@ -18,7 +18,9 @@
     "history": "歷史紀錄",
     "debug": "偵錯",
     "about": "關於",
-    "agentRuns": "代理執行"
+    "agentRuns": "代理執行",
+    "advancedMode": "進階模式",
+    "advancedModeTooltip": "顯示所有設定與進階功能"
   },
   "onboarding": {
     "subtitle": "首先，請選擇一種模型",
@@ -761,10 +763,33 @@
         "reveal": "顯示"
       },
       "instruction": {
-        "label": "指令"
+        "label": "指令",
+        "show": "顯示指示",
+        "hide": "隱藏指示"
       },
       "output": {
-        "label": "輸出"
+        "label": "輸出",
+        "show": "顯示輸出",
+        "hide": "隱藏輸出",
+        "empty": "尚無輸出。"
+      },
+      "summary": "共 {{total}} 次執行 · {{running}} 個進行中 · {{done}} 個已完成",
+      "copyReadable": "複製",
+      "copyRaw": "複製原始資料",
+      "copied": "已複製",
+      "copyError": "無法複製到剪貼簿: {{error}}",
+      "result": {
+        "label": "結果"
+      },
+      "session": {
+        "started": "工作階段已開始",
+        "tooltip": "模型: {{model}} · 工作目錄: {{cwd}}"
+      },
+      "actions": {
+        "edited": "已編輯 {{target}}",
+        "ran": "已執行 {{command}}",
+        "read": "已讀取 {{target}}",
+        "used": "已使用 {{tool}}"
       }
     }
   },
@@ -788,7 +813,8 @@
     "open": "開啟",
     "copy": "複製",
     "clear": "清除",
-    "noOptionsFound": "未找到選項"
+    "noOptionsFound": "未找到選項",
+    "experimental": "實驗性"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow 需要輔助使用權限才能輸入轉錄的文字",

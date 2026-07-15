@@ -18,7 +18,9 @@
     "history": "Lịch sử",
     "debug": "Gỡ lỗi",
     "about": "Giới thiệu",
-    "agentRuns": "Lần chạy tác nhân"
+    "agentRuns": "Lần chạy tác nhân",
+    "advancedMode": "Chế độ nâng cao",
+    "advancedModeTooltip": "Hiển thị tất cả cài đặt và tính năng nâng cao"
   },
   "onboarding": {
     "subtitle": "Để bắt đầu, hãy chọn một mô hình chuyển đổi giọng nói",
@@ -761,10 +763,33 @@
         "reveal": "Hiển thị"
       },
       "instruction": {
-        "label": "Hướng dẫn"
+        "label": "Hướng dẫn",
+        "show": "Hiện hướng dẫn",
+        "hide": "Ẩn hướng dẫn"
       },
       "output": {
-        "label": "Đầu ra"
+        "label": "Đầu ra",
+        "show": "Hiện đầu ra",
+        "hide": "Ẩn đầu ra",
+        "empty": "Chưa có đầu ra."
+      },
+      "summary": "{{total}} lượt chạy · {{running}} đang chạy · {{done}} đã xong",
+      "copyReadable": "Sao chép",
+      "copyRaw": "Sao chép dữ liệu thô",
+      "copied": "Đã sao chép",
+      "copyError": "Không thể sao chép vào bộ nhớ tạm: {{error}}",
+      "result": {
+        "label": "Kết quả"
+      },
+      "session": {
+        "started": "Phiên đã bắt đầu",
+        "tooltip": "Mô hình: {{model}} · Thư mục làm việc: {{cwd}}"
+      },
+      "actions": {
+        "edited": "Đã chỉnh sửa {{target}}",
+        "ran": "Đã chạy {{command}}",
+        "read": "Đã đọc {{target}}",
+        "used": "Đã dùng {{tool}}"
       }
     }
   },
@@ -788,7 +813,8 @@
     "open": "Mở",
     "copy": "Sao chép",
     "clear": "Xóa",
-    "noOptionsFound": "Không tìm thấy tùy chọn"
+    "noOptionsFound": "Không tìm thấy tùy chọn",
+    "experimental": "Thử nghiệm"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow cần quyền truy cập để gõ văn bản đã chuyển đổi.",

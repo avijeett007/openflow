@@ -18,7 +18,9 @@
     "history": "Historie",
     "debug": "Ladění",
     "about": "O aplikaci",
-    "agentRuns": "Běhy agentů"
+    "agentRuns": "Běhy agentů",
+    "advancedMode": "Rozšířený režim",
+    "advancedModeTooltip": "Zobrazit všechna nastavení a pokročilé funkce"
   },
   "onboarding": {
     "subtitle": "Pro začátek vyberte model pro přepis",
@@ -761,10 +763,33 @@
         "reveal": "Zobrazit"
       },
       "instruction": {
-        "label": "Pokyn"
+        "label": "Pokyn",
+        "show": "Zobrazit instrukci",
+        "hide": "Skrýt instrukci"
       },
       "output": {
-        "label": "Výstup"
+        "label": "Výstup",
+        "show": "Zobrazit výstup",
+        "hide": "Skrýt výstup",
+        "empty": "Zatím žádný výstup."
+      },
+      "summary": "{{total}} spuštění · {{running}} běží · {{done}} dokončeno",
+      "copyReadable": "Kopírovat",
+      "copyRaw": "Kopírovat surová data",
+      "copied": "Zkopírováno",
+      "copyError": "Nepodařilo se zkopírovat do schránky: {{error}}",
+      "result": {
+        "label": "Výsledek"
+      },
+      "session": {
+        "started": "Relace zahájena",
+        "tooltip": "Model: {{model}} · Pracovní adresář: {{cwd}}"
+      },
+      "actions": {
+        "edited": "Upraveno {{target}}",
+        "ran": "Spuštěno {{command}}",
+        "read": "Přečteno {{target}}",
+        "used": "Použito {{tool}}"
       }
     }
   },
@@ -788,7 +813,8 @@
     "open": "Otevřít",
     "copy": "Kopírovat",
     "clear": "Vymazat",
-    "noOptionsFound": "Nenalezeny žádné možnosti"
+    "noOptionsFound": "Nenalezeny žádné možnosti",
+    "experimental": "Experimentální"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow potřebuje oprávnění usnadnění přístupu, aby mohlo psát přepsaný text.",

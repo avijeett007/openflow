@@ -18,7 +18,9 @@
     "history": "Historique",
     "debug": "Débogage",
     "about": "À propos",
-    "agentRuns": "Exécutions d'agents"
+    "agentRuns": "Exécutions d'agents",
+    "advancedMode": "Mode avancé",
+    "advancedModeTooltip": "Afficher tous les paramètres et les fonctionnalités avancées"
   },
   "onboarding": {
     "subtitle": "Pour commencer, choisissez un modèle de transcription",
@@ -761,10 +763,33 @@
         "reveal": "Afficher"
       },
       "instruction": {
-        "label": "Instruction"
+        "label": "Instruction",
+        "show": "Afficher l'instruction",
+        "hide": "Masquer l'instruction"
       },
       "output": {
-        "label": "Sortie"
+        "label": "Sortie",
+        "show": "Afficher la sortie",
+        "hide": "Masquer la sortie",
+        "empty": "Pas encore de sortie."
+      },
+      "summary": "{{total}} exécutions · {{running}} en cours · {{done}} terminées",
+      "copyReadable": "Copier",
+      "copyRaw": "Copier le brut",
+      "copied": "Copié",
+      "copyError": "Impossible de copier dans le presse-papiers : {{error}}",
+      "result": {
+        "label": "Résultat"
+      },
+      "session": {
+        "started": "Session démarrée",
+        "tooltip": "Modèle : {{model}} · Répertoire de travail : {{cwd}}"
+      },
+      "actions": {
+        "edited": "{{target}} modifié",
+        "ran": "Exécuté {{command}}",
+        "read": "{{target}} lu",
+        "used": "{{tool}} utilisé"
       }
     }
   },
@@ -788,7 +813,8 @@
     "open": "Ouvrir",
     "copy": "Copier",
     "clear": "Effacer",
-    "noOptionsFound": "Aucune option trouvée"
+    "noOptionsFound": "Aucune option trouvée",
+    "experimental": "Expérimental"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow a besoin des autorisations d'accessibilité pour taper le texte transcrit.",

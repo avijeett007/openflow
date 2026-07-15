@@ -612,6 +612,11 @@ pub struct AppSettings {
     pub overlay_position: OverlayPosition,
     #[serde(default = "default_debug_mode")]
     pub debug_mode: bool,
+    /// Basic vs. Advanced UI mode. When false (default), the settings sidebar
+    /// shows only the core speech-to-text sections; when true, every section is
+    /// revealed. Purely a UI gate — it never disables any underlying feature.
+    #[serde(default = "default_advanced_mode")]
+    pub advanced_mode: bool,
     #[serde(default = "default_log_level")]
     pub log_level: LogLevel,
     /// Legacy flat custom-word list. Kept deserializable for back-compat and
@@ -833,6 +838,10 @@ fn default_vad_enabled() -> bool {
 }
 
 fn default_debug_mode() -> bool {
+    false
+}
+
+fn default_advanced_mode() -> bool {
     false
 }
 
@@ -1225,6 +1234,7 @@ pub fn get_default_settings() -> AppSettings {
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
         debug_mode: false,
+        advanced_mode: default_advanced_mode(),
         log_level: default_log_level(),
         custom_words: Vec::new(),
         dictionary: Vec::new(),

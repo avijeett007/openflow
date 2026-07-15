@@ -18,7 +18,9 @@
     "history": "Cronologia",
     "debug": "Debug",
     "about": "Informazioni",
-    "agentRuns": "Esecuzioni agenti"
+    "agentRuns": "Esecuzioni agenti",
+    "advancedMode": "Modalità avanzata",
+    "advancedModeTooltip": "Mostra tutte le impostazioni e le funzionalità avanzate"
   },
   "onboarding": {
     "subtitle": "Per cominciare, scegli un modello di riconoscimento vocale",
@@ -761,10 +763,33 @@
         "reveal": "Mostra"
       },
       "instruction": {
-        "label": "Istruzione"
+        "label": "Istruzione",
+        "show": "Mostra istruzione",
+        "hide": "Nascondi istruzione"
       },
       "output": {
-        "label": "Output"
+        "label": "Output",
+        "show": "Mostra output",
+        "hide": "Nascondi output",
+        "empty": "Ancora nessun output."
+      },
+      "summary": "{{total}} esecuzioni · {{running}} in corso · {{done}} completate",
+      "copyReadable": "Copia",
+      "copyRaw": "Copia grezzo",
+      "copied": "Copiato",
+      "copyError": "Impossibile copiare negli appunti: {{error}}",
+      "result": {
+        "label": "Risultato"
+      },
+      "session": {
+        "started": "Sessione avviata",
+        "tooltip": "Modello: {{model}} · Directory di lavoro: {{cwd}}"
+      },
+      "actions": {
+        "edited": "Modificato {{target}}",
+        "ran": "Eseguito {{command}}",
+        "read": "Letto {{target}}",
+        "used": "Usato {{tool}}"
       }
     }
   },
@@ -788,7 +813,8 @@
     "open": "Apri",
     "copy": "Copia",
     "clear": "Svuota",
-    "noOptionsFound": "Nessuna opzione trovata"
+    "noOptionsFound": "Nessuna opzione trovata",
+    "experimental": "Sperimentale"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow ha bisogno dei permessi di accessibilità per digitare il testo trascritto.",

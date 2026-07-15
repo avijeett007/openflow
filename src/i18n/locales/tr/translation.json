@@ -18,7 +18,9 @@
     "history": "Geçmiş",
     "debug": "Hata Ayıklama",
     "about": "Hakkında",
-    "agentRuns": "Ajan Çalıştırmaları"
+    "agentRuns": "Ajan Çalıştırmaları",
+    "advancedMode": "Gelişmiş mod",
+    "advancedModeTooltip": "Tüm ayarları ve gelişmiş özellikleri göster"
   },
   "onboarding": {
     "subtitle": "Başlamak için bir transkripsiyon modeli seçin",
@@ -761,10 +763,33 @@
         "reveal": "Göster"
       },
       "instruction": {
-        "label": "Talimat"
+        "label": "Talimat",
+        "show": "Talimatı göster",
+        "hide": "Talimatı gizle"
       },
       "output": {
-        "label": "Çıktı"
+        "label": "Çıktı",
+        "show": "Çıktıyı göster",
+        "hide": "Çıktıyı gizle",
+        "empty": "Henüz çıktı yok."
+      },
+      "summary": "{{total}} çalıştırma · {{running}} çalışıyor · {{done}} tamamlandı",
+      "copyReadable": "Kopyala",
+      "copyRaw": "Ham veriyi kopyala",
+      "copied": "Kopyalandı",
+      "copyError": "Panoya kopyalanamadı: {{error}}",
+      "result": {
+        "label": "Sonuç"
+      },
+      "session": {
+        "started": "Oturum başlatıldı",
+        "tooltip": "Model: {{model}} · Çalışma dizini: {{cwd}}"
+      },
+      "actions": {
+        "edited": "{{target}} düzenlendi",
+        "ran": "{{command}} çalıştırıldı",
+        "read": "{{target}} okundu",
+        "used": "{{tool}} kullanıldı"
       }
     }
   },
@@ -788,7 +813,8 @@
     "open": "Aç",
     "copy": "Kopyala",
     "clear": "Temizle",
-    "noOptionsFound": "Seçenek bulunamadı"
+    "noOptionsFound": "Seçenek bulunamadı",
+    "experimental": "Deneysel"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow, transkribe edilen metni yazabilmek için erişilebilirlik izinlerine ihtiyaç duyar.",

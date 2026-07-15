@@ -18,7 +18,9 @@
     "history": "היסטוריה",
     "debug": "ניפוי שגיאות",
     "about": "אודות",
-    "agentRuns": "הרצות סוכן"
+    "agentRuns": "הרצות סוכן",
+    "advancedMode": "מצב מתקדם",
+    "advancedModeTooltip": "הצג את כל ההגדרות והתכונות המתקדמות"
   },
   "onboarding": {
     "subtitle": "כדי להתחיל, בחר מודל תמלול",
@@ -761,10 +763,33 @@
         "reveal": "הצג"
       },
       "instruction": {
-        "label": "הוראה"
+        "label": "הוראה",
+        "show": "הצג הוראה",
+        "hide": "הסתר הוראה"
       },
       "output": {
-        "label": "פלט"
+        "label": "פלט",
+        "show": "הצג פלט",
+        "hide": "הסתר פלט",
+        "empty": "עדיין אין פלט."
+      },
+      "summary": "{{total}} הרצות · {{running}} פעילות · {{done}} הושלמו",
+      "copyReadable": "העתק",
+      "copyRaw": "העתק נתונים גלמיים",
+      "copied": "הועתק",
+      "copyError": "לא ניתן להעתיק ללוח: {{error}}",
+      "result": {
+        "label": "תוצאה"
+      },
+      "session": {
+        "started": "ההפעלה החלה",
+        "tooltip": "מודל: {{model}} · תיקיית עבודה: {{cwd}}"
+      },
+      "actions": {
+        "edited": "נערך {{target}}",
+        "ran": "הורץ {{command}}",
+        "read": "נקרא {{target}}",
+        "used": "בשימוש {{tool}}"
       }
     }
   },
@@ -788,7 +813,8 @@
     "open": "פתח",
     "copy": "העתק",
     "clear": "נקה",
-    "noOptionsFound": "לא נמצאו אפשרויות"
+    "noOptionsFound": "לא נמצאו אפשרויות",
+    "experimental": "ניסיוני"
   },
   "accessibility": {
     "permissionsDescription": "OpenFlow צריך הרשאות נגישות כדי להקליד את הטקסט המתומלל.",

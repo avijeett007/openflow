@@ -769,6 +769,25 @@ pub fn change_debug_mode_setting(app: AppHandle, enabled: bool) -> Result<(), St
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_advanced_mode_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.advanced_mode = enabled;
+    settings::write_settings(&app, settings);
+
+    // Notify frontend
+    let _ = app.emit(
+        "settings-changed",
+        serde_json::json!({
+            "setting": "advanced_mode",
+            "value": enabled
+        }),
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_start_hidden_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.start_hidden = enabled;
