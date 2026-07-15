@@ -14,6 +14,7 @@ import {
   Cpu,
   SlidersHorizontal,
   BookA,
+  Radar,
 } from "lucide-react";
 import { useSettings } from "../hooks/useSettings";
 import openflowLogo from "../assets/openflow-logo.png";
@@ -31,6 +32,7 @@ import {
   HandsFreeSettings,
   AgentsSettings,
   AgentRunsSettings,
+  MissionControlSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -51,6 +53,12 @@ interface SectionConfig {
 }
 
 export const SECTIONS_CONFIG = {
+  missionControl: {
+    labelKey: "sidebar.missionControl",
+    icon: Radar,
+    component: MissionControlSettings,
+    enabled: () => true,
+  },
   general: {
     labelKey: "sidebar.general",
     icon: Home,
@@ -136,7 +144,12 @@ export const SECTIONS_CONFIG = {
 // sidebar footer. Edit this array to change what counts as "essential".
 // (`about` is intentionally NOT listed here — it is help/info and is ALWAYS
 // visible in both Basic and Advanced mode; see visibility logic below.)
-const BASIC_SECTIONS: SidebarSection[] = ["general", "models", "modelSetup"];
+const BASIC_SECTIONS: SidebarSection[] = [
+  "missionControl",
+  "general",
+  "models",
+  "modelSetup",
+];
 
 // Sections badged as experimental in the sidebar (a small "Experimental" tag is
 // shown next to the label). These are advanced-only, still-maturing features.

@@ -20,7 +20,8 @@
     "about": "Om",
     "agentRuns": "Agentkörningar",
     "advancedMode": "Avancerat läge",
-    "advancedModeTooltip": "Visa alla inställningar och avancerade funktioner"
+    "advancedModeTooltip": "Visa alla inställningar och avancerade funktioner",
+    "missionControl": "Kontrollcenter"
   },
   "onboarding": {
     "subtitle": "För att komma igång, välj en transkriptionsmodell",
@@ -790,6 +791,59 @@
         "ran": "Körde {{command}}",
         "read": "Läste {{target}}",
         "used": "Använde {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "God morgon",
+        "greetingAfternoon": "God eftermiddag",
+        "greetingEvening": "God kväll",
+        "stateIdle": "Inaktiv",
+        "stateListening": "Lyssnar",
+        "dictationsToday": "Dikteringar idag",
+        "wordsToday": "Ord idag",
+        "avgWpm": "Snitt OPM",
+        "wpmValue": "{{wpm}} opm",
+        "timeSaved": "Sparad tid"
+      },
+      "liveActivity": {
+        "title": "Liveaktivitet",
+        "viewAll": "Visa alla",
+        "runningCount": "{{count}} körs",
+        "running": "Körs",
+        "done": "Klar",
+        "failed": "Misslyckades",
+        "stopped": "Stoppad",
+        "noProject": "Inget projekt",
+        "empty": "Ingen agentaktivitet ännu — skapa en agent för att se live-körningar här.",
+        "createAgent": "Skapa en agent"
+      },
+      "agents": {
+        "title": "Agenter",
+        "manage": "Hantera",
+        "kindCli": "CLI",
+        "kindPrompt": "Prompt",
+        "noHotkey": "Ingen genväg",
+        "enabled": "Aktiverad",
+        "empty": "Inga agenter konfigurerade ännu — lägg till en för att styra verktyg med rösten.",
+        "createAgent": "Skapa en agent",
+        "newAgent": "Ny agent",
+        "toggleError": "Kunde inte uppdatera agenten: {{error}}"
+      },
+      "analytics": {
+        "title": "Analys",
+        "openDashboard": "Öppna hela panelen",
+        "overTime": "Dikteringar över tid",
+        "dictations": "Dikteringar",
+        "overTimeEmpty": "Ingen data ännu — börja diktera för att se din trend.",
+        "topApps": "Toppappar",
+        "topAppsEmpty": "Ingen appanvändning registrerad ännu.",
+        "streak": "{{count}}-dagarssvit"
+      },
+      "recent": {
+        "title": "Senaste dikteringar",
+        "viewAll": "Visa alla",
+        "empty": "Inga dikteringar ännu — dina senaste transkriberingar visas här."
       }
     }
   },

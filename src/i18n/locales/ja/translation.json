@@ -20,7 +20,8 @@
     "about": "概要",
     "agentRuns": "エージェント実行",
     "advancedMode": "詳細モード",
-    "advancedModeTooltip": "すべての設定と詳細機能を表示"
+    "advancedModeTooltip": "すべての設定と詳細機能を表示",
+    "missionControl": "ミッションコントロール"
   },
   "onboarding": {
     "subtitle": "開始するには、文字起こしモデルを選択してください",
@@ -790,6 +791,59 @@
         "ran": "{{command}} を実行",
         "read": "{{target}} を読み込み",
         "used": "{{tool}} を使用"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "おはようございます",
+        "greetingAfternoon": "こんにちは",
+        "greetingEvening": "こんばんは",
+        "stateIdle": "待機中",
+        "stateListening": "聞き取り中",
+        "dictationsToday": "本日の音声入力",
+        "wordsToday": "本日の単語数",
+        "avgWpm": "平均WPM",
+        "wpmValue": "{{wpm}} wpm",
+        "timeSaved": "節約時間"
+      },
+      "liveActivity": {
+        "title": "ライブアクティビティ",
+        "viewAll": "すべて表示",
+        "runningCount": "{{count}} 件実行中",
+        "running": "実行中",
+        "done": "完了",
+        "failed": "失敗",
+        "stopped": "停止",
+        "noProject": "プロジェクトなし",
+        "empty": "まだエージェントのアクティビティがありません — エージェントを作成すると実行がここに表示されます。",
+        "createAgent": "エージェントを作成"
+      },
+      "agents": {
+        "title": "エージェント",
+        "manage": "管理",
+        "kindCli": "CLI",
+        "kindPrompt": "プロンプト",
+        "noHotkey": "ホットキーなし",
+        "enabled": "有効",
+        "empty": "まだエージェントが設定されていません — 追加すると音声でツールを操作できます。",
+        "createAgent": "エージェントを作成",
+        "newAgent": "新規エージェント",
+        "toggleError": "エージェントを更新できませんでした：{{error}}"
+      },
+      "analytics": {
+        "title": "分析",
+        "openDashboard": "ダッシュボードを開く",
+        "overTime": "音声入力の推移",
+        "dictations": "音声入力",
+        "overTimeEmpty": "まだデータがありません — 音声入力を始めると傾向が表示されます。",
+        "topApps": "よく使うアプリ",
+        "topAppsEmpty": "アプリの利用はまだ記録されていません。",
+        "streak": "{{count}}日連続"
+      },
+      "recent": {
+        "title": "最近の音声入力",
+        "viewAll": "すべて表示",
+        "empty": "まだ音声入力がありません — 最近の文字起こしがここに表示されます。"
       }
     }
   },

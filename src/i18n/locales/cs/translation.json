@@ -20,7 +20,8 @@
     "about": "O aplikaci",
     "agentRuns": "Běhy agentů",
     "advancedMode": "Rozšířený režim",
-    "advancedModeTooltip": "Zobrazit všechna nastavení a pokročilé funkce"
+    "advancedModeTooltip": "Zobrazit všechna nastavení a pokročilé funkce",
+    "missionControl": "Řídicí centrum"
   },
   "onboarding": {
     "subtitle": "Pro začátek vyberte model pro přepis",
@@ -790,6 +791,59 @@
         "ran": "Spuštěno {{command}}",
         "read": "Přečteno {{target}}",
         "used": "Použito {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "Dobré ráno",
+        "greetingAfternoon": "Dobré odpoledne",
+        "greetingEvening": "Dobrý večer",
+        "stateIdle": "Nečinný",
+        "stateListening": "Poslouchám",
+        "dictationsToday": "Diktáty dnes",
+        "wordsToday": "Slova dnes",
+        "avgWpm": "Prům. SZM",
+        "wpmValue": "{{wpm}} szm",
+        "timeSaved": "Ušetřený čas"
+      },
+      "liveActivity": {
+        "title": "Živá aktivita",
+        "viewAll": "Zobrazit vše",
+        "runningCount": "{{count}} běží",
+        "running": "Běží",
+        "done": "Hotovo",
+        "failed": "Selhalo",
+        "stopped": "Zastaveno",
+        "noProject": "Bez projektu",
+        "empty": "Zatím žádná aktivita agentů — vytvořte agenta, abyste zde viděli živé běhy.",
+        "createAgent": "Vytvořit agenta"
+      },
+      "agents": {
+        "title": "Agenti",
+        "manage": "Spravovat",
+        "kindCli": "CLI",
+        "kindPrompt": "Prompt",
+        "noHotkey": "Bez zkratky",
+        "enabled": "Zapnuto",
+        "empty": "Zatím nejsou nakonfigurováni žádní agenti — přidejte jednoho a ovládejte nástroje hlasem.",
+        "createAgent": "Vytvořit agenta",
+        "newAgent": "Nový agent",
+        "toggleError": "Agenta se nepodařilo aktualizovat: {{error}}"
+      },
+      "analytics": {
+        "title": "Analýzy",
+        "openDashboard": "Otevřít celý panel",
+        "overTime": "Diktáty v čase",
+        "dictations": "Diktáty",
+        "overTimeEmpty": "Zatím žádná data — začněte diktovat a uvidíte svůj trend.",
+        "topApps": "Nejčastější aplikace",
+        "topAppsEmpty": "Zatím nezaznamenáno žádné použití aplikací.",
+        "streak": "Série {{count}} dní"
+      },
+      "recent": {
+        "title": "Nedávné diktáty",
+        "viewAll": "Zobrazit vše",
+        "empty": "Zatím žádné diktáty — vaše nedávné přepisy se objeví zde."
       }
     }
   },

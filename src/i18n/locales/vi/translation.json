@@ -20,7 +20,8 @@
     "about": "Giới thiệu",
     "agentRuns": "Lần chạy tác nhân",
     "advancedMode": "Chế độ nâng cao",
-    "advancedModeTooltip": "Hiển thị tất cả cài đặt và tính năng nâng cao"
+    "advancedModeTooltip": "Hiển thị tất cả cài đặt và tính năng nâng cao",
+    "missionControl": "Trung tâm điều khiển"
   },
   "onboarding": {
     "subtitle": "Để bắt đầu, hãy chọn một mô hình chuyển đổi giọng nói",
@@ -790,6 +791,59 @@
         "ran": "Đã chạy {{command}}",
         "read": "Đã đọc {{target}}",
         "used": "Đã dùng {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "Chào buổi sáng",
+        "greetingAfternoon": "Chào buổi chiều",
+        "greetingEvening": "Chào buổi tối",
+        "stateIdle": "Nhàn rỗi",
+        "stateListening": "Đang nghe",
+        "dictationsToday": "Đọc chính tả hôm nay",
+        "wordsToday": "Số từ hôm nay",
+        "avgWpm": "TB từ/phút",
+        "wpmValue": "{{wpm}} từ/phút",
+        "timeSaved": "Thời gian tiết kiệm"
+      },
+      "liveActivity": {
+        "title": "Hoạt động trực tiếp",
+        "viewAll": "Xem tất cả",
+        "runningCount": "{{count}} đang chạy",
+        "running": "Đang chạy",
+        "done": "Xong",
+        "failed": "Thất bại",
+        "stopped": "Đã dừng",
+        "noProject": "Không có dự án",
+        "empty": "Chưa có hoạt động của tác nhân — hãy tạo một tác nhân để xem các lần chạy trực tiếp tại đây.",
+        "createAgent": "Tạo tác nhân"
+      },
+      "agents": {
+        "title": "Tác nhân",
+        "manage": "Quản lý",
+        "kindCli": "CLI",
+        "kindPrompt": "Prompt",
+        "noHotkey": "Không có phím tắt",
+        "enabled": "Đã bật",
+        "empty": "Chưa cấu hình tác nhân nào — thêm một tác nhân để điều khiển công cụ bằng giọng nói.",
+        "createAgent": "Tạo tác nhân",
+        "newAgent": "Tác nhân mới",
+        "toggleError": "Không thể cập nhật tác nhân: {{error}}"
+      },
+      "analytics": {
+        "title": "Phân tích",
+        "openDashboard": "Mở bảng điều khiển đầy đủ",
+        "overTime": "Đọc chính tả theo thời gian",
+        "dictations": "Đọc chính tả",
+        "overTimeEmpty": "Chưa có dữ liệu — bắt đầu đọc chính tả để xem xu hướng.",
+        "topApps": "Ứng dụng hàng đầu",
+        "topAppsEmpty": "Chưa ghi nhận mức sử dụng ứng dụng.",
+        "streak": "Chuỗi {{count}} ngày"
+      },
+      "recent": {
+        "title": "Đọc chính tả gần đây",
+        "viewAll": "Xem tất cả",
+        "empty": "Chưa có bản đọc chính tả — các bản chép lời gần đây của bạn sẽ hiện ở đây."
       }
     }
   },

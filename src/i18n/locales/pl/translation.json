@@ -20,7 +20,8 @@
     "about": "O programie",
     "agentRuns": "Uruchomienia agentów",
     "advancedMode": "Tryb zaawansowany",
-    "advancedModeTooltip": "Pokaż wszystkie ustawienia i zaawansowane funkcje"
+    "advancedModeTooltip": "Pokaż wszystkie ustawienia i zaawansowane funkcje",
+    "missionControl": "Centrum sterowania"
   },
   "onboarding": {
     "subtitle": "Aby rozpocząć, wybierz model transkrypcji",
@@ -790,6 +791,59 @@
         "ran": "Uruchomiono {{command}}",
         "read": "Odczytano {{target}}",
         "used": "Użyto {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "Dzień dobry",
+        "greetingAfternoon": "Dzień dobry",
+        "greetingEvening": "Dobry wieczór",
+        "stateIdle": "Bezczynny",
+        "stateListening": "Słucham",
+        "dictationsToday": "Dyktowania dziś",
+        "wordsToday": "Słowa dziś",
+        "avgWpm": "Śr. SNM",
+        "wpmValue": "{{wpm}} snm",
+        "timeSaved": "Zaoszczędzony czas"
+      },
+      "liveActivity": {
+        "title": "Aktywność na żywo",
+        "viewAll": "Zobacz wszystko",
+        "runningCount": "{{count}} w toku",
+        "running": "W toku",
+        "done": "Gotowe",
+        "failed": "Niepowodzenie",
+        "stopped": "Zatrzymano",
+        "noProject": "Brak projektu",
+        "empty": "Brak aktywności agentów — utwórz agenta, aby zobaczyć tutaj uruchomienia na żywo.",
+        "createAgent": "Utwórz agenta"
+      },
+      "agents": {
+        "title": "Agenci",
+        "manage": "Zarządzaj",
+        "kindCli": "CLI",
+        "kindPrompt": "Prompt",
+        "noHotkey": "Brak skrótu",
+        "enabled": "Włączony",
+        "empty": "Brak skonfigurowanych agentów — dodaj jednego, aby sterować narzędziami głosem.",
+        "createAgent": "Utwórz agenta",
+        "newAgent": "Nowy agent",
+        "toggleError": "Nie można zaktualizować agenta: {{error}}"
+      },
+      "analytics": {
+        "title": "Analizy",
+        "openDashboard": "Otwórz pełny pulpit",
+        "overTime": "Dyktowania w czasie",
+        "dictations": "Dyktowania",
+        "overTimeEmpty": "Brak danych — zacznij dyktować, aby zobaczyć trend.",
+        "topApps": "Najczęstsze aplikacje",
+        "topAppsEmpty": "Nie zarejestrowano jeszcze użycia aplikacji.",
+        "streak": "Seria {{count}} dni"
+      },
+      "recent": {
+        "title": "Ostatnie dyktowania",
+        "viewAll": "Zobacz wszystko",
+        "empty": "Brak dyktowań — Twoje ostatnie transkrypcje pojawią się tutaj."
       }
     }
   },

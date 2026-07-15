@@ -55,7 +55,9 @@ function App() {
     if (!settings) return;
     const config = SECTIONS_CONFIG[currentSection];
     if (config && !isSectionVisible(currentSection, config, settings)) {
-      setCurrentSection("general");
+      // Mission Control is a basic section and the app's home — fall back to
+      // it (not `general`) when the active section becomes hidden.
+      setCurrentSection("missionControl");
     }
   }, [settings, currentSection, setCurrentSection]);
 

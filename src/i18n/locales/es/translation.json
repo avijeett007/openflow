@@ -20,7 +20,8 @@
     "about": "Acerca de",
     "agentRuns": "Ejecuciones de agentes",
     "advancedMode": "Modo avanzado",
-    "advancedModeTooltip": "Mostrar todos los ajustes y las funciones avanzadas"
+    "advancedModeTooltip": "Mostrar todos los ajustes y las funciones avanzadas",
+    "missionControl": "Centro de Control"
   },
   "onboarding": {
     "subtitle": "Para comenzar, elige un modelo de transcripción",
@@ -790,6 +791,59 @@
         "ran": "Ejecutado {{command}}",
         "read": "Leído {{target}}",
         "used": "Usado {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "Buenos días",
+        "greetingAfternoon": "Buenas tardes",
+        "greetingEvening": "Buenas noches",
+        "stateIdle": "Inactivo",
+        "stateListening": "Escuchando",
+        "dictationsToday": "Dictados hoy",
+        "wordsToday": "Palabras hoy",
+        "avgWpm": "PPM prom.",
+        "wpmValue": "{{wpm}} ppm",
+        "timeSaved": "Tiempo ahorrado"
+      },
+      "liveActivity": {
+        "title": "Actividad en vivo",
+        "viewAll": "Ver todo",
+        "runningCount": "{{count}} en curso",
+        "running": "En curso",
+        "done": "Listo",
+        "failed": "Fallido",
+        "stopped": "Detenido",
+        "noProject": "Sin proyecto",
+        "empty": "Aún no hay actividad de agentes — crea un agente para ver ejecuciones en vivo aquí.",
+        "createAgent": "Crear un agente"
+      },
+      "agents": {
+        "title": "Agentes",
+        "manage": "Gestionar",
+        "kindCli": "CLI",
+        "kindPrompt": "Prompt",
+        "noHotkey": "Sin atajo",
+        "enabled": "Activado",
+        "empty": "Aún no hay agentes configurados — añade uno para controlar herramientas por voz.",
+        "createAgent": "Crear un agente",
+        "newAgent": "Nuevo agente",
+        "toggleError": "No se pudo actualizar el agente: {{error}}"
+      },
+      "analytics": {
+        "title": "Analíticas",
+        "openDashboard": "Abrir panel completo",
+        "overTime": "Dictados a lo largo del tiempo",
+        "dictations": "Dictados",
+        "overTimeEmpty": "Aún no hay datos — empieza a dictar para ver tu tendencia.",
+        "topApps": "Apps principales",
+        "topAppsEmpty": "Aún no se registró uso de apps.",
+        "streak": "Racha de {{count}} días"
+      },
+      "recent": {
+        "title": "Dictados recientes",
+        "viewAll": "Ver todo",
+        "empty": "Aún no hay dictados — tus transcripciones recientes aparecerán aquí."
       }
     }
   },

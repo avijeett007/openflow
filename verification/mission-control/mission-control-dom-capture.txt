@@ -1,0 +1,101 @@
+
+Open
+Flow
+Mission Control
+General
+Models
+Model Setup
+Hands-free
+EXPERIMENTAL
+Advanced
+History
+Dashboard
+Dictionary
+Agents
+Agent Runs
+Post Process
+About
+Advanced mode
+
+Good evening
+OpenFlow
+Idle
+DICTATIONS TODAY
+1
+WORDS TODAY
+13
+AVG. WPM
+170 wpm
+TIME SAVED
+13m
+LIVE ACTIVITY
+No agent activity yet — create an agent to see live runs here.
+Create an agent
+AGENTS
+Manage
+CLI agent
+CLI
+Left Ctrl + C
+openflow
+Enabled
+
+
+New agent
+ANALYTICS
+Open full dashboard
+Dictations over time
+
+Jul 2
+Jul 3
+Jul 5
+Jul 6
+Jul 7
+Jul 15
+0
+6
+12
+18
+24
+Top apps
+
+Code
+TextEdit
+openflow
+OpenFlow
+loginwindow
+1-day streak
+add
+5
+kubernetes
+5
+macbook
+5
+pro
+5
+chargebee
+4
+hear
+4
+RECENT DICTATIONS
+View all
+
+July 15, 2026 at 08:09 PM
+Mission control increment 3 verification dictation
+
+July 15, 2026 at 08:09 PM
+Mission control increment 3 verification dictation
+
+July 15, 2026 at 01:50 PM
+The quick brown fox jumps over the lazy dog near the river bank
+
+July 15, 2026 at 01:01 PM
+The quick brown fox jumps over the lazy dog.
+
+July 7, 2026 at 01:19 PM
+Use fable for orchestration, cyclocritical reasoning, and complex reasoning and making sure that the work is delivered properly, and but always use Sonet and Opus models based agents or sub-agents to do the actual work, coding, review, writing, test, and taking screenshots, and all of these things
+
+Parakeet Unified EN 0.6B
+Check for updates
+•
+v0.12.1
+Code

@@ -20,7 +20,8 @@
     "about": "À propos",
     "agentRuns": "Exécutions d'agents",
     "advancedMode": "Mode avancé",
-    "advancedModeTooltip": "Afficher tous les paramètres et les fonctionnalités avancées"
+    "advancedModeTooltip": "Afficher tous les paramètres et les fonctionnalités avancées",
+    "missionControl": "Centre de Contrôle"
   },
   "onboarding": {
     "subtitle": "Pour commencer, choisissez un modèle de transcription",
@@ -790,6 +791,59 @@
         "ran": "Exécuté {{command}}",
         "read": "{{target}} lu",
         "used": "{{tool}} utilisé"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "Bonjour",
+        "greetingAfternoon": "Bon après-midi",
+        "greetingEvening": "Bonsoir",
+        "stateIdle": "Inactif",
+        "stateListening": "À l'écoute",
+        "dictationsToday": "Dictées aujourd'hui",
+        "wordsToday": "Mots aujourd'hui",
+        "avgWpm": "MPM moy.",
+        "wpmValue": "{{wpm}} mpm",
+        "timeSaved": "Temps gagné"
+      },
+      "liveActivity": {
+        "title": "Activité en direct",
+        "viewAll": "Tout voir",
+        "runningCount": "{{count}} en cours",
+        "running": "En cours",
+        "done": "Terminé",
+        "failed": "Échoué",
+        "stopped": "Arrêté",
+        "noProject": "Aucun projet",
+        "empty": "Aucune activité d'agent pour l'instant — créez un agent pour voir les exécutions en direct ici.",
+        "createAgent": "Créer un agent"
+      },
+      "agents": {
+        "title": "Agents",
+        "manage": "Gérer",
+        "kindCli": "CLI",
+        "kindPrompt": "Prompt",
+        "noHotkey": "Aucun raccourci",
+        "enabled": "Activé",
+        "empty": "Aucun agent configuré pour l'instant — ajoutez-en un pour piloter des outils à la voix.",
+        "createAgent": "Créer un agent",
+        "newAgent": "Nouvel agent",
+        "toggleError": "Impossible de mettre à jour l'agent : {{error}}"
+      },
+      "analytics": {
+        "title": "Statistiques",
+        "openDashboard": "Ouvrir le tableau de bord",
+        "overTime": "Dictées au fil du temps",
+        "dictations": "Dictées",
+        "overTimeEmpty": "Aucune donnée pour l'instant — commencez à dicter pour voir votre tendance.",
+        "topApps": "Applis principales",
+        "topAppsEmpty": "Aucune utilisation d'appli enregistrée.",
+        "streak": "Série de {{count}} jours"
+      },
+      "recent": {
+        "title": "Dictées récentes",
+        "viewAll": "Tout voir",
+        "empty": "Aucune dictée pour l'instant — vos transcriptions récentes apparaîtront ici."
       }
     }
   },

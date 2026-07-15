@@ -12,6 +12,13 @@ import {
 } from "recharts";
 import type { OverTimePoint } from "@/bindings";
 import { formatCompactNumber } from "@/lib/utils/format";
+import {
+  CHART_AXIS_COLOR,
+  CHART_GRID_COLOR,
+  CHART_TOOLTIP_LABEL_STYLE,
+  CHART_TOOLTIP_STYLE,
+  CHART_VIOLET,
+} from "@/lib/chartPalette";
 import { ModeToggle } from "../model-setup/ModeToggle";
 import { EmptyState } from "./EmptyState";
 
@@ -20,11 +27,6 @@ type Metric = "dictations" | "words";
 interface OverTimeChartProps {
   data: OverTimePoint[];
 }
-
-const CHART_GRID_COLOR =
-  "color-mix(in srgb, var(--color-mid-gray) 20%, transparent)";
-const CHART_AXIS_COLOR =
-  "color-mix(in srgb, var(--color-text) 55%, transparent)";
 
 export const OverTimeChart: React.FC<OverTimeChartProps> = ({ data }) => {
   const { t, i18n } = useTranslation();
@@ -83,12 +85,12 @@ export const OverTimeChart: React.FC<OverTimeChartProps> = ({ data }) => {
                 >
                   <stop
                     offset="0%"
-                    stopColor="var(--color-logo-primary)"
+                    stopColor={CHART_VIOLET}
                     stopOpacity={0.28}
                   />
                   <stop
                     offset="100%"
-                    stopColor="var(--color-logo-primary)"
+                    stopColor={CHART_VIOLET}
                     stopOpacity={0.02}
                   />
                 </linearGradient>
@@ -122,20 +124,14 @@ export const OverTimeChart: React.FC<OverTimeChartProps> = ({ data }) => {
                     ? t("settings.dashboard.overTime.dictations")
                     : t("settings.dashboard.overTime.words"),
                 ]}
-                contentStyle={{
-                  backgroundColor: "var(--color-background)",
-                  border:
-                    "1px solid color-mix(in srgb, var(--color-mid-gray) 40%, transparent)",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                labelStyle={{ color: "var(--color-text)" }}
+                contentStyle={CHART_TOOLTIP_STYLE}
+                labelStyle={CHART_TOOLTIP_LABEL_STYLE}
                 cursor={{ stroke: CHART_GRID_COLOR, strokeWidth: 1 }}
               />
               <Area
                 type="monotone"
                 dataKey={metric}
-                stroke="var(--color-logo-primary)"
+                stroke={CHART_VIOLET}
                 strokeWidth={2}
                 fill="url(#dashboardAreaFill)"
                 activeDot={{
