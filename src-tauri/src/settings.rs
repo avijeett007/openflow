@@ -1182,6 +1182,26 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
     changed
 }
 
+/// Merge any default bindings that are missing from an existing settings store.
+///
+/// A newly-shipped default shortcut (e.g. `meeting_capture`) must appear for
+/// users who UPGRADE over a pre-existing settings store, not only for fresh
+/// installs. Running this on every settings *read* (mirroring
+/// `ensure_post_process_defaults`) guarantees convergence regardless of which
+/// startup code path ran first. Only vacant keys are inserted, so a binding the
+/// user has edited — or deliberately cleared to unbound — is never clobbered.
+fn ensure_binding_defaults(settings: &mut AppSettings) -> bool {
+    let mut changed = false;
+    for (key, value) in get_default_settings().bindings {
+        if let std::collections::hash_map::Entry::Vacant(entry) = settings.bindings.entry(key) {
+            debug!("Adding missing binding: {}", entry.key());
+            entry.insert(value);
+            changed = true;
+        }
+    }
+    changed
+}
+
 pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
 
 pub fn get_default_settings() -> AppSettings {
@@ -1373,18 +1393,12 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         match serde_json::from_value::<AppSettings>(settings_value.clone()) {
             Ok(mut settings) => {
                 debug!("Found existing settings: {:?}", settings);
-                let default_settings = get_default_settings();
                 let mut updated = apply_settings_migrations(&mut settings, &settings_value);
 
-                // Merge default bindings into existing settings
-                for (key, value) in default_settings.bindings {
-                    if let std::collections::hash_map::Entry::Vacant(entry) =
-                        settings.bindings.entry(key)
-                    {
-                        debug!("Adding missing binding: {}", entry.key());
-                        entry.insert(value);
-                        updated = true;
-                    }
+                // Merge default bindings that are missing from an existing store
+                // (e.g. a shortcut added in a later release, for upgrading users).
+                if ensure_binding_defaults(&mut settings) {
+                    updated = true;
                 }
 
                 if updated {
@@ -1442,7 +1456,15 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
         default_settings
     };
 
+    // Every settings read converges missing defaults. Newly-shipped default
+    // bindings must reach a user who upgraded over an existing store — the merge
+    // in `load_or_create_app_settings` runs once at startup, but this read path
+    // is what the frontend and most callers actually use, so mirror it here.
+    let mut needs_persist = ensure_binding_defaults(&mut settings);
     if ensure_post_process_defaults(&mut settings) {
+        needs_persist = true;
+    }
+    if needs_persist {
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
 
@@ -1580,6 +1602,60 @@ mod tests {
             settings.settings_schema_version,
             CURRENT_SETTINGS_SCHEMA_VERSION
         );
+    }
+
+    #[test]
+    fn merge_adds_meeting_capture_to_legacy_store_without_it() {
+        // Simulate a settings store persisted BEFORE `meeting_capture` existed:
+        // it carries the older bindings but not the new one. This is the exact
+        // shape an upgrading user has on disk. `bindings`, `push_to_talk` and
+        // `audio_feedback` have no serde default, so a minimal legacy blob must
+        // include them; everything else defaults.
+        let raw = serde_json::json!({
+            "bindings": {
+                "transcribe": {
+                    "id": "transcribe",
+                    "name": "Transcribe",
+                    "description": "Converts your speech into text.",
+                    "default_binding": "option+space",
+                    "current_binding": "cmd+shift+d"
+                },
+                "cancel": {
+                    "id": "cancel",
+                    "name": "Cancel",
+                    "description": "Cancels the current recording.",
+                    "default_binding": "escape",
+                    "current_binding": "escape"
+                }
+            },
+            "push_to_talk": true,
+            "audio_feedback": false
+        });
+
+        let mut settings: AppSettings =
+            serde_json::from_value(raw).expect("legacy store should deserialize");
+
+        // Precondition: the upgrading user's store genuinely lacks the binding —
+        // this is what makes the frontend render "Shortcut not found".
+        assert!(!settings.bindings.contains_key("meeting_capture"));
+
+        // Post-load merge (the code path every settings read now runs) adds it.
+        assert!(ensure_binding_defaults(&mut settings));
+        assert!(settings.bindings.contains_key("meeting_capture"));
+
+        // The new binding is seeded UNBOUND, exactly as the default defines it.
+        let meeting = settings.bindings.get("meeting_capture").unwrap();
+        assert_eq!(meeting.current_binding, "");
+        assert_eq!(meeting.default_binding, "");
+
+        // Existing user bindings are preserved, never clobbered by the merge.
+        assert_eq!(
+            settings.bindings.get("transcribe").unwrap().current_binding,
+            "cmd+shift+d"
+        );
+
+        // Idempotent: a second pass changes nothing further.
+        assert!(!ensure_binding_defaults(&mut settings));
     }
 
     #[cfg(not(target_os = "linux"))]

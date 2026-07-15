@@ -208,6 +208,48 @@ pub fn reset_binding(app: AppHandle, id: String) -> Result<BindingResponse, Stri
     change_binding(app, id, binding.default_binding)
 }
 
+/// Clear a binding back to UNBOUND (empty `current_binding`).
+///
+/// `change_binding` deliberately rejects an empty value — every *normal*
+/// shortcut must always hold one. But bindings seeded unbound (a meeting-capture
+/// hotkey, per-agent hotkeys) have "unset" as a legitimate state the user can
+/// return to. This unregisters the live shortcut and persists the empty value
+/// without going through `change_binding`, so transcribe/cancel are untouched.
+#[tauri::command]
+#[specta::specta]
+pub fn clear_binding(app: AppHandle, id: String) -> Result<BindingResponse, String> {
+    let mut settings = settings::get_settings(&app);
+
+    let Some(mut binding) = settings.bindings.get(&id).cloned() else {
+        let error_msg = format!("Binding with id '{}' not found", id);
+        warn!("clear_binding error: {}", error_msg);
+        return Ok(BindingResponse {
+            success: false,
+            binding: None,
+            error: Some(error_msg),
+        });
+    };
+
+    // Unregister the currently-live shortcut so it stops firing. No-op when the
+    // binding is already empty (nothing was registered).
+    if !binding.current_binding.trim().is_empty() {
+        if let Err(e) = unregister_shortcut(&app, binding.clone()) {
+            // Non-fatal: we still want to persist the cleared state.
+            error!("clear_binding failed to unregister '{}': {}", id, e);
+        }
+    }
+
+    binding.current_binding = String::new();
+    settings.bindings.insert(id, binding.clone());
+    settings::write_settings(&app, settings);
+
+    Ok(BindingResponse {
+        success: true,
+        binding: Some(binding),
+        error: None,
+    })
+}
+
 /// Temporarily unregister a binding while the user is editing it in the UI.
 /// This avoids firing the action while keys are being recorded.
 #[tauri::command]

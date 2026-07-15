@@ -172,6 +172,8 @@
         "none": "Inga kortkommandon konfigurerade",
         "notFound": "Kortkommando hittades inte",
         "pressKeys": "Tryck på tangenter...",
+        "setHotkey": "Ange kortkommando",
+        "clear": "Rensa kortkommando",
         "bindings": {
           "transcribe": {
             "name": "Kortkommando för transkribering",

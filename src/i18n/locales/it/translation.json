@@ -190,6 +190,8 @@
         "none": "Nessuna scorciatoia configurata",
         "notFound": "Scorciatoia non trovata",
         "pressKeys": "Premi i tasti...",
+        "setHotkey": "Imposta scorciatoia",
+        "clear": "Cancella scorciatoia",
         "bindings": {
           "transcribe": {
             "name": "Scorciatoia Trascrizione",

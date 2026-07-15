@@ -190,6 +190,8 @@
         "none": "Žádné zkratky nejsou nastavené",
         "notFound": "Zkratka nenalezena",
         "pressKeys": "Stiskněte klávesy...",
+        "setHotkey": "Nastavit zkratku",
+        "clear": "Vymazat zkratku",
         "bindings": {
           "transcribe": {
             "name": "Zkratka přepisu",

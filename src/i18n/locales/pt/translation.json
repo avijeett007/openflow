@@ -172,6 +172,8 @@
         "none": "Nenhum atalho configurado",
         "notFound": "Atalho não encontrado",
         "pressKeys": "Pressione as teclas...",
+        "setHotkey": "Definir atalho",
+        "clear": "Limpar atalho",
         "bindings": {
           "transcribe": {
             "name": "Atalho de Transcrição",

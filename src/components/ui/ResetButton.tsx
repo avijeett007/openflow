@@ -6,14 +6,23 @@ interface ResetButtonProps {
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
+  title?: string;
   children?: React.ReactNode;
 }
 
 export const ResetButton: React.FC<ResetButtonProps> = React.memo(
-  ({ onClick, disabled = false, className = "", ariaLabel, children }) => (
+  ({
+    onClick,
+    disabled = false,
+    className = "",
+    ariaLabel,
+    title,
+    children,
+  }) => (
     <button
       type="button"
       aria-label={ariaLabel}
+      title={title}
       className={`p-1 rounded-md border border-transparent transition-all duration-150 ${
         disabled
           ? "opacity-50 cursor-not-allowed text-text/40"

@@ -190,6 +190,8 @@
         "none": "Brak skonfigurowanych skrótów",
         "notFound": "Nie znaleziono skrótu",
         "pressKeys": "Naciśnij klawisze...",
+        "setHotkey": "Ustaw skrót",
+        "clear": "Wyczyść skrót",
         "bindings": {
           "transcribe": {
             "name": "Skrót transkrypcji",

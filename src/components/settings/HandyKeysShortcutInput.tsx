@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
+import { X } from "lucide-react";
 import { formatKeyCombination } from "../../lib/utils/keyboard";
 import { ResetButton } from "../ui/ResetButton";
 import { SettingContainer } from "../ui/SettingContainer";
@@ -30,8 +31,14 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   disabled = false,
 }) => {
   const { t } = useTranslation();
-  const { getSetting, updateBinding, resetBinding, isUpdating, isLoading } =
-    useSettings();
+  const {
+    getSetting,
+    updateBinding,
+    resetBinding,
+    clearBinding,
+    isUpdating,
+    isLoading,
+  } = useSettings();
   const [isRecording, setIsRecording] = useState(false);
   const [currentKeys, setCurrentKeys] = useState<string>("");
   const [originalBinding, setOriginalBinding] = useState<string>("");
@@ -254,6 +261,13 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     binding.description,
   );
 
+  // A binding whose default is empty (meeting capture, per-agent hotkeys) treats
+  // "unbound" as a legitimate state: show a "Set hotkey" affordance when empty
+  // and a clear (✕) control instead of reset. Bindings with a real default
+  // (transcribe, cancel, …) keep their reset-only behavior unchanged.
+  const isUnbindable = binding.default_binding === "";
+  const isUnset = !binding.current_binding;
+
   return (
     <SettingContainer
       title={translatedName}
@@ -273,16 +287,33 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
           </div>
         ) : (
           <div
-            className="px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded-md cursor-pointer hover:border-logo-primary"
+            className={`px-2 py-1 text-sm font-semibold bg-mid-gray/10 border border-mid-gray/80 hover:bg-logo-primary/10 rounded-md cursor-pointer hover:border-logo-primary ${
+              isUnset ? "text-mid-gray italic" : ""
+            }`}
             onClick={startRecording}
           >
-            {formatKeyCombination(binding.current_binding, osType)}
+            {isUnset
+              ? t("settings.general.shortcut.setHotkey")
+              : formatKeyCombination(binding.current_binding, osType)}
           </div>
         )}
-        <ResetButton
-          onClick={() => resetBinding(shortcutId)}
-          disabled={isUpdating(`binding_${shortcutId}`)}
-        />
+        {isUnbindable ? (
+          !isUnset && (
+            <ResetButton
+              onClick={() => clearBinding(shortcutId)}
+              disabled={isUpdating(`binding_${shortcutId}`)}
+              ariaLabel={t("settings.general.shortcut.clear")}
+              title={t("settings.general.shortcut.clear")}
+            >
+              <X className="h-4 w-4" />
+            </ResetButton>
+          )
+        ) : (
+          <ResetButton
+            onClick={() => resetBinding(shortcutId)}
+            disabled={isUpdating(`binding_${shortcutId}`)}
+          />
+        )}
       </div>
     </SettingContainer>
   );

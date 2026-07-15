@@ -572,6 +572,7 @@ pub fn run(cli_args: CliArgs) {
         .commands(collect_commands![
             shortcut::change_binding,
             shortcut::reset_binding,
+            shortcut::clear_binding,
             shortcut::change_ptt_setting,
             shortcut::set_hands_free_enabled,
             shortcut::set_hands_free_voice_feedback,

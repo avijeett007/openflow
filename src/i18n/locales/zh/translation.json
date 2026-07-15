@@ -190,6 +190,8 @@
         "none": "未配置快捷键",
         "notFound": "未找到快捷键",
         "pressKeys": "请按键...",
+        "setHotkey": "设置快捷键",
+        "clear": "清除快捷键",
         "bindings": {
           "transcribe": {
             "name": "转录快捷键",

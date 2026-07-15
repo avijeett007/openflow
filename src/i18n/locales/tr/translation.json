@@ -190,6 +190,8 @@
         "none": "Kısayol yapılandırılmadı",
         "notFound": "Kısayol bulunamadı",
         "pressKeys": "Tuşlara basın...",
+        "setHotkey": "Kısayol ata",
+        "clear": "Kısayolu temizle",
         "bindings": {
           "transcribe": {
             "name": "Transkripsiyon Kısayolu",

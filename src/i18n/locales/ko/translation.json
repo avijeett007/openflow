@@ -172,6 +172,8 @@
         "none": "설정된 단축키 없음",
         "notFound": "단축키를 찾을 수 없음",
         "pressKeys": "키를 눌러주세요...",
+        "setHotkey": "단축키 설정",
+        "clear": "단축키 지우기",
         "bindings": {
           "transcribe": {
             "name": "음성 텍스트 변환 단축키",

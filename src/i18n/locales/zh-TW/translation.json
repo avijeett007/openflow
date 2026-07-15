@@ -172,6 +172,8 @@
         "none": "未設定快捷鍵",
         "notFound": "未找到快捷鍵",
         "pressKeys": "請按鍵...",
+        "setHotkey": "設定快速鍵",
+        "clear": "清除快速鍵",
         "bindings": {
           "transcribe": {
             "name": "轉錄快捷鍵",
