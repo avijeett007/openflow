@@ -1219,6 +1219,96 @@ async clearAnalytics() : Promise<Result<null, string>> {
 }
 },
 /**
+ * Start capturing a meeting. `app_bundle_id` (when known) targets the system
+ * audio tap at that app's PID; capture degrades to mic-only on any tap failure.
+ */
+async startMeetingCapture(appBundleId: string | null) : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_meeting_capture", { appBundleId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Stop the active meeting capture and finalize it.
+ */
+async stopMeetingCapture() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("stop_meeting_capture") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Whether a capture is running (and whether system audio degraded to mic-only).
+ */
+async getMeetingCaptureStatus() : Promise<Result<MeetingCaptureStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_meeting_capture_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * All meetings, newest first.
+ */
+async listMeetings() : Promise<Result<MeetingSummary[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_meetings") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A single meeting with its transcript segments.
+ */
+async getMeeting(meetingId: number) : Promise<Result<MeetingDetail | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_meeting", { meetingId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Delete a meeting, its segments, and its WAVs.
+ */
+async deleteMeeting(meetingId: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_meeting", { meetingId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle the meetings feature master switch.
+ */
+async setMeetingsEnabled(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_meetings_enabled", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle meeting auto-detection (the record prompt). Capture start stays
+ * user-confirmed regardless.
+ */
+async setMeetingAutoDetect(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_meeting_auto_detect", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Checks if the Mac is a laptop by detecting battery presence
  * 
  * This uses pmset to check for battery information.
@@ -1241,12 +1331,20 @@ export const events = __makeEvents__<{
 agentRunOutput: AgentRunOutput,
 agentRunStatus: AgentRunStatus,
 historyUpdatePayload: HistoryUpdatePayload,
+meetingDetected: MeetingDetected,
+meetingLevels: MeetingLevels,
+meetingSegmentEvent: MeetingSegmentEvent,
+meetingState: MeetingState,
 streamPhaseEvent: StreamPhaseEvent,
 streamTextEvent: StreamTextEvent
 }>({
 agentRunOutput: "agent-run-output",
 agentRunStatus: "agent-run-status",
 historyUpdatePayload: "history-update-payload",
+meetingDetected: "meeting-detected",
+meetingLevels: "meeting-levels",
+meetingSegmentEvent: "meeting-segment-event",
+meetingState: "meeting-state",
 streamPhaseEvent: "stream-phase-event",
 streamTextEvent: "stream-text-event"
 })
@@ -1511,7 +1609,23 @@ hands_free_voice_feedback?: boolean;
  * with no `agents` key deserializes to an empty list, so behavior with no
  * agents configured is byte-for-byte identical to before this field existed.
  */
-agents?: AgentDefinition[] }
+agents?: AgentDefinition[]; 
+/**
+ * Master switch for the meetings feature (capture + on-device transcription).
+ * Additive & fully defaultable; when false the detector never runs and manual
+ * capture is refused. Default on so the shipped feature is usable.
+ */
+meetings_enabled?: boolean; 
+/**
+ * Auto-detect meetings (known bundle id + mic-in-use fusion) and offer to
+ * capture. Default on; capture start is always user-confirmed regardless.
+ */
+meeting_auto_detect?: boolean; 
+/**
+ * Bundle ids treated as meeting apps for auto-detection. User-extensible
+ * (Webex/Slack huddles etc.); defaults to Zoom, Teams (classic + new), FaceTime.
+ */
+meeting_app_allowlist?: string[] }
 export type AppUsage = { app: string; dictations: number; words: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
@@ -1605,6 +1719,53 @@ export type KeyboardImplementation = "tauri" | "handy_keys"
 export type KeywordCount = { keyword: string; count: number }
 export type LLMPrompt = { id: string; name: string; prompt: string }
 export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
+/**
+ * Snapshot for the frontend: is a capture running, and did system audio degrade?
+ */
+export type MeetingCaptureStatus = { active: boolean; meeting_id: number | null; mic_only: boolean; notice?: string | null }
+export type MeetingDetail = { meeting: MeetingRecord; segments: MeetingSegmentRecord[] }
+/**
+ * A known meeting app is running and the mic is in use — offer to capture.
+ * Emitted by the [`crate::meeting::detector`].
+ */
+export type MeetingDetected = { bundle_id: string; app_name: string }
+/**
+ * Two-channel input levels (0.0..~1.0 RMS) for the live meters.
+ */
+export type MeetingLevels = { mic: number; system: number }
+export type MeetingRecord = { id: number; started_at: number; ended_at: number | null; title: string; app_bundle_id: string | null; status: string; mic_wav: string | null; system_wav: string | null; diarized: boolean }
+/**
+ * A freshly transcribed turn appended to the live transcript.
+ */
+export type MeetingSegmentEvent = { meeting_id: number; segment: MeetingSegmentRecord }
+export type MeetingSegmentRecord = { id: number; meeting_id: number; t_start_ms: number; t_end_ms: number; 
+/**
+ * `mic` ("You") or `system` ("Them").
+ */
+channel: string; 
+/**
+ * Per-meeting diarization cluster (M2); `None` in M1.
+ */
+local_speaker: number | null; 
+/**
+ * Voice-fingerprint registry match (M3); `None` in M1.
+ */
+speaker_id: number | null; text: string }
+/**
+ * Meeting session status transition (`recording` | `processing` | `done` |
+ * `failed`). `mic_only` / `notice` communicate a graceful system-audio degrade.
+ */
+export type MeetingState = { meeting_id: number; status: string; mic_only?: boolean; 
+/**
+ * Stable machine tag for the degrade notice (`unsupported` | `permission` |
+ * `no_audio` | `mic_only` | `error`), or `None` when both channels captured.
+ */
+notice?: string | null }
+export type MeetingSummary = { id: number; started_at: number; ended_at: number | null; title: string; app_bundle_id: string | null; status: string; segment_count: number; 
+/**
+ * Milliseconds from the first to the last segment (0 while empty).
+ */
+duration_ms: number }
 export type ModelInfo = { id: string; name: string; description: string; filename: string; source: ModelSource; size_mb: number; is_downloaded: boolean; is_downloading: boolean; partial_size: number; is_directory: boolean; engine_type: EngineType; accuracy_score: number; speed_score: number; supports_translation: boolean; is_recommended: boolean; supported_languages: string[]; supports_language_selection: boolean; is_custom: boolean; supports_streaming: boolean; supports_language_detection: boolean }
 export type ModelLoadStatus = { is_loaded: boolean; current_model: string | null }
 /**

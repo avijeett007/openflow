@@ -8,6 +8,8 @@ export { PostProcessingSettings } from "./post-processing/PostProcessingSettings
 export { DictionarySettings } from "./dictionary/DictionarySettings";
 export { AgentsSettings } from "./agents/AgentsSettings";
 export { AgentRunsSettings } from "./agent-runs/AgentRunsSettings";
+export { MeetingsSettings } from "./meetings/MeetingsSettings";
+export { MeetingDetectionListener } from "./meetings/MeetingDetectionListener";
 export { ModelsSettings } from "./models/ModelsSettings";
 export { ModelSetupSettings } from "./model-setup/ModelSetupSettings";
 export { DashboardSettings } from "./dashboard/DashboardSettings";

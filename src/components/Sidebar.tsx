@@ -14,6 +14,7 @@ import {
   Cpu,
   SlidersHorizontal,
   BookA,
+  Video,
 } from "lucide-react";
 import { useSettings } from "../hooks/useSettings";
 import openflowLogo from "../assets/openflow-logo.png";
@@ -31,6 +32,7 @@ import {
   HandsFreeSettings,
   AgentsSettings,
   AgentRunsSettings,
+  MeetingsSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -109,6 +111,12 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.agentRuns",
     icon: Activity,
     component: AgentRunsSettings,
+    enabled: () => true,
+  },
+  meetings: {
+    labelKey: "sidebar.meetings",
+    icon: Video,
+    component: MeetingsSettings,
     enabled: () => true,
   },
   postprocessing: {

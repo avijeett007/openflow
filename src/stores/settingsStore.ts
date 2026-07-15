@@ -121,6 +121,9 @@ const settingUpdaters: {
   debug_mode: (value) => commands.changeDebugModeSetting(value as boolean),
   advanced_mode: (value) =>
     commands.changeAdvancedModeSetting(value as boolean),
+  meetings_enabled: (value) => commands.setMeetingsEnabled(value as boolean),
+  meeting_auto_detect: (value) =>
+    commands.setMeetingAutoDetect(value as boolean),
   dictionary: (value) => commands.updateDictionary(value as DictionaryEntry[]),
   word_correction_threshold: (value) =>
     commands.changeWordCorrectionThresholdSetting(value as number),

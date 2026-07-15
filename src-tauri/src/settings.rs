@@ -774,6 +774,30 @@ pub struct AppSettings {
     /// agents configured is byte-for-byte identical to before this field existed.
     #[serde(default)]
     pub agents: Vec<AgentDefinition>,
+
+    // ---- OpenFlow Meetings (M1) ----
+    /// Master switch for the meetings feature (capture + on-device transcription).
+    /// Additive & fully defaultable; when false the detector never runs and manual
+    /// capture is refused. Default on so the shipped feature is usable.
+    #[serde(default = "default_true")]
+    pub meetings_enabled: bool,
+    /// Auto-detect meetings (known bundle id + mic-in-use fusion) and offer to
+    /// capture. Default on; capture start is always user-confirmed regardless.
+    #[serde(default = "default_true")]
+    pub meeting_auto_detect: bool,
+    /// Bundle ids treated as meeting apps for auto-detection. User-extensible
+    /// (Webex/Slack huddles etc.); defaults to Zoom, Teams (classic + new), FaceTime.
+    #[serde(default = "default_meeting_app_allowlist")]
+    pub meeting_app_allowlist: Vec<String>,
+}
+
+fn default_meeting_app_allowlist() -> Vec<String> {
+    vec![
+        "us.zoom.xos".to_string(),
+        "com.microsoft.teams".to_string(),
+        "com.microsoft.teams2".to_string(),
+        "com.apple.FaceTime".to_string(),
+    ]
 }
 
 fn default_model() -> String {
@@ -1288,6 +1312,9 @@ pub fn get_default_settings() -> AppSettings {
         wake_word_silence_timeout_ms: default_wake_word_silence_timeout_ms(),
         hands_free_voice_feedback: default_hands_free_voice_feedback(),
         agents: Vec::new(),
+        meetings_enabled: true,
+        meeting_auto_detect: true,
+        meeting_app_allowlist: default_meeting_app_allowlist(),
     }
 }
 
