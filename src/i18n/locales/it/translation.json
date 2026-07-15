@@ -202,6 +202,10 @@
           "transcribe_with_post_process": {
             "name": "Tasto di post-elaborazione",
             "description": "Facoltativo: Un tasto di scelta rapida dedicato che applica sempre la post-elaborazione IA alla trascrizione."
+          },
+          "meeting_capture": {
+            "name": "Scorciatoia cattura riunione",
+            "description": "Avvia o interrompe la cattura della riunione corrente. Prende di mira l'app in primo piano (come Chrome per Google Meet) per l'audio di sistema."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "Scorciatoia di cattura"
     }
   },
   "footer": {

@@ -184,6 +184,10 @@
           "transcribe_with_post_process": {
             "name": "Бърз клавиш за постобработка",
             "description": "По избор: отделна комбинация, която винаги прилага ИИ постобработка върху транскрипцията."
+          },
+          "meeting_capture": {
+            "name": "Клавишна комбинация за запис на среща",
+            "description": "Стартира или спира записа на текущата среща. Насочва се към приложението на преден план (например Chrome за Google Meet) за системния звук."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "Клавишна комбинация за запис"
     }
   },
   "footer": {

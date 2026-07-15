@@ -202,6 +202,10 @@
           "transcribe_with_post_process": {
             "name": "Tecla de Post Procesamiento",
             "description": "Opcional: Una tecla de acceso rápido dedicada que siempre aplica post procesamiento con IA a tu transcripción."
+          },
+          "meeting_capture": {
+            "name": "Atajo de captura de reunión",
+            "description": "Inicia o detiene la captura de la reunión actual. Apunta a la app en primer plano (como Chrome para Google Meet) para el audio del sistema."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "Atajo de captura"
     }
   },
   "footer": {

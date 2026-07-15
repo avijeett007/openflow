@@ -202,6 +202,10 @@
           "transcribe_with_post_process": {
             "name": "Raccourci de post-traitement",
             "description": "Facultatif : Un raccourci dédié qui applique toujours le post-traitement IA à votre transcription."
+          },
+          "meeting_capture": {
+            "name": "Raccourci de capture de réunion",
+            "description": "Démarre ou arrête la capture de la réunion en cours. Cible l'application au premier plan (comme Chrome pour Google Meet) pour l'audio système."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "Raccourci de capture"
     }
   },
   "footer": {

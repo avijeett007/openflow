@@ -189,6 +189,10 @@
           "transcribe_with_post_process": {
             "name": "Post-Processing Hotkey",
             "description": "Optional: A dedicated hotkey that always applies AI post-processing to your transcription."
+          },
+          "meeting_capture": {
+            "name": "Meeting Capture Hotkey",
+            "description": "Start or stop capturing the current meeting. Targets the frontmost app (like Chrome for Google Meet) for system audio."
           }
         },
         "errors": {
@@ -1067,7 +1071,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "Capture hotkey"
     }
   },
   "footer": {

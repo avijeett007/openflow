@@ -202,6 +202,10 @@
           "transcribe_with_post_process": {
             "name": "Skrót postprocessingu",
             "description": "Opcjonalnie: Dedykowany skrót klawiszowy, który zawsze stosuje postprocessing AI do transkrypcji."
+          },
+          "meeting_capture": {
+            "name": "Skrót przechwytywania spotkania",
+            "description": "Rozpoczyna lub zatrzymuje przechwytywanie bieżącego spotkania. Kieruje na aplikację na pierwszym planie (np. Chrome dla Google Meet) w celu przechwycenia dźwięku systemowego."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "Skrót przechwytywania"
     }
   },
   "footer": {

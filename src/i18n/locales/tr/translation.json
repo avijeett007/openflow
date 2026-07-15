@@ -202,6 +202,10 @@
           "transcribe_with_post_process": {
             "name": "Son İşlem Kısayolu",
             "description": "İsteğe bağlı: Transkripsiyonunuza her zaman AI son işleme uygulayan özel bir kısayol tuşu."
+          },
+          "meeting_capture": {
+            "name": "Toplantı yakalama kısayolu",
+            "description": "Geçerli toplantının yakalanmasını başlatır veya durdurur. Sistem sesi için öndeki uygulamayı (Google Meet için Chrome gibi) hedefler."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "Yakalama kısayolu"
     }
   },
   "footer": {

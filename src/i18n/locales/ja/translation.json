@@ -202,6 +202,10 @@
           "transcribe_with_post_process": {
             "name": "後処理ホットキー",
             "description": "オプション：文字起こしに常にAI後処理を適用する専用ホットキー。"
+          },
+          "meeting_capture": {
+            "name": "会議キャプチャのショートカット",
+            "description": "現在の会議のキャプチャを開始または停止します。システム音声は最前面のアプリ（Google Meet の場合は Chrome など）を対象にします。"
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "キャプチャのショートカット"
     }
   },
   "footer": {

@@ -184,6 +184,10 @@
           "transcribe_with_post_process": {
             "name": "קיצור לעיבוד משלים",
             "description": "אופציונלי: קיצור מקשים ייעודי שתמיד מפעיל עיבוד AI על התמלול."
+          },
+          "meeting_capture": {
+            "name": "קיצור מקלדת ללכידת פגישה",
+            "description": "מתחיל או מפסיק את לכידת הפגישה הנוכחית. מכוון ליישום הקדמי (כמו Chrome עבור Google Meet) עבור שמע המערכת."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "קיצור ללכידה"
     }
   },
   "footer": {

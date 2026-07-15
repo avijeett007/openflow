@@ -202,6 +202,10 @@
           "transcribe_with_post_process": {
             "name": "Nachbearbeitungs-Tastenkürzel",
             "description": "Optional: Ein dediziertes Tastenkürzel, das immer die KI-Nachbearbeitung auf deine Transkription anwendet."
+          },
+          "meeting_capture": {
+            "name": "Meeting-Aufnahme-Tastenkürzel",
+            "description": "Aufnahme des aktuellen Meetings starten oder stoppen. Erfasst die Systemaudioausgabe der aktiven App (z. B. Chrome für Google Meet)."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "Aufnahme-Tastenkürzel"
     }
   },
   "footer": {

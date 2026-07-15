@@ -69,6 +69,38 @@ fn current_macos() -> ActiveApp {
     }
 }
 
+/// The frontmost application's bundle identifier and localized name via
+/// NSWorkspace (no Accessibility permission required). Returns `None` when there
+/// is no frontmost app or it has no bundle id (e.g. some system UI elements).
+///
+/// Used by the meeting-capture hotkey to target the system-audio tap at whatever
+/// app the user is calling in — crucially browsers, since Google Meet runs in a
+/// tab and can never be caught by the bundle-id auto-detection allowlist.
+#[cfg(target_os = "macos")]
+pub fn frontmost_bundle() -> Option<(String, String)> {
+    use objc2_app_kit::NSWorkspace;
+
+    let workspace = NSWorkspace::sharedWorkspace();
+    let app = workspace.frontmostApplication()?;
+    let bundle = app.bundleIdentifier()?.to_string();
+    if bundle.is_empty() {
+        return None;
+    }
+    let name = app
+        .localizedName()
+        .map(|n| n.to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| bundle.clone());
+    Some((bundle, name))
+}
+
+/// Non-macOS stub: there is no system-audio process tap outside macOS, so the
+/// meeting-capture hotkey always starts mic-only.
+#[cfg(not(target_os = "macos"))]
+pub fn frontmost_bundle() -> Option<(String, String)> {
+    None
+}
+
 /// Frontmost application's localized name via NSWorkspace (no Accessibility
 /// permission required). Returns `None` when there is no frontmost app or the
 /// name is nil.

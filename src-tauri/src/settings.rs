@@ -1236,6 +1236,22 @@ pub fn get_default_settings() -> AppSettings {
         },
     );
 
+    // OpenFlow Meetings: a global hotkey to start/stop meeting capture without
+    // opening the app. Seeded UNBOUND (empty) — Google Meet runs in a browser, so
+    // there is no sensible cross-app default we could pick that wouldn't collide;
+    // the user assigns it in Settings → Meetings. Empty bindings are skipped by
+    // every registration loop, exactly like the seeded `agent:<id>` hotkeys.
+    bindings.insert(
+        "meeting_capture".to_string(),
+        ShortcutBinding {
+            id: "meeting_capture".to_string(),
+            name: "Meeting Capture".to_string(),
+            description: "Start or stop capturing the current meeting.".to_string(),
+            default_binding: String::new(),
+            current_binding: String::new(),
+        },
+    );
+
     AppSettings {
         settings_schema_version: default_settings_schema_version(),
         bindings,

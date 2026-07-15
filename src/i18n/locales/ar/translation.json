@@ -181,6 +181,10 @@
           "transcribe_with_post_process": {
             "name": "مفتاح المعالجة اللاحقة",
             "description": "اختياري: مفتاح اختصار مخصص يطبق دائماً المعالجة اللاحقة بالذكاء الاصطناعي على التفريغ الصوتي."
+          },
+          "meeting_capture": {
+            "name": "اختصار التقاط الاجتماع",
+            "description": "ابدأ أو أوقف التقاط الاجتماع الحالي. يستهدف التطبيق في المقدمة (مثل Chrome لـ Google Meet) لصوت النظام."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "اختصار الالتقاط"
     }
   },
   "footer": {

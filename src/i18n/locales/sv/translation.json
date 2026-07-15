@@ -184,6 +184,10 @@
           "transcribe_with_post_process": {
             "name": "Snabbkommando för efterbearbetning",
             "description": "Valfritt: En dedikerad snabbknapp som alltid tillämpar AI-efterbearbetning på din transkription."
+          },
+          "meeting_capture": {
+            "name": "Kortkommando för mötesinspelning",
+            "description": "Starta eller stoppa inspelning av det aktuella mötet. Riktar in sig på appen i förgrunden (som Chrome för Google Meet) för systemljud."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "Kortkommando för inspelning"
     }
   },
   "footer": {

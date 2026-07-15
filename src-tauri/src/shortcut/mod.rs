@@ -409,6 +409,14 @@ fn register_all_shortcuts_for_implementation(
             .cloned()
             .unwrap_or_else(|| default_binding.clone());
 
+        // Seeded-but-unbound defaults (e.g. `meeting_capture`) carry an empty
+        // hotkey until the user assigns one. Skip them: an empty shortcut fails
+        // validation, so treating it here would wrongly report a "reset" and try
+        // to register nothing. Mirrors the empty-skip in `unregister_all_shortcuts`.
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
+
         // Validate the shortcut for the target implementation
         if let Err(e) =
             validate_shortcut_for_implementation(&binding.current_binding, implementation)

@@ -202,6 +202,10 @@
           "transcribe_with_post_process": {
             "name": "Горячая клавиша постобработки",
             "description": "Специальное сочетание клавиш для ИИ-постобработки вашей транскрипции."
+          },
+          "meeting_capture": {
+            "name": "Горячая клавиша записи встречи",
+            "description": "Запускает или останавливает запись текущей встречи. Захватывает системный звук активного приложения (например, Chrome для Google Meet)."
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "Горячая клавиша записи"
     }
   },
   "footer": {

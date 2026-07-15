@@ -13,6 +13,7 @@ import { useSettings } from "../../../hooks/useSettings";
 import { Button } from "../../ui/Button";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { ToggleSwitch } from "../../ui/ToggleSwitch";
+import { ShortcutInput } from "../ShortcutInput";
 
 /**
  * OpenFlow Meetings (M1) — capture + on-device transcription.
@@ -273,6 +274,17 @@ export const MeetingsSettings: React.FC = () => {
           }}
           label={t("settings.meetings.autoDetect")}
           description={t("settings.meetings.autoDetectHint")}
+          descriptionMode="inline"
+          grouped
+        />
+      </SettingsGroup>
+
+      {/* Capture hotkey — a global shortcut to start/stop capture without
+          opening the app. Essential for Google Meet, which runs in a browser
+          tab and so can never trigger bundle-id auto-detection. */}
+      <SettingsGroup title={t("settings.meetings.captureHotkeyTitle")}>
+        <ShortcutInput
+          shortcutId="meeting_capture"
           descriptionMode="inline"
           grouped
         />

@@ -202,6 +202,10 @@
           "transcribe_with_post_process": {
             "name": "后处理快捷键",
             "description": "可选：一个专用快捷键，始终对您的转录应用 AI 后处理。"
+          },
+          "meeting_capture": {
+            "name": "会议捕获快捷键",
+            "description": "开始或停止捕获当前会议。系统音频以最前面的应用（例如用于 Google Meet 的 Chrome）为目标。"
           }
         },
         "errors": {
@@ -821,7 +825,8 @@
         "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
-      }
+      },
+      "captureHotkeyTitle": "捕获快捷键"
     }
   },
   "footer": {
