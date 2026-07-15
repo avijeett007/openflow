@@ -1,0 +1,11 @@
+{
+  "impl": "handy_keys",
+  "transcribe_binding": {
+    "id": "transcribe",
+    "name": "Transcribe",
+    "description": "Converts your speech into text.",
+    "default_binding": "option+space",
+    "current_binding": "mousex1"
+  },
+  "push_to_talk": false
+}

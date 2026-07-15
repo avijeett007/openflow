@@ -1,0 +1,41 @@
+=== handy-keys 0.3.0 mouse-side-button (MouseX1) verification — issue #12 complementary macOS test ===
+Date: 2026-07-15   Machine: Intel MacBook Pro (no physical side-button mouse; the X1 button
+press was SYNTHESIZED via CGEvent OtherMouseDown/Up with mouse button number 3).
+
+Setup confirmed:
+  - main @ 1f6b86b, PR #14 merged; src-tauri/Cargo.toml: handy-keys = "0.3.0"; Cargo.lock 0.3.0
+  - keyboard_implementation = handy_keys (getKeyboardImplementation -> "handy_keys"); NO "Falling back to Tauri" line
+  - transcribe binding set to "mousex1" via commands.changeBinding("transcribe","mousex1") -> {success:true, current_binding:"mousex1"}
+  - push_to_talk = false (toggle mode): press#1 starts recording, press#2 stops+transcribes
+
+--- (a) crate validated + registered the mouse binding on handy-keys 0.3.0 ---
+[2026-07-15][12:48:46][handy_app_lib::shortcut::handy_keys][DEBUG] Registered handy-keys shortcut: transcribe -> Hotkey { modifiers: Modifiers(0x0), key: Some(MouseX1) }
+
+--- (b) synthetic X1 press (CGEvent OtherMouseDown, button number 3) triggered the record pipeline ---
+[2026-07-15][12:50:01][handy_app_lib::shortcut::handy_keys][DEBUG] handy-keys event: binding=transcribe, hotkey=mousex1, state=Pressed
+[2026-07-15][12:50:01][handy_app_lib::actions][DEBUG] TranscribeAction::start called for binding: transcribe
+[2026-07-15][12:50:01][handy_app_lib::managers::audio][DEBUG] Recording started for binding transcribe
+[2026-07-15][12:50:07][handy_app_lib::shortcut::handy_keys][DEBUG] handy-keys event: binding=transcribe, hotkey=mousex1, state=Pressed
+[2026-07-15][12:50:07][handy_app_lib::actions][DEBUG] TranscribeAction::stop called for binding: transcribe
+[2026-07-15][12:50:07][handy_app_lib::actions][DEBUG] Recording stopped and samples retrieved in 57.184425ms, sample count: 75840
+[2026-07-15][12:50:07][handy_app_lib::actions][DEBUG] Transcription completed in 279.09291ms: 'The quick brown fox jumps over the lazy dog near the river bank'
+[2026-07-15][12:50:18][handy_app_lib::clipboard][INFO] Using paste method: CtrlV, delay: 60ms
+[2026-07-15][12:50:18][handy_app_lib::actions][DEBUG] Text pasted successfully in 819.402223ms
+
+Transcript exactly matches the sentence spoken via `say`: "The quick brown fox jumps over the lazy dog near the river bank".
+
+--- (c) macOS leak-through (known upstream gap, NOT fixed here) ---
+handy-keys 0.3.0 macOS event tap uses CGEventTapOptions::Default (blocking-capable), but in
+src/platform/macos/listener.rs the OtherMouseDown/OtherMouseUp arms send the KeyEvent to the
+channel and NEVER call state.should_block(...) — only the keyboard KeyDown/KeyUp/FlagsChanged
+arms do. So a mouse side-button bound as a hotkey is DETECTED but NEVER suppressed on macOS:
+the click passes through to the frontmost app. This is the complementary macOS side of the
+Windows-only suppression fix that PR #14 (issue #12) landed. Documenting only; out of scope.
+
+--- Screenshot note ---
+A live UI screenshot could not be produced in this automation session: the OpenFlow window sat
+on an inactive macOS Space (CGWindow onscreen=false, no composited backing store -> blank
+capture), and full-display screencapture / AppleScript activate failed (Screen Recording TCC /
+no active GUI session: "could not create image from display", AppleEvent timed out). The binding
+state was instead verified via the dev webview bridge (getAppSettings -> bindings.transcribe.
+current_binding == "mousex1") — see binding-state.json.
