@@ -298,7 +298,7 @@ impl MeetingManager {
         match app_bundle_id.as_deref().and_then(pid_for_bundle_id) {
             Some(pid) => {
                 let (sys_ftx, sys_frx) = mpsc::channel::<Vec<f32>>();
-                match SystemAudioTap::start(pid, sys_ftx) {
+                match SystemAudioTap::start(pid, app_bundle_id.as_deref(), sys_ftx) {
                     Ok(tap) => {
                         let sr = tap.sample_rate();
                         captures.push(Box::new(tap));

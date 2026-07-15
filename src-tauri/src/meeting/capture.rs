@@ -138,7 +138,11 @@ pub struct SystemAudioTap;
 
 #[cfg(not(target_os = "macos"))]
 impl SystemAudioTap {
-    pub fn start(_pid: i32, _tx: Sender<Vec<f32>>) -> Result<Self, CaptureError> {
+    pub fn start(
+        _pid: i32,
+        _bundle_id: Option<&str>,
+        _tx: Sender<Vec<f32>>,
+    ) -> Result<Self, CaptureError> {
         Err(CaptureError::Unsupported)
     }
 }
@@ -162,12 +166,13 @@ mod macos_tap {
     use objc2::{msg_send, AnyThread};
     use objc2_core_audio::{
         kAudioDevicePropertyDeviceIsRunningSomewhere, kAudioDevicePropertyNominalSampleRate,
-        kAudioHardwarePropertyDefaultInputDevice,
+        kAudioHardwarePropertyDefaultInputDevice, kAudioHardwarePropertyProcessObjectList,
         kAudioHardwarePropertyTranslatePIDToProcessObject, kAudioObjectPropertyElementMain,
-        kAudioObjectPropertyScopeGlobal, AudioDeviceCreateIOProcID, AudioDeviceDestroyIOProcID,
-        AudioDeviceStart, AudioDeviceStop, AudioHardwareCreateAggregateDevice,
-        AudioHardwareCreateProcessTap, AudioHardwareDestroyAggregateDevice,
-        AudioHardwareDestroyProcessTap, AudioObjectGetPropertyData, AudioObjectID,
+        kAudioObjectPropertyScopeGlobal, kAudioProcessPropertyBundleID, kAudioProcessPropertyPID,
+        AudioDeviceCreateIOProcID, AudioDeviceDestroyIOProcID, AudioDeviceStart, AudioDeviceStop,
+        AudioHardwareCreateAggregateDevice, AudioHardwareCreateProcessTap,
+        AudioHardwareDestroyAggregateDevice, AudioHardwareDestroyProcessTap,
+        AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
         AudioObjectPropertyAddress, CATapDescription,
     };
     use objc2_core_audio_types::{AudioBufferList, AudioTimeStamp};
@@ -206,25 +211,74 @@ mod macos_tap {
     unsafe impl Send for SystemAudioTap {}
 
     impl SystemAudioTap {
-        /// Attempt to tap `pid`'s output audio, forwarding native-rate mono f32
-        /// frames to `tx`. Returns a typed [`CaptureError`] on any failure so the
-        /// caller can degrade to mic-only.
-        pub fn start(pid: i32, tx: Sender<Vec<f32>>) -> Result<Self, CaptureError> {
+        /// Attempt to tap the output audio of the target app, forwarding native-rate
+        /// mono f32 frames to `tx`. Returns a typed [`CaptureError`] on any failure
+        /// so the caller can degrade to mic-only.
+        ///
+        /// `pid` is the app's main process id (from `NSWorkspace`); `bundle_id` is
+        /// its bundle identifier when known. Browsers (Chrome/Brave/Edge/Safari)
+        /// render call audio from a *separate* helper process, so tapping the single
+        /// main-PID process object yields silence on the "Them" channel. We therefore
+        /// enumerate every audio process object and tap the mixdown of ALL that
+        /// belong to the target app — matched by exact PID, bundle-id prefix
+        /// (`com.google.Chrome` ⊇ `com.google.Chrome.helper*`), or PID descent from
+        /// the main process. See [`select_process_objects`].
+        pub fn start(
+            pid: i32,
+            bundle_id: Option<&str>,
+            tx: Sender<Vec<f32>>,
+        ) -> Result<Self, CaptureError> {
             // Capability probe: CATapDescription only exists on macOS 14.2+. Its
             // absence is the clean "OS too old" signal — no version parsing.
             if AnyClass::get(c"CATapDescription").is_none() {
                 return Err(CaptureError::Unsupported);
             }
 
-            let process_obj = process_object_for_pid(pid).ok_or(CaptureError::ProcessNotFound)?;
-            debug!("meeting tap: pid {pid} -> audio process object {process_obj}");
+            // Enumerate the system's audio process objects and select every one that
+            // belongs to the target app. Logged verbatim to aid field diagnosis of
+            // "which process is Chrome playing Meet audio from".
+            let table = enumerate_audio_processes();
+            for p in &table {
+                debug!(
+                    "meeting tap: audio process obj {} pid {} bundle {:?}",
+                    p.obj_id, p.pid, p.bundle_id
+                );
+            }
+            let mut selected = select_process_objects(&table, pid, bundle_id, |cand| {
+                is_descendant_of(cand, pid, PID_ANCESTRY_MAX_DEPTH)
+            });
 
-            // Build a mono-mixdown tap description for just this process.
+            // Fallback: if enumeration/selection found nothing (e.g. the app is not
+            // yet in the audio process list), tap just the translated main PID —
+            // the original single-process behavior — before conceding defeat.
+            if selected.is_empty() {
+                match process_object_for_pid(pid) {
+                    Some(obj) => {
+                        warn!(
+                            "meeting tap: process enumeration matched nothing for pid {pid} \
+                             bundle {bundle_id:?}; falling back to single translated object {obj}"
+                        );
+                        selected.push(obj);
+                    }
+                    None => return Err(CaptureError::ProcessNotFound),
+                }
+            }
+            info!(
+                "meeting tap: pid {pid} bundle {bundle_id:?} -> {} audio process object(s) {:?}",
+                selected.len(),
+                selected
+            );
+
+            // Build a mono-mixdown tap description over ALL selected processes.
             let uuid = NSUUID::new();
             let uuid_str = unsafe { uuid.UUIDString() }.to_string();
             let (tap_id, _desc_uuid) = unsafe {
-                let num = NSNumber::numberWithUnsignedInt(process_obj);
-                let procs: objc2::rc::Retained<NSArray<NSNumber>> = NSArray::from_slice(&[&*num]);
+                let nums: Vec<objc2::rc::Retained<NSNumber>> = selected
+                    .iter()
+                    .map(|obj| NSNumber::numberWithUnsignedInt(*obj))
+                    .collect();
+                let refs: Vec<&NSNumber> = nums.iter().map(|n| &**n).collect();
+                let procs: objc2::rc::Retained<NSArray<NSNumber>> = NSArray::from_slice(&refs);
                 let desc =
                     CATapDescription::initMonoMixdownOfProcesses(CATapDescription::alloc(), &procs);
                 desc.setUUID(&uuid);
@@ -387,6 +441,227 @@ mod macos_tap {
         }
     }
 
+    /// How far up the parent-PID chain we walk when deciding whether a candidate
+    /// process descends from the target app. Browser audio helpers sit 1–2 levels
+    /// below the main process; a small cap bounds the sysctl work and stops runaway
+    /// walks on a corrupt table.
+    const PID_ANCESTRY_MAX_DEPTH: u32 = 6;
+
+    /// One entry of the system audio-process table: an audio `AudioObjectID`, the
+    /// OS pid behind it, and its bundle id (absent for helper/system processes that
+    /// don't carry one).
+    #[derive(Clone, Debug, PartialEq)]
+    struct AudioProcInfo {
+        obj_id: AudioObjectID,
+        pid: i32,
+        bundle_id: Option<String>,
+    }
+
+    /// Does audio-process `candidate`'s bundle id belong to the app identified by
+    /// `target`? True on an exact match or a dot-boundary prefix, so target
+    /// `com.google.Chrome` matches the main app *and* `com.google.Chrome.helper`,
+    /// `com.google.Chrome.helper.Renderer`, … but NOT `com.google.Chromecast`.
+    fn bundle_matches(target: &str, candidate: &str) -> bool {
+        if target.is_empty() {
+            return false;
+        }
+        if candidate == target {
+            return true;
+        }
+        candidate
+            .strip_prefix(target)
+            .is_some_and(|rest| rest.starts_with('.'))
+    }
+
+    /// Select every audio process object that belongs to the target app, by the
+    /// union of three signals (deduped, input order preserved):
+    ///   (a) exact PID match against the app's main pid;
+    ///   (b) bundle-id prefix match ([`bundle_matches`]) — catches browser audio
+    ///       helpers whose bundle extends the app's;
+    ///   (c) `is_descendant` — the candidate's parent-PID chain reaches the main
+    ///       pid, catching helpers that don't carry a bundle id.
+    ///
+    /// Pure over its inputs (`is_descendant` is injected) so it is unit-testable
+    /// without CoreAudio or a live process tree.
+    fn select_process_objects(
+        table: &[AudioProcInfo],
+        target_pid: i32,
+        target_bundle: Option<&str>,
+        is_descendant: impl Fn(i32) -> bool,
+    ) -> Vec<AudioObjectID> {
+        let mut out: Vec<AudioObjectID> = Vec::new();
+        for p in table {
+            let exact = p.pid == target_pid;
+            let by_bundle = match (target_bundle, p.bundle_id.as_deref()) {
+                (Some(t), Some(c)) => bundle_matches(t, c),
+                _ => false,
+            };
+            let by_child = !exact && is_descendant(p.pid);
+            if (exact || by_bundle || by_child) && !out.contains(&p.obj_id) {
+                out.push(p.obj_id);
+            }
+        }
+        out
+    }
+
+    /// Read one `AudioObjectID`-scalar / small-scalar property into `T`.
+    fn read_process_scalar<T: Copy>(
+        obj: AudioObjectID,
+        selector: objc2_core_audio::AudioObjectPropertySelector,
+        default: T,
+    ) -> Option<T> {
+        let addr = AudioObjectPropertyAddress {
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let mut value = default;
+        let mut size = std::mem::size_of::<T>() as u32;
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                obj,
+                NonNull::from(&addr),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut size),
+                NonNull::new(&mut value as *mut _ as *mut c_void)?,
+            )
+        };
+        if status == 0 {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    /// Read an audio process object's bundle id (a `CFStringRef` property). The
+    /// getter returns a +1 reference; we take ownership via `Retained::from_raw`
+    /// (NSString is toll-free bridged to CFString) so it is released on drop.
+    fn process_bundle_id(obj: AudioObjectID) -> Option<String> {
+        let addr = AudioObjectPropertyAddress {
+            mSelector: kAudioProcessPropertyBundleID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let mut cf: *mut NSString = std::ptr::null_mut();
+        let mut size = std::mem::size_of::<*mut NSString>() as u32;
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                obj,
+                NonNull::from(&addr),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut size),
+                NonNull::new(&mut cf as *mut _ as *mut c_void)?,
+            )
+        };
+        if status != 0 || cf.is_null() {
+            return None;
+        }
+        let s = unsafe { objc2::rc::Retained::from_raw(cf)? };
+        let out = s.to_string();
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
+    }
+
+    /// Enumerate the whole system audio-process table
+    /// (`kAudioHardwarePropertyProcessObjectList`), resolving each object's PID and
+    /// bundle id. Best-effort: an object whose PID can't be read is dropped; a
+    /// missing bundle id is left `None`.
+    fn enumerate_audio_processes() -> Vec<AudioProcInfo> {
+        let addr = AudioObjectPropertyAddress {
+            mSelector: kAudioHardwarePropertyProcessObjectList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let mut size: u32 = 0;
+        let status = unsafe {
+            AudioObjectGetPropertyDataSize(
+                SYSTEM_OBJECT,
+                NonNull::from(&addr),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut size),
+            )
+        };
+        if status != 0 || size == 0 {
+            return Vec::new();
+        }
+        let count = size as usize / std::mem::size_of::<AudioObjectID>();
+        let mut ids: Vec<AudioObjectID> = vec![0; count];
+        let mut io_size = size;
+        let dst = match NonNull::new(ids.as_mut_ptr() as *mut c_void) {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                SYSTEM_OBJECT,
+                NonNull::from(&addr),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut io_size),
+                dst,
+            )
+        };
+        if status != 0 {
+            return Vec::new();
+        }
+        ids.truncate(io_size as usize / std::mem::size_of::<AudioObjectID>());
+        ids.into_iter()
+            .filter_map(|obj| {
+                let pid = read_process_scalar::<i32>(obj, kAudioProcessPropertyPID, -1)?;
+                Some(AudioProcInfo {
+                    obj_id: obj,
+                    pid,
+                    bundle_id: process_bundle_id(obj),
+                })
+            })
+            .collect()
+    }
+
+    /// The direct parent PID of `pid`, via libproc `PROC_PIDTBSDINFO`. `None` if the
+    /// process is gone or the call fails.
+    fn parent_pid(pid: i32) -> Option<i32> {
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let sz = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+        let n = unsafe {
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                &mut info as *mut _ as *mut c_void,
+                sz,
+            )
+        };
+        if n == sz {
+            Some(info.pbi_ppid as i32)
+        } else {
+            None
+        }
+    }
+
+    /// Does `pid`'s parent chain reach `ancestor` within `max_depth` hops? Strict:
+    /// `pid == ancestor` is NOT a descendant (that case is the exact-PID rule). The
+    /// walk stops at pid ≤ 1 (launchd) so it always terminates.
+    fn is_descendant_of(pid: i32, ancestor: i32, max_depth: u32) -> bool {
+        if pid == ancestor || pid <= 1 {
+            return false;
+        }
+        let mut cur = pid;
+        for _ in 0..max_depth {
+            match parent_pid(cur) {
+                Some(pp) if pp == ancestor => return true,
+                Some(pp) if pp > 1 => cur = pp,
+                _ => return false,
+            }
+        }
+        false
+    }
+
     /// Build the private aggregate device that exposes the tap's audio. Keys are
     /// the documented CoreAudio aggregate-device dictionary strings; the sub-tap
     /// is referenced by the tap description's UUID.
@@ -527,6 +802,104 @@ mod macos_tap {
                 return false;
             }
             running != 0
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{bundle_matches, select_process_objects, AudioProcInfo};
+
+        fn info(obj_id: u32, pid: i32, bundle: Option<&str>) -> AudioProcInfo {
+            AudioProcInfo {
+                obj_id,
+                pid,
+                bundle_id: bundle.map(|s| s.to_string()),
+            }
+        }
+
+        #[test]
+        fn bundle_matches_exact_and_dot_boundary() {
+            assert!(bundle_matches("com.google.Chrome", "com.google.Chrome"));
+            assert!(bundle_matches(
+                "com.google.Chrome",
+                "com.google.Chrome.helper"
+            ));
+            assert!(bundle_matches(
+                "com.google.Chrome",
+                "com.google.Chrome.helper.Renderer"
+            ));
+            // Must not leak across a non-dot boundary or to unrelated ids.
+            assert!(!bundle_matches(
+                "com.google.Chrome",
+                "com.google.Chromecast"
+            ));
+            assert!(!bundle_matches("com.google.Chrome", "com.apple.Safari"));
+            assert!(!bundle_matches("", "com.google.Chrome"));
+        }
+
+        /// The canonical browser case: main PID + audio helper (bundle prefix) +
+        /// renderer child (no bundle id, PID descends from main) are all selected;
+        /// an unrelated app's process is left out.
+        #[test]
+        fn selects_main_helper_and_child_but_not_unrelated() {
+            let table = vec![
+                info(10, 501, Some("com.google.Chrome")), // (a) exact pid
+                info(11, 777, Some("com.google.Chrome.helper")), // (b) bundle prefix
+                info(12, 888, None),                      // (c) child of 501, no bundle
+                info(13, 999, Some("com.apple.Safari")),  // unrelated
+                info(14, 1234, Some("us.zoom.xos")),      // unrelated native app
+            ];
+            // Only pid 888 is a descendant of the target main pid 501.
+            let is_descendant = |pid: i32| pid == 888;
+            let selected =
+                select_process_objects(&table, 501, Some("com.google.Chrome"), is_descendant);
+            assert_eq!(selected, vec![10, 11, 12]);
+        }
+
+        #[test]
+        fn dedupes_when_multiple_signals_hit_one_object() {
+            // Same object is the exact PID AND matches the bundle prefix AND is
+            // (spuriously) reported as its own descendant — it appears once.
+            let table = vec![info(20, 501, Some("com.google.Chrome"))];
+            let selected = select_process_objects(&table, 501, Some("com.google.Chrome"), |_| true);
+            assert_eq!(selected, vec![20]);
+        }
+
+        #[test]
+        fn empty_selection_when_nothing_matches() {
+            let table = vec![
+                info(30, 999, Some("com.apple.Safari")),
+                info(31, 1000, None),
+            ];
+            let selected =
+                select_process_objects(&table, 501, Some("com.google.Chrome"), |_| false);
+            assert!(selected.is_empty());
+        }
+
+        /// With no known bundle id (manual capture path), selection falls back to
+        /// PID exact + descendant signals only.
+        #[test]
+        fn selects_by_pid_and_child_without_bundle() {
+            let table = vec![
+                info(40, 501, Some("com.google.Chrome")),        // exact pid
+                info(41, 888, Some("com.google.Chrome.helper")), // child of 501
+                info(42, 999, Some("com.apple.Safari")),         // unrelated
+            ];
+            let selected = select_process_objects(&table, 501, None, |pid| pid == 888);
+            assert_eq!(selected, vec![40, 41]);
+        }
+
+        /// Input order is preserved so the logged/tapped set is stable across runs.
+        #[test]
+        fn preserves_input_order() {
+            let table = vec![
+                info(3, 777, Some("com.google.Chrome.helper")),
+                info(1, 501, Some("com.google.Chrome")),
+                info(2, 888, None),
+            ];
+            let selected =
+                select_process_objects(&table, 501, Some("com.google.Chrome"), |pid| pid == 888);
+            assert_eq!(selected, vec![3, 1, 2]);
         }
     }
 }
