@@ -1026,10 +1026,14 @@ async setHotkeyOverlayEnabled(enabled: boolean) : Promise<Result<null, string>> 
 }
 },
 /**
- * Resolve a CLI agent's binary path by looking up its canonical name on PATH
- * (`which`-style). Returns the absolute path, or an error if not found. The
- * PATH searched is the baseline-augmented one (Homebrew etc.), matching how the
- * run will actually be spawned.
+ * Resolve a CLI agent's binary path (`which`-style). Searches, in order: the
+ * process PATH, then an explicit baseline of tool dirs (Homebrew on either
+ * arch, `~/.local/bin`, bun/cargo/volta/deno, every nvm node version) that a
+ * GUI-launched app's stripped launchd PATH omits — this is why detection found
+ * nothing on the user's installed app while `which` worked in Terminal. As a
+ * final fallback it consults the user's login shell (`<shell> -lc 'command -v
+ * <name>'`) so custom profile PATHs (rbenv/asdf/fnm) resolve exactly as in
+ * their Terminal. Returns the absolute path, or an error if not found.
  */
 async detectAgentBinary(cliType: AgentCliType) : Promise<Result<string, string>> {
     try {
@@ -1535,14 +1539,25 @@ streamTextEvent: "stream-text-event"
 /** user-defined types **/
 
 /**
- * Result of `test_agent_binary`: whether the binary ran and its version output.
- */
-export type AgentBinaryTest = { ok: boolean; output: string; hint: AgentBinaryHint | null }
-/**
  * Classified, actionable failure modes surfaced by `test_agent_binary`. The
  * frontend renders a localized fix for each instead of a raw spawn stack.
  */
-export type AgentBinaryHint = "codex_vendor_missing"
+export type AgentBinaryHint = 
+/**
+ * Codex's Node launcher can't find its vendored native binary — the
+ * per-platform optional dependency (`@openai/codex-<os>-<arch>`) is
+ * missing/partial. Fix: reinstall Codex.
+ */
+"codex_vendor_missing"
+/**
+ * Result of `test_agent_binary`: whether the binary ran and its version output.
+ */
+export type AgentBinaryTest = { ok: boolean; output: string; 
+/**
+ * A machine-readable hint the frontend maps to an actionable, localized
+ * message (e.g. a broken Codex install). `None` for ordinary output.
+ */
+hint: AgentBinaryHint | null }
 /**
  * Which local coding-agent CLI a `Cli` agent drives. Selects the prefilled
  * invocation template (see `default_command_template_for`). `Custom` is a
