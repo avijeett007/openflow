@@ -23,7 +23,9 @@
     "about": "About",
     "agentRuns": "Agent Runs",
     "advancedMode": "Advanced mode",
-    "advancedModeTooltip": "Show all settings and advanced features"
+    "advancedModeTooltip": "Show all settings and advanced features",
+    "missionControl": "Mission Control",
+    "resizeHandle": "Resize sidebar"
   },
   "onboarding": {
     "subtitle": "To get started, choose a transcription model",
@@ -1036,6 +1038,59 @@
         "ran": "Ran {{command}}",
         "read": "Read {{target}}",
         "used": "Used {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "Good morning",
+        "greetingAfternoon": "Good afternoon",
+        "greetingEvening": "Good evening",
+        "stateIdle": "Idle",
+        "stateListening": "Listening",
+        "dictationsToday": "Dictations today",
+        "wordsToday": "Words today",
+        "avgWpm": "Avg. WPM",
+        "wpmValue": "{{wpm}} wpm",
+        "timeSaved": "Time saved"
+      },
+      "liveActivity": {
+        "title": "Live activity",
+        "viewAll": "View all",
+        "runningCount": "{{count}} running",
+        "running": "Running",
+        "done": "Done",
+        "failed": "Failed",
+        "stopped": "Stopped",
+        "noProject": "No project",
+        "empty": "No agent activity yet — create an agent to see live runs here.",
+        "createAgent": "Create an agent"
+      },
+      "agents": {
+        "title": "Agents",
+        "manage": "Manage",
+        "kindCli": "CLI",
+        "kindPrompt": "Prompt",
+        "noHotkey": "No hotkey",
+        "enabled": "Enabled",
+        "empty": "No agents configured yet — add one to drive tools by voice.",
+        "createAgent": "Create an agent",
+        "newAgent": "New agent",
+        "toggleError": "Couldn't update the agent: {{error}}"
+      },
+      "analytics": {
+        "title": "Analytics",
+        "openDashboard": "Open full dashboard",
+        "overTime": "Dictations over time",
+        "dictations": "Dictations",
+        "overTimeEmpty": "No data yet — start dictating to see your trend.",
+        "topApps": "Top apps",
+        "topAppsEmpty": "No app usage recorded yet.",
+        "streak": "{{count}}-day streak"
+      },
+      "recent": {
+        "title": "Recent dictations",
+        "viewAll": "View all",
+        "empty": "No dictations yet — your recent transcriptions will appear here."
       }
     }
   },

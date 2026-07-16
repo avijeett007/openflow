@@ -20,7 +20,9 @@
     "about": "אודות",
     "agentRuns": "הרצות סוכן",
     "advancedMode": "מצב מתקדם",
-    "advancedModeTooltip": "הצג את כל ההגדרות והתכונות המתקדמות"
+    "advancedModeTooltip": "הצג את כל ההגדרות והתכונות המתקדמות",
+    "missionControl": "מרכז הבקרה",
+    "resizeHandle": "שנה את גודל הסרגל הצדי"
   },
   "onboarding": {
     "subtitle": "כדי להתחיל, בחר מודל תמלול",
@@ -790,6 +792,59 @@
         "ran": "הורץ {{command}}",
         "read": "נקרא {{target}}",
         "used": "בשימוש {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "בוקר טוב",
+        "greetingAfternoon": "צהריים טובים",
+        "greetingEvening": "ערב טוב",
+        "stateIdle": "במנוחה",
+        "stateListening": "מקשיב",
+        "dictationsToday": "הכתבות היום",
+        "wordsToday": "מילים היום",
+        "avgWpm": "מל/דק ממוצע",
+        "wpmValue": "{{wpm}} מל/דק",
+        "timeSaved": "זמן שנחסך"
+      },
+      "liveActivity": {
+        "title": "פעילות חיה",
+        "viewAll": "הצג הכול",
+        "runningCount": "{{count}} פועלים",
+        "running": "פועל",
+        "done": "הושלם",
+        "failed": "נכשל",
+        "stopped": "נעצר",
+        "noProject": "אין פרויקט",
+        "empty": "עדיין אין פעילות סוכנים — צור סוכן כדי לראות כאן ריצות חיות.",
+        "createAgent": "צור סוכן"
+      },
+      "agents": {
+        "title": "סוכנים",
+        "manage": "ניהול",
+        "kindCli": "CLI",
+        "kindPrompt": "פרומפט",
+        "noHotkey": "אין קיצור",
+        "enabled": "מופעל",
+        "empty": "עדיין לא הוגדרו סוכנים — הוסף אחד כדי להפעיל כלים בקול.",
+        "createAgent": "צור סוכן",
+        "newAgent": "סוכן חדש",
+        "toggleError": "לא ניתן לעדכן את הסוכן: {{error}}"
+      },
+      "analytics": {
+        "title": "ניתוחים",
+        "openDashboard": "פתח לוח מלא",
+        "overTime": "הכתבות לאורך זמן",
+        "dictations": "הכתבות",
+        "overTimeEmpty": "עדיין אין נתונים — התחל להכתיב כדי לראות מגמה.",
+        "topApps": "אפליקציות מובילות",
+        "topAppsEmpty": "עדיין לא נרשם שימוש באפליקציות.",
+        "streak": "רצף של {{count}} ימים"
+      },
+      "recent": {
+        "title": "הכתבות אחרונות",
+        "viewAll": "הצג הכול",
+        "empty": "עדיין אין הכתבות — התמלולים האחרונים שלך יופיעו כאן."
       }
     }
   },

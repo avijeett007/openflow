@@ -20,7 +20,9 @@
     "about": "關於",
     "agentRuns": "代理執行",
     "advancedMode": "進階模式",
-    "advancedModeTooltip": "顯示所有設定與進階功能"
+    "advancedModeTooltip": "顯示所有設定與進階功能",
+    "missionControl": "任務控制",
+    "resizeHandle": "調整側邊欄寬度"
   },
   "onboarding": {
     "subtitle": "首先，請選擇一種模型",
@@ -790,6 +792,59 @@
         "ran": "已執行 {{command}}",
         "read": "已讀取 {{target}}",
         "used": "已使用 {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "早安",
+        "greetingAfternoon": "午安",
+        "greetingEvening": "晚安",
+        "stateIdle": "閒置",
+        "stateListening": "聆聽中",
+        "dictationsToday": "今日聽寫",
+        "wordsToday": "今日字數",
+        "avgWpm": "平均字/分",
+        "wpmValue": "{{wpm}} 字/分",
+        "timeSaved": "節省時間"
+      },
+      "liveActivity": {
+        "title": "即時活動",
+        "viewAll": "查看全部",
+        "runningCount": "{{count}} 個執行中",
+        "running": "執行中",
+        "done": "完成",
+        "failed": "失敗",
+        "stopped": "已停止",
+        "noProject": "無專案",
+        "empty": "尚無代理活動 — 建立一個代理即可在此查看即時執行。",
+        "createAgent": "建立代理"
+      },
+      "agents": {
+        "title": "代理",
+        "manage": "管理",
+        "kindCli": "CLI",
+        "kindPrompt": "提示",
+        "noHotkey": "無快捷鍵",
+        "enabled": "已啟用",
+        "empty": "尚未設定代理 — 新增一個即可用語音驅動工具。",
+        "createAgent": "建立代理",
+        "newAgent": "新增代理",
+        "toggleError": "無法更新代理：{{error}}"
+      },
+      "analytics": {
+        "title": "分析",
+        "openDashboard": "開啟完整儀表板",
+        "overTime": "聽寫隨時間變化",
+        "dictations": "聽寫",
+        "overTimeEmpty": "尚無資料 — 開始聽寫以查看趨勢。",
+        "topApps": "常用應用程式",
+        "topAppsEmpty": "尚未記錄應用程式使用情況。",
+        "streak": "連續 {{count}} 天"
+      },
+      "recent": {
+        "title": "最近聽寫",
+        "viewAll": "查看全部",
+        "empty": "尚無聽寫 — 你最近的轉錄將顯示於此。"
       }
     }
   },

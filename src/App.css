@@ -12,6 +12,13 @@
   --color-logo-stroke: var(--color-logo-stroke);
   --color-text-stroke: var(--color-text-stroke);
   --color-mid-gray: var(--color-mid-gray);
+  /* Flow OS premium surface + accent tokens (see styles/theme.css) */
+  --color-of-bg: var(--color-of-bg);
+  --color-of-surface: var(--color-of-surface);
+  --color-of-raised: var(--color-of-raised);
+  --color-of-hairline: var(--color-of-hairline);
+  --color-of-violet: var(--color-of-violet);
+  --color-of-cyan: var(--color-of-cyan);
 }
 
 :root {
@@ -103,4 +110,73 @@
   fill: var(--color-logo-stroke);
   stroke: var(--color-logo-stroke);
   stroke-width: 1;
+}
+
+/* --------------------------------------------------------------------------
+   Flow OS increment 3 — premium UI polish sweep (low-risk, app-wide)
+   -------------------------------------------------------------------------- */
+
+/* Consistent keyboard focus ring. Only affects elements reached via keyboard
+   (`:focus-visible`), so mouse interactions stay clean. Buttons that set their
+   own `focus:ring-*` still win via specificity/Tailwind layering. */
+:focus-visible {
+  outline: 2px solid var(--color-of-violet, var(--color-logo-primary));
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Brand gradient wordmark / hero moment — used sparingly. */
+.of-gradient-text {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-of-violet),
+    var(--color-of-cyan)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Subtle "rise + fade" on section mount / card hover. Gated behind
+   prefers-reduced-motion below. */
+@keyframes of-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.of-rise-in {
+  animation: of-rise-in 220ms ease-out both;
+}
+
+.of-hover-rise {
+  transition:
+    transform 180ms ease-out,
+    border-color 180ms ease-out,
+    background-color 180ms ease-out;
+}
+
+.of-hover-rise:hover {
+  transform: translateY(-2px);
+}
+
+/* Respect reduced-motion everywhere: neutralise animations/transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .of-hover-rise:hover {
+    transform: none;
+  }
 }

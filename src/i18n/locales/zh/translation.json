@@ -20,7 +20,9 @@
     "about": "关于",
     "agentRuns": "智能体运行",
     "advancedMode": "高级模式",
-    "advancedModeTooltip": "显示所有设置和高级功能"
+    "advancedModeTooltip": "显示所有设置和高级功能",
+    "missionControl": "任务控制",
+    "resizeHandle": "调整侧边栏宽度"
   },
   "onboarding": {
     "subtitle": "请选择一个转录模型以开始使用",
@@ -790,6 +792,59 @@
         "ran": "已运行 {{command}}",
         "read": "已读取 {{target}}",
         "used": "已使用 {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "早上好",
+        "greetingAfternoon": "下午好",
+        "greetingEvening": "晚上好",
+        "stateIdle": "空闲",
+        "stateListening": "聆听中",
+        "dictationsToday": "今日听写",
+        "wordsToday": "今日字数",
+        "avgWpm": "平均字/分",
+        "wpmValue": "{{wpm}} 字/分",
+        "timeSaved": "节省时间"
+      },
+      "liveActivity": {
+        "title": "实时活动",
+        "viewAll": "查看全部",
+        "runningCount": "{{count}} 个运行中",
+        "running": "运行中",
+        "done": "完成",
+        "failed": "失败",
+        "stopped": "已停止",
+        "noProject": "无项目",
+        "empty": "还没有智能体活动 — 创建一个智能体即可在此查看实时运行。",
+        "createAgent": "创建智能体"
+      },
+      "agents": {
+        "title": "智能体",
+        "manage": "管理",
+        "kindCli": "CLI",
+        "kindPrompt": "提示",
+        "noHotkey": "无快捷键",
+        "enabled": "已启用",
+        "empty": "尚未配置智能体 — 添加一个即可用语音驱动工具。",
+        "createAgent": "创建智能体",
+        "newAgent": "新建智能体",
+        "toggleError": "无法更新智能体：{{error}}"
+      },
+      "analytics": {
+        "title": "分析",
+        "openDashboard": "打开完整仪表板",
+        "overTime": "听写随时间变化",
+        "dictations": "听写",
+        "overTimeEmpty": "暂无数据 — 开始听写以查看趋势。",
+        "topApps": "常用应用",
+        "topAppsEmpty": "尚未记录应用使用情况。",
+        "streak": "连续 {{count}} 天"
+      },
+      "recent": {
+        "title": "最近听写",
+        "viewAll": "查看全部",
+        "empty": "暂无听写 — 你最近的转录将显示在此处。"
       }
     }
   },

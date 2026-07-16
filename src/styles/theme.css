@@ -9,6 +9,21 @@
   --color-logo-stroke: #2a2455;
   --color-text-stroke: #f6f6f6;
   --color-mid-gray: #808080;
+
+  /* --- Flow OS "premium" surface tokens (increment 3 / Mission Control) ---
+     A calm, layered surface system used by Mission Control and the shared
+     Card. Introduced as NEW tokens (prefix `of-`) rather than overriding the
+     app-wide background so existing settings panels keep their established
+     look — the premium pass is adopted fully in Mission Control and only as
+     low-risk touch-ups elsewhere. Light-mode equivalents below; dark-mode
+     uses the validated hexes from the design contract. */
+  --color-of-bg: #f4f4f7;
+  --color-of-surface: #ffffff;
+  --color-of-raised: #fbfbfd;
+  --color-of-hairline: rgba(15, 15, 20, 0.08);
+  /* Brand accents used SPARINGLY (wordmark, hero, active nav, running pulse). */
+  --color-of-violet: #7c5cff;
+  --color-of-cyan: #22d3ee;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -18,5 +33,10 @@
     --color-logo-primary: #8b7dfa;
     --color-logo-secondary: #22d3ee;
     --color-logo-stroke: #d8d3fd;
+
+    --color-of-bg: #0b0b10;
+    --color-of-surface: #14141c;
+    --color-of-raised: #1b1b26;
+    --color-of-hairline: rgba(255, 255, 255, 0.07);
   }
 }

@@ -215,3 +215,17 @@ See the [Troubleshooting](README.md#troubleshooting) section in README.md.
 - **Full contributor workflow:** [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Commits:** Use conventional commit prefixes (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`). Focus the message on _why_, not _what_.
+
+## The non-breaking principle (standing rule — applies to every change)
+
+Whatever works today — especially the core dictation loop (hotkey → capture → STT →
+cleanup → inject) — must NOT be touched or impacted by new features. Concretely:
+
+- New features are **additive**: new modules/sections/commands; settings fields always
+  `#[serde(default)]` (the settings store wipes to defaults on any parse failure).
+- Gate new code paths so behavior is **byte-for-byte identical when the feature is
+  unconfigured** (see `finish_dictation`'s `agent_id: Option<...>` pattern).
+- Prefer a **parallel sibling pipeline** over modifying the core one (e.g. meeting
+  capture is a sibling of the transcription coordinator, not a change to it).
+- Every PR's verification must include the **regression half**: prove pre-existing
+  behavior is unchanged with the new feature present AND absent/unconfigured.
