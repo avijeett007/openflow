@@ -4,16 +4,16 @@ Branch `feat/ai-modes`, on top of Phase A (`bdcfe40`).
 
 ## Gates (all green)
 
-| Gate | Result |
-| --- | --- |
-| `cargo test` | 243 passed, 0 failed (was ~221; +new AI-mode tests) |
-| `cargo build` | clean (only pre-existing warnings) |
-| `cargo fmt --check` | clean |
-| `bunx tsc --noEmit` | clean |
-| `bun run lint` | 0 errors (1 pre-existing unrelated warning in devAutomation.ts) |
-| `bun run format` | applied |
-| `bun run build` | success (2806 modules) |
-| bindings.ts | regenerated headless via `cargo run -- --list-models` |
+| Gate                | Result                                                          |
+| ------------------- | --------------------------------------------------------------- |
+| `cargo test`        | 243 passed, 0 failed (was ~221; +new AI-mode tests)             |
+| `cargo build`       | clean (only pre-existing warnings)                              |
+| `cargo fmt --check` | clean                                                           |
+| `bunx tsc --noEmit` | clean                                                           |
+| `bun run lint`      | 0 errors (1 pre-existing unrelated warning in devAutomation.ts) |
+| `bun run format`    | applied                                                         |
+| `bun run build`     | success (2806 modules)                                          |
+| bindings.ts         | regenerated headless via `cargo run -- --list-models`           |
 
 ## Live e2e — NOT run (honest note)
 
@@ -42,7 +42,7 @@ contract's "if the user's production app runs, do NOT launch tauri dev" clause.
   (case-insensitive substring both ways vs bundle id AND name; empty rule /
   unknown app never match).
 - **Command fence-strip fallback** — `strip_command_fences_variants`
-  (bare / ```lang fenced / ``` fenced / single-backtick / multi-line).
+  (bare / `lang fenced / ` fenced / single-backtick / multi-line).
 - **Direct bypasses LLM** — `direct_mode_bypasses_llm` (`mode_requires_llm`
   short-circuits before any provider/network work).
 - **Hidden base + editable body** — `mode_system_prompt_has_hidden_base_plus_body`.
@@ -54,7 +54,7 @@ contract's "if the user's production app runs, do NOT launch tauri dev" clause.
   `transcription_coordinator::tests::recognizes_mode_bindings` /
   `transcribe_agent_and_mode_bindings_are_disjoint`.
 - **Legacy-store additive safety** — `settings::tests::legacy_store_without_ai_modes_deserializes_to_empty`
-  + `ai_mode_partial_entry_defaults_cleanly`.
+  - `ai_mode_partial_entry_defaults_cleanly`.
 
 ## Regression half (non-breaking rule)
 
@@ -69,8 +69,8 @@ contract's "if the user's production app runs, do NOT launch tauri dev" clause.
 
 `resolve_ai_mode(settings, mode_id, target, post_process)` precedence:
 
-1. `HotkeyMode`   — a `mode:<id>` hotkey fired and that mode exists + is enabled.
-2. `AppRuleMode`  — no hotkey mode; an enabled mode's `app_rules` match the app
+1. `HotkeyMode` — a `mode:<id>` hotkey fired and that mode exists + is enabled.
+2. `AppRuleMode` — no hotkey mode; an enabled mode's `app_rules` match the app
    captured at press time (case-insensitive substring both ways vs bundle+name).
 3. `LegacyPerAppPrompt` — cleanup will run AND a `per_app_prompts` entry matches.
 4. `DefaultCleanup` — cleanup will run with the selected prompt.
