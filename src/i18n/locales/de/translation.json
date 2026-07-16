@@ -21,7 +21,9 @@
     "agentRuns": "Agent-Läufe",
     "advancedMode": "Erweiterter Modus",
     "advancedModeTooltip": "Alle Einstellungen und erweiterten Funktionen anzeigen",
-    "meetings": "Meetings"
+    "missionControl": "Mission Control",
+    "meetings": "Meetings",
+    "resizeHandle": "Seitenleiste in der Größe ändern"
   },
   "onboarding": {
     "subtitle": "Wähle ein Transkriptionsmodell, um loszulegen",
@@ -797,6 +799,59 @@
         "ran": "Ausgeführt: {{command}}",
         "read": "{{target}} gelesen",
         "used": "{{tool}} verwendet"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "Guten Morgen",
+        "greetingAfternoon": "Guten Tag",
+        "greetingEvening": "Guten Abend",
+        "stateIdle": "Bereit",
+        "stateListening": "Höre zu",
+        "dictationsToday": "Diktate heute",
+        "wordsToday": "Wörter heute",
+        "avgWpm": "Ø WPM",
+        "wpmValue": "{{wpm}} WPM",
+        "timeSaved": "Gesparte Zeit"
+      },
+      "liveActivity": {
+        "title": "Live-Aktivität",
+        "viewAll": "Alle anzeigen",
+        "runningCount": "{{count}} laufend",
+        "running": "Läuft",
+        "done": "Fertig",
+        "failed": "Fehlgeschlagen",
+        "stopped": "Gestoppt",
+        "noProject": "Kein Projekt",
+        "empty": "Noch keine Agent-Aktivität — erstelle einen Agenten, um Läufe hier live zu sehen.",
+        "createAgent": "Agent erstellen"
+      },
+      "agents": {
+        "title": "Agenten",
+        "manage": "Verwalten",
+        "kindCli": "CLI",
+        "kindPrompt": "Prompt",
+        "noHotkey": "Kein Kürzel",
+        "enabled": "Aktiv",
+        "empty": "Noch keine Agenten konfiguriert — füge einen hinzu, um Tools per Stimme zu steuern.",
+        "createAgent": "Agent erstellen",
+        "newAgent": "Neuer Agent",
+        "toggleError": "Agent konnte nicht aktualisiert werden: {{error}}"
+      },
+      "analytics": {
+        "title": "Analysen",
+        "openDashboard": "Dashboard öffnen",
+        "overTime": "Diktate im Zeitverlauf",
+        "dictations": "Diktate",
+        "overTimeEmpty": "Noch keine Daten — beginne zu diktieren, um deinen Trend zu sehen.",
+        "topApps": "Top-Apps",
+        "topAppsEmpty": "Noch keine App-Nutzung erfasst.",
+        "streak": "{{count}}-Tage-Serie"
+      },
+      "recent": {
+        "title": "Letzte Diktate",
+        "viewAll": "Alle anzeigen",
+        "empty": "Noch keine Diktate — deine letzten Transkriptionen erscheinen hier."
       }
     },
     "meetings": {

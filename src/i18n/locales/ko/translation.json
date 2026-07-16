@@ -21,7 +21,9 @@
     "agentRuns": "에이전트 실행",
     "advancedMode": "고급 모드",
     "advancedModeTooltip": "모든 설정 및 고급 기능 표시",
-    "meetings": "Meetings"
+    "missionControl": "미션 컨트롤",
+    "meetings": "Meetings",
+    "resizeHandle": "사이드바 크기 조절"
   },
   "onboarding": {
     "subtitle": "시작하려면 음성 인식 모델을 선택하세요",
@@ -797,6 +799,59 @@
         "ran": "{{command}} 실행됨",
         "read": "{{target}} 읽음",
         "used": "{{tool}} 사용됨"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "좋은 아침이에요",
+        "greetingAfternoon": "좋은 오후예요",
+        "greetingEvening": "좋은 저녁이에요",
+        "stateIdle": "대기 중",
+        "stateListening": "듣는 중",
+        "dictationsToday": "오늘 받아쓰기",
+        "wordsToday": "오늘 단어 수",
+        "avgWpm": "평균 WPM",
+        "wpmValue": "{{wpm}} wpm",
+        "timeSaved": "절약한 시간"
+      },
+      "liveActivity": {
+        "title": "실시간 활동",
+        "viewAll": "전체 보기",
+        "runningCount": "{{count}}개 실행 중",
+        "running": "실행 중",
+        "done": "완료",
+        "failed": "실패",
+        "stopped": "중지됨",
+        "noProject": "프로젝트 없음",
+        "empty": "아직 에이전트 활동이 없습니다 — 에이전트를 만들면 실행이 여기에 표시됩니다.",
+        "createAgent": "에이전트 만들기"
+      },
+      "agents": {
+        "title": "에이전트",
+        "manage": "관리",
+        "kindCli": "CLI",
+        "kindPrompt": "프롬프트",
+        "noHotkey": "단축키 없음",
+        "enabled": "사용 중",
+        "empty": "구성된 에이전트가 없습니다 — 하나 추가해 음성으로 도구를 제어하세요.",
+        "createAgent": "에이전트 만들기",
+        "newAgent": "새 에이전트",
+        "toggleError": "에이전트를 업데이트할 수 없습니다: {{error}}"
+      },
+      "analytics": {
+        "title": "분석",
+        "openDashboard": "전체 대시보드 열기",
+        "overTime": "시간별 받아쓰기",
+        "dictations": "받아쓰기",
+        "overTimeEmpty": "아직 데이터가 없습니다 — 받아쓰기를 시작하면 추세가 표시됩니다.",
+        "topApps": "주요 앱",
+        "topAppsEmpty": "아직 앱 사용 기록이 없습니다.",
+        "streak": "{{count}}일 연속"
+      },
+      "recent": {
+        "title": "최근 받아쓰기",
+        "viewAll": "전체 보기",
+        "empty": "아직 받아쓰기가 없습니다 — 최근 전사가 여기에 표시됩니다."
       }
     },
     "meetings": {

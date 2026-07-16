@@ -21,7 +21,9 @@
     "agentRuns": "عمليات تشغيل الوكلاء",
     "advancedMode": "الوضع المتقدم",
     "advancedModeTooltip": "إظهار جميع الإعدادات والميزات المتقدمة",
-    "meetings": "Meetings"
+    "missionControl": "مركز التحكم",
+    "meetings": "Meetings",
+    "resizeHandle": "تغيير حجم الشريط الجانبي"
   },
   "onboarding": {
     "subtitle": "للبدء، اختر نموذج التفريغ الصوتي",
@@ -797,6 +799,59 @@
         "ran": "تم تشغيل {{command}}",
         "read": "تمت قراءة {{target}}",
         "used": "تم استخدام {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "صباح الخير",
+        "greetingAfternoon": "مساء الخير",
+        "greetingEvening": "مساء الخير",
+        "stateIdle": "خامل",
+        "stateListening": "يستمع",
+        "dictationsToday": "الإملاءات اليوم",
+        "wordsToday": "الكلمات اليوم",
+        "avgWpm": "متوسط ك/د",
+        "wpmValue": "{{wpm}} ك/د",
+        "timeSaved": "الوقت الموفَّر"
+      },
+      "liveActivity": {
+        "title": "النشاط المباشر",
+        "viewAll": "عرض الكل",
+        "runningCount": "{{count}} قيد التشغيل",
+        "running": "قيد التشغيل",
+        "done": "تم",
+        "failed": "فشل",
+        "stopped": "متوقف",
+        "noProject": "بدون مشروع",
+        "empty": "لا يوجد نشاط للوكلاء بعد — أنشئ وكيلاً لرؤية عمليات التشغيل المباشرة هنا.",
+        "createAgent": "إنشاء وكيل"
+      },
+      "agents": {
+        "title": "الوكلاء",
+        "manage": "إدارة",
+        "kindCli": "CLI",
+        "kindPrompt": "موجّه",
+        "noHotkey": "لا يوجد اختصار",
+        "enabled": "مُفعَّل",
+        "empty": "لا يوجد وكلاء مُهيَّؤون بعد — أضف واحداً للتحكم في الأدوات بالصوت.",
+        "createAgent": "إنشاء وكيل",
+        "newAgent": "وكيل جديد",
+        "toggleError": "تعذَّر تحديث الوكيل: {{error}}"
+      },
+      "analytics": {
+        "title": "التحليلات",
+        "openDashboard": "فتح لوحة التحكم الكاملة",
+        "overTime": "الإملاءات عبر الوقت",
+        "dictations": "الإملاءات",
+        "overTimeEmpty": "لا توجد بيانات بعد — ابدأ الإملاء لرؤية اتجاهك.",
+        "topApps": "أبرز التطبيقات",
+        "topAppsEmpty": "لم يُسجَّل أي استخدام للتطبيقات بعد.",
+        "streak": "سلسلة {{count}} يوماً"
+      },
+      "recent": {
+        "title": "الإملاءات الأخيرة",
+        "viewAll": "عرض الكل",
+        "empty": "لا توجد إملاءات بعد — ستظهر نصوصك الأخيرة هنا."
       }
     },
     "meetings": {

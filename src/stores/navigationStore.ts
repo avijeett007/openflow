@@ -11,6 +11,7 @@ interface NavigationStore {
 }
 
 export const useNavigationStore = create<NavigationStore>((set) => ({
-  currentSection: "general",
+  // Mission Control is the new default home view (Flow OS increment 3).
+  currentSection: "missionControl",
   setCurrentSection: (section) => set({ currentSection: section }),
 }));

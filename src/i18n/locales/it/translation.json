@@ -21,7 +21,9 @@
     "agentRuns": "Esecuzioni agenti",
     "advancedMode": "Modalità avanzata",
     "advancedModeTooltip": "Mostra tutte le impostazioni e le funzionalità avanzate",
-    "meetings": "Meetings"
+    "missionControl": "Centro di Controllo",
+    "meetings": "Meetings",
+    "resizeHandle": "Ridimensiona la barra laterale"
   },
   "onboarding": {
     "subtitle": "Per cominciare, scegli un modello di riconoscimento vocale",
@@ -797,6 +799,59 @@
         "ran": "Eseguito {{command}}",
         "read": "Letto {{target}}",
         "used": "Usato {{tool}}"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "Buongiorno",
+        "greetingAfternoon": "Buon pomeriggio",
+        "greetingEvening": "Buonasera",
+        "stateIdle": "Inattivo",
+        "stateListening": "In ascolto",
+        "dictationsToday": "Dettature oggi",
+        "wordsToday": "Parole oggi",
+        "avgWpm": "PPM medie",
+        "wpmValue": "{{wpm}} ppm",
+        "timeSaved": "Tempo risparmiato"
+      },
+      "liveActivity": {
+        "title": "Attività dal vivo",
+        "viewAll": "Vedi tutto",
+        "runningCount": "{{count}} in esecuzione",
+        "running": "In esecuzione",
+        "done": "Fatto",
+        "failed": "Fallito",
+        "stopped": "Fermato",
+        "noProject": "Nessun progetto",
+        "empty": "Nessuna attività degli agenti — crea un agente per vedere qui le esecuzioni dal vivo.",
+        "createAgent": "Crea un agente"
+      },
+      "agents": {
+        "title": "Agenti",
+        "manage": "Gestisci",
+        "kindCli": "CLI",
+        "kindPrompt": "Prompt",
+        "noHotkey": "Nessuna scorciatoia",
+        "enabled": "Attivo",
+        "empty": "Nessun agente configurato — aggiungine uno per controllare gli strumenti con la voce.",
+        "createAgent": "Crea un agente",
+        "newAgent": "Nuovo agente",
+        "toggleError": "Impossibile aggiornare l'agente: {{error}}"
+      },
+      "analytics": {
+        "title": "Statistiche",
+        "openDashboard": "Apri dashboard completa",
+        "overTime": "Dettature nel tempo",
+        "dictations": "Dettature",
+        "overTimeEmpty": "Ancora nessun dato — inizia a dettare per vedere il tuo andamento.",
+        "topApps": "App principali",
+        "topAppsEmpty": "Nessun utilizzo di app registrato.",
+        "streak": "Serie di {{count}} giorni"
+      },
+      "recent": {
+        "title": "Dettature recenti",
+        "viewAll": "Vedi tutto",
+        "empty": "Ancora nessuna dettatura — le tue trascrizioni recenti appariranno qui."
       }
     },
     "meetings": {

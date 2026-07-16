@@ -21,7 +21,9 @@
     "agentRuns": "Ajan Çalıştırmaları",
     "advancedMode": "Gelişmiş mod",
     "advancedModeTooltip": "Tüm ayarları ve gelişmiş özellikleri göster",
-    "meetings": "Meetings"
+    "missionControl": "Görev Kontrol",
+    "meetings": "Meetings",
+    "resizeHandle": "Kenar çubuğunu yeniden boyutlandır"
   },
   "onboarding": {
     "subtitle": "Başlamak için bir transkripsiyon modeli seçin",
@@ -797,6 +799,59 @@
         "ran": "{{command}} çalıştırıldı",
         "read": "{{target}} okundu",
         "used": "{{tool}} kullanıldı"
+      }
+    },
+    "missionControl": {
+      "hero": {
+        "greetingMorning": "Günaydın",
+        "greetingAfternoon": "İyi günler",
+        "greetingEvening": "İyi akşamlar",
+        "stateIdle": "Boşta",
+        "stateListening": "Dinliyor",
+        "dictationsToday": "Bugünkü dikteler",
+        "wordsToday": "Bugünkü kelimeler",
+        "avgWpm": "Ort. KDS",
+        "wpmValue": "{{wpm}} kds",
+        "timeSaved": "Kazanılan süre"
+      },
+      "liveActivity": {
+        "title": "Canlı etkinlik",
+        "viewAll": "Tümünü gör",
+        "runningCount": "{{count}} çalışıyor",
+        "running": "Çalışıyor",
+        "done": "Bitti",
+        "failed": "Başarısız",
+        "stopped": "Durduruldu",
+        "noProject": "Proje yok",
+        "empty": "Henüz ajan etkinliği yok — canlı çalışmaları burada görmek için bir ajan oluşturun.",
+        "createAgent": "Ajan oluştur"
+      },
+      "agents": {
+        "title": "Ajanlar",
+        "manage": "Yönet",
+        "kindCli": "CLI",
+        "kindPrompt": "İstem",
+        "noHotkey": "Kısayol yok",
+        "enabled": "Etkin",
+        "empty": "Henüz yapılandırılmış ajan yok — araçları sesle yönetmek için bir tane ekleyin.",
+        "createAgent": "Ajan oluştur",
+        "newAgent": "Yeni ajan",
+        "toggleError": "Ajan güncellenemedi: {{error}}"
+      },
+      "analytics": {
+        "title": "Analizler",
+        "openDashboard": "Tam panoyu aç",
+        "overTime": "Zamana göre dikteler",
+        "dictations": "Dikteler",
+        "overTimeEmpty": "Henüz veri yok — eğilimini görmek için dikte etmeye başla.",
+        "topApps": "En çok kullanılan uygulamalar",
+        "topAppsEmpty": "Henüz uygulama kullanımı kaydedilmedi.",
+        "streak": "{{count}} günlük seri"
+      },
+      "recent": {
+        "title": "Son dikteler",
+        "viewAll": "Tümünü gör",
+        "empty": "Henüz dikte yok — son transkripsiyonların burada görünecek."
       }
     },
     "meetings": {

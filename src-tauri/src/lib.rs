@@ -893,10 +893,13 @@ pub fn run(cli_args: CliArgs) {
             let mut win_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("/".into()))
                     .title("OpenFlow")
-                    .inner_size(680.0, 570.0)
-                    .min_inner_size(680.0, 570.0)
+                    // Dashboard-first default (Mission Control is the home view).
+                    // Handy's 680x570 settings-panel size predates it. 900x620 is
+                    // the verified minimum layout size (no overflow/clipping).
+                    .inner_size(1180.0, 760.0)
+                    .min_inner_size(900.0, 620.0)
                     .resizable(true)
-                    .maximizable(false)
+                    .maximizable(true)
                     .visible(false);
 
             if let Some(data_dir) = portable::data_dir() {

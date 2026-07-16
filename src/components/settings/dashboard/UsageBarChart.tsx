@@ -11,6 +11,12 @@ import {
   YAxis,
 } from "recharts";
 import { formatCompactNumber } from "@/lib/utils/format";
+import {
+  CHART_AXIS_COLOR,
+  CHART_TOOLTIP_LABEL_STYLE,
+  CHART_TOOLTIP_STYLE,
+  CHART_VIOLET,
+} from "@/lib/chartPalette";
 import { ModeToggle } from "../model-setup/ModeToggle";
 import { EmptyState } from "./EmptyState";
 
@@ -29,8 +35,6 @@ interface UsageBarChartProps {
 }
 
 const MAX_BARS = 8;
-const CHART_AXIS_COLOR =
-  "color-mix(in srgb, var(--color-text) 55%, transparent)";
 
 /** Horizontal bar chart shared by the "by app" and "by project" sections. */
 export const UsageBarChart: React.FC<UsageBarChartProps> = ({
@@ -100,14 +104,8 @@ export const UsageBarChart: React.FC<UsageBarChartProps> = ({
                     ? t("settings.dashboard.overTime.dictations")
                     : t("settings.dashboard.overTime.words"),
                 ]}
-                contentStyle={{
-                  backgroundColor: "var(--color-background)",
-                  border:
-                    "1px solid color-mix(in srgb, var(--color-mid-gray) 40%, transparent)",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                labelStyle={{ color: "var(--color-text)" }}
+                contentStyle={CHART_TOOLTIP_STYLE}
+                labelStyle={CHART_TOOLTIP_LABEL_STYLE}
               />
               <Bar
                 dataKey={metric}
@@ -122,7 +120,7 @@ export const UsageBarChart: React.FC<UsageBarChartProps> = ({
                 }}
               >
                 {sorted.map((entry) => (
-                  <Cell key={entry.name} fill="var(--color-logo-primary)" />
+                  <Cell key={entry.name} fill={CHART_VIOLET} />
                 ))}
               </Bar>
             </BarChart>
