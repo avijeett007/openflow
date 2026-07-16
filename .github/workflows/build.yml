@@ -203,12 +203,26 @@ jobs:
           uploadUpdaterSignatures: false
           args: ${{ matrix.args }}
 
-      # The Intel .app links ONNX Runtime at an absolute Homebrew path, so the
-      # tauri-action dmg would crash on a clean Intel Mac. Bundle the dylib into
-      # Contents/Frameworks, repoint it to @executable_path, re-sign (the
-      # entitlements already carry disable-library-validation), rebuild the dmg,
-      # and on tag builds replace the broken asset tauri-action uploaded.
-      - name: Bundle ONNX Runtime into Intel .app and rebuild dmg
+      # How the Intel .app links ONNX Runtime is NOT fixed — it depends on what
+      # else is in the dependency graph, so this step must handle every case
+      # instead of assuming a Homebrew dynamic link always exists (that wrong
+      # assumption is exactly what broke v0.15.0: `sherpa-onnx-sys` statically
+      # links onnxruntime, ld64 then dead-strips the now-unused dynamic
+      # `libonnxruntime.1.dylib` load command, `otool` finds nothing, and the old
+      # `cp -L ''` failed with exit 1). Three linkage cases:
+      #   (a) an external onnxruntime (Homebrew absolute path, or @rpath) — would
+      #       crash on a clean Intel Mac; bundle the dylib into Contents/Frameworks,
+      #       repoint to @executable_path, re-sign, and verify no brew path remains.
+      #   (b) already @executable_path/../Frameworks — verify the dylib is present.
+      #   (c) NO dynamic onnxruntime link at all — statically linked and fully
+      #       self-contained (sherpa-onnx static build); nothing to bundle, skip.
+      # Only cases (a)/(b) mutate the .app, so only they rebuild the dmg and
+      # regenerate + re-sign the updater `.app.tar.gz`/`.sig`; case (c) leaves
+      # tauri-action's already-correct, self-contained artifacts untouched. The
+      # dmg rebuild and updater re-sign live in ONE step on purpose so a fixed .app
+      # and its updater archive can never diverge. ONNX_CASE is exported for the
+      # assertion gate below.
+      - name: Bundle ONNX Runtime into Intel .app and rebuild artifacts
         if: matrix.target == 'x86_64-apple-darwin'
         shell: bash
         env:
@@ -217,21 +231,76 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euxo pipefail
-          APP="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/OpenFlow.app"
-          # The exact onnxruntime path the binary references. `otool -L` prints
-          # tab-indented "<path> (compatibility ...)" lines; awk's $1 gives the
-          # clean path without the leading tab.
-          CUR="$(otool -L "$APP/Contents/MacOS/openflow" | awk '/libonnxruntime/ {print $1; exit}')"
-          echo "linked onnxruntime: $CUR"
-          mkdir -p "$APP/Contents/Frameworks"
-          cp -L "$CUR" "$APP/Contents/Frameworks/libonnxruntime.1.dylib"
-          chmod u+w "$APP/Contents/Frameworks/libonnxruntime.1.dylib"
-          install_name_tool -id "@executable_path/../Frameworks/libonnxruntime.1.dylib" "$APP/Contents/Frameworks/libonnxruntime.1.dylib"
-          install_name_tool -change "$CUR" "@executable_path/../Frameworks/libonnxruntime.1.dylib" "$APP/Contents/MacOS/openflow"
-          codesign --force -s - "$APP/Contents/Frameworks/libonnxruntime.1.dylib"
-          codesign --force -s - --entitlements src-tauri/Entitlements.plist "$APP"
-          codesign --verify --deep --strict "$APP"
-          otool -L "$APP/Contents/MacOS/openflow" | grep onnxruntime
+          MACOS_DIR="src-tauri/target/x86_64-apple-darwin/release/bundle/macos"
+          ENTITLEMENTS="src-tauri/Entitlements.plist"
+          DEST_ID="@executable_path/../Frameworks/libonnxruntime.1.dylib"
+
+          # 1. Locate the built .app deterministically; fail loudly if it is missing.
+          shopt -s nullglob
+          APPS=("$MACOS_DIR"/*.app)
+          shopt -u nullglob
+          if [ "${#APPS[@]}" -ne 1 ]; then
+            echo "ERROR: expected exactly one .app under $MACOS_DIR, found ${#APPS[@]}" >&2
+            ls -la "$MACOS_DIR" >&2 || true
+            exit 1
+          fi
+          APP="${APPS[0]}"
+          BIN="$APP/Contents/MacOS/openflow"
+          FW="$APP/Contents/Frameworks/libonnxruntime.1.dylib"
+          echo "app: $APP"
+
+          # 2. Classify the onnxruntime linkage. `otool -L` prints tab-indented
+          #    "<path> (compatibility ...)" lines; awk's $1 is the clean dylib path.
+          CUR="$(otool -L "$BIN" | awk '/libonnxruntime/ {print $1; exit}')"
+          echo "linked onnxruntime: '${CUR:-<none>}'"
+
+          if [ -z "$CUR" ]; then
+            # (c) Statically linked (no dynamic dependency). Self-contained — nothing
+            #     to bundle. tauri-action's dmg + updater archive are already correct.
+            echo "onnxruntime is statically linked (no dynamic dependency) — skipping bundling"
+            echo "ONNX_CASE=c" >> "$GITHUB_ENV"
+            exit 0
+          elif [[ "$CUR" == "$DEST_ID" ]]; then
+            # (b) Already repointed into the bundle — just confirm the dylib exists.
+            [ -f "$FW" ] || { echo "ERROR: binary links $DEST_ID but $FW is missing" >&2; exit 1; }
+            echo "onnxruntime already bundled at $DEST_ID"
+            echo "ONNX_CASE=b" >> "$GITHUB_ENV"
+          else
+            # (a) External onnxruntime (brew absolute path or @rpath). Bundle it.
+            echo "ONNX_CASE=a" >> "$GITHUB_ENV"
+            mkdir -p "$APP/Contents/Frameworks"
+            if [ -f "$CUR" ]; then
+              SRC="$CUR"                                            # absolute path present on the runner
+            elif [ -n "${ORT_LIB_LOCATION:-}" ] && [ -f "$ORT_LIB_LOCATION/libonnxruntime.1.dylib" ]; then
+              SRC="$ORT_LIB_LOCATION/libonnxruntime.1.dylib"        # @rpath / non-resolvable: fall back to ORT_LIB_LOCATION
+            else
+              echo "ERROR: cannot locate a source libonnxruntime.1.dylib (linked '$CUR', ORT_LIB_LOCATION='${ORT_LIB_LOCATION:-}')" >&2
+              exit 1
+            fi
+            echo "bundling from: $SRC"
+            cp -L "$SRC" "$FW"
+            chmod u+w "$FW"
+            install_name_tool -id "$DEST_ID" "$FW"
+            install_name_tool -change "$CUR" "$DEST_ID" "$BIN"
+            codesign --force -s - "$FW"
+            # Entitlements already carry disable-library-validation for the ad-hoc sig.
+            codesign --force -s - --entitlements "$ENTITLEMENTS" "$APP"
+            codesign --verify --deep --strict "$APP"
+            # Hard-verify: @executable_path present AND no absolute brew path remains.
+            POST="$(otool -L "$BIN" | grep -i onnxruntime || true)"
+            echo "post-bundle onnxruntime links:"; echo "$POST"
+            echo "$POST" | grep -qF "$DEST_ID" \
+              || { echo "ERROR: expected $DEST_ID after bundling, got: $POST" >&2; exit 1; }
+            if echo "$POST" | grep -Eq '(/usr/local/|/opt/homebrew/)[^ ]*onnxruntime'; then
+              echo "ERROR: an absolute brew onnxruntime path still remains: $POST" >&2; exit 1
+            fi
+            [ -f "$FW" ] || { echo "ERROR: $FW missing after bundling" >&2; exit 1; }
+          fi
+
+          # 3. The .app changed (case a/b): rebuild the dmg AND regenerate + re-sign
+          #    the updater archive from the SAME fixed .app so the dmg, the
+          #    `.app.tar.gz`, and its `.sig` can never disagree. On tag builds,
+          #    replace the pre-fix dmg tauri-action uploaded.
           VER="$(node -p "require('./package.json').version")"
           DMG="src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/OpenFlow_${VER}_x64.dmg"
           STAGE="$(mktemp -d)"
@@ -242,16 +311,62 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             gh release upload "${GITHUB_REF#refs/tags/}" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
           fi
-          # The updater archive `tauri build` produced wraps the PRE-fix .app
-          # (absolute Homebrew onnxruntime path) and would ship a crashing update
-          # to Intel users. Rebuild the `.app.tar.gz` from the fixed+re-signed
-          # .app and re-sign it with the updater (minisign) key so its `.sig`
-          # matches. COPYFILE_DISABLE avoids AppleDouble `._*` entries.
-          MACOS_DIR="src-tauri/target/x86_64-apple-darwin/release/bundle/macos"
+          # COPYFILE_DISABLE avoids AppleDouble `._*` entries in the archive.
           rm -f "$MACOS_DIR/OpenFlow.app.tar.gz" "$MACOS_DIR/OpenFlow.app.tar.gz.sig"
           COPYFILE_DISABLE=1 tar -C "$MACOS_DIR" -czf "$MACOS_DIR/OpenFlow.app.tar.gz" OpenFlow.app
           bun tauri signer sign "$MACOS_DIR/OpenFlow.app.tar.gz"
           ls -lh "$MACOS_DIR/OpenFlow.app.tar.gz" "$MACOS_DIR/OpenFlow.app.tar.gz.sig"
+
+      # Publish gate for the "Intel onnxruntime linkage" bug class: no downloads,
+      # just inspect the .app in place. ALWAYS fail if any external brew
+      # onnxruntime path survives. For the bundled cases (a/b) also assert the
+      # dylib is in Frameworks, the binary points at @executable_path, and the
+      # updater archive actually contains it — the exact things that were wrong or
+      # unverified before. For the static case (c) assert the binary is genuinely
+      # self-contained (no dynamic onnxruntime dependency at all).
+      - name: Assert Intel .app onnxruntime linkage (publish gate)
+        if: matrix.target == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          MACOS_DIR="src-tauri/target/x86_64-apple-darwin/release/bundle/macos"
+          shopt -s nullglob
+          APPS=("$MACOS_DIR"/*.app)
+          shopt -u nullglob
+          [ "${#APPS[@]}" -eq 1 ] || { echo "ERROR: expected one .app, found ${#APPS[@]}" >&2; ls -la "$MACOS_DIR" >&2 || true; exit 1; }
+          APP="${APPS[0]}"
+          BIN="$APP/Contents/MacOS/openflow"
+
+          LINKS="$(otool -L "$BIN" | grep -i onnxruntime || true)"
+          echo "onnxruntime links: '${LINKS:-<none>}'"
+          # Universal gate: an absolute brew path must never survive into a shipped app.
+          if echo "$LINKS" | grep -Eq '(/usr/local/|/opt/homebrew/)[^ ]*onnxruntime'; then
+            echo "ERROR: shipped Intel .app still links an absolute brew onnxruntime path" >&2
+            exit 1
+          fi
+
+          case "${ONNX_CASE:-}" in
+            a|b)
+              echo "case $ONNX_CASE: expecting a bundled dylib"
+              ls -la "$APP/Contents/Frameworks/"
+              [ -f "$APP/Contents/Frameworks/libonnxruntime.1.dylib" ] \
+                || { echo "ERROR: Frameworks/libonnxruntime.1.dylib missing" >&2; exit 1; }
+              echo "$LINKS" | grep -qF "@executable_path/../Frameworks/libonnxruntime.1.dylib" \
+                || { echo "ERROR: binary does not link @executable_path onnxruntime" >&2; exit 1; }
+              tar -tzf "$MACOS_DIR/OpenFlow.app.tar.gz" | grep -qi 'Frameworks/libonnxruntime' \
+                || { echo "ERROR: updater archive lacks Frameworks/libonnxruntime" >&2; exit 1; }
+              echo "PASS: onnxruntime bundled + repointed + present in updater archive"
+              ;;
+            c)
+              echo "case c: expecting a self-contained (statically linked) binary"
+              [ -z "$LINKS" ] || { echo "ERROR: case c but a dynamic onnxruntime link exists: $LINKS" >&2; exit 1; }
+              echo "PASS: onnxruntime statically linked, no external dependency"
+              ;;
+            *)
+              echo "ERROR: ONNX_CASE not set by the bundle step (was it skipped?)" >&2
+              exit 1
+              ;;
+          esac
 
       # Always upload the installers as workflow run artifacts (for both manual
       # dispatch and tag builds). macOS -> .dmg, Windows -> .exe (NSIS) + .msi.
