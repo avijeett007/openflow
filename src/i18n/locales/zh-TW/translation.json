@@ -22,6 +22,7 @@
     "advancedMode": "進階模式",
     "advancedModeTooltip": "顯示所有設定與進階功能",
     "missionControl": "任務控制",
+    "meetings": "Meetings",
     "resizeHandle": "調整側邊欄寬度"
   },
   "onboarding": {
@@ -173,6 +174,8 @@
         "none": "未設定快捷鍵",
         "notFound": "未找到快捷鍵",
         "pressKeys": "請按鍵...",
+        "setHotkey": "設定快速鍵",
+        "clear": "清除快速鍵",
         "bindings": {
           "transcribe": {
             "name": "轉錄快捷鍵",
@@ -185,6 +188,10 @@
           "transcribe_with_post_process": {
             "name": "後處理快捷鍵",
             "description": "可選：專用快捷鍵，使用時一律對轉錄結果套用 AI 後處理"
+          },
+          "meeting_capture": {
+            "name": "會議擷取快速鍵",
+            "description": "開始或停止擷取目前的會議。系統音訊會以最前景的應用程式（例如用於 Google Meet 的 Chrome）為目標。"
           }
         },
         "errors": {
@@ -846,6 +853,37 @@
         "viewAll": "查看全部",
         "empty": "尚無聽寫 — 你最近的轉錄將顯示於此。"
       }
+    },
+    "meetings": {
+      "title": "Meeting capture",
+      "intro": "Capture and transcribe your meetings on-device. Your voice and the meeting app's audio are transcribed locally — nothing leaves your Mac.",
+      "settingsTitle": "Detection",
+      "autoDetect": "Auto-detect meetings",
+      "autoDetectHint": "Offer to capture when a Zoom, Teams, or FaceTime call starts. Capture always requires your confirmation.",
+      "start": "Start capture",
+      "stop": "Stop",
+      "capturing": "Capturing",
+      "idleHint": "Start capturing the current meeting.",
+      "you": "You",
+      "them": "Them",
+      "emptyState": "No meetings yet. Start a capture, or accept the prompt when a call is detected.",
+      "rowMeta": "{{duration}} · {{count}} segments",
+      "back": "Back to meetings",
+      "noTranscript": "No transcript was captured for this meeting.",
+      "detectedTitle": "{{app}} call detected",
+      "detectedBody": "Record & transcribe this meeting on-device?",
+      "startCapture": "Start capturing",
+      "startError": "Couldn't start capture: {{error}}",
+      "stopError": "Couldn't stop capture: {{error}}",
+      "deleteError": "Couldn't delete the meeting: {{error}}",
+      "notice": {
+        "mic_only": "Capturing your microphone only. The other side of the call isn't being captured.",
+        "unsupported": "System audio capture needs macOS 14.4 or newer — capturing your microphone only.",
+        "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
+        "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
+        "error": "System audio couldn't be captured — capturing your microphone only."
+      },
+      "captureHotkeyTitle": "擷取快速鍵"
     }
   },
   "footer": {

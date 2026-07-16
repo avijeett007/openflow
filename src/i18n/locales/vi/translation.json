@@ -22,6 +22,7 @@
     "advancedMode": "Chế độ nâng cao",
     "advancedModeTooltip": "Hiển thị tất cả cài đặt và tính năng nâng cao",
     "missionControl": "Trung tâm điều khiển",
+    "meetings": "Meetings",
     "resizeHandle": "Thay đổi kích thước thanh bên"
   },
   "onboarding": {
@@ -191,6 +192,8 @@
         "none": "Chưa cấu hình phím tắt",
         "notFound": "Không tìm thấy phím tắt",
         "pressKeys": "Nhấn phím...",
+        "setHotkey": "Đặt phím tắt",
+        "clear": "Xóa phím tắt",
         "bindings": {
           "transcribe": {
             "name": "Phím tắt chuyển đổi",
@@ -203,6 +206,10 @@
           "transcribe_with_post_process": {
             "name": "Phím tắt xử lý sau",
             "description": "Tùy chọn: Phím tắt chuyên dụng luôn áp dụng xử lý sau bằng AI cho bản chuyển đổi của bạn."
+          },
+          "meeting_capture": {
+            "name": "Phím tắt ghi cuộc họp",
+            "description": "Bắt đầu hoặc dừng ghi cuộc họp hiện tại. Nhắm vào ứng dụng ở phía trước (như Chrome cho Google Meet) để lấy âm thanh hệ thống."
           }
         },
         "errors": {
@@ -846,6 +853,37 @@
         "viewAll": "Xem tất cả",
         "empty": "Chưa có bản đọc chính tả — các bản chép lời gần đây của bạn sẽ hiện ở đây."
       }
+    },
+    "meetings": {
+      "title": "Meeting capture",
+      "intro": "Capture and transcribe your meetings on-device. Your voice and the meeting app's audio are transcribed locally — nothing leaves your Mac.",
+      "settingsTitle": "Detection",
+      "autoDetect": "Auto-detect meetings",
+      "autoDetectHint": "Offer to capture when a Zoom, Teams, or FaceTime call starts. Capture always requires your confirmation.",
+      "start": "Start capture",
+      "stop": "Stop",
+      "capturing": "Capturing",
+      "idleHint": "Start capturing the current meeting.",
+      "you": "You",
+      "them": "Them",
+      "emptyState": "No meetings yet. Start a capture, or accept the prompt when a call is detected.",
+      "rowMeta": "{{duration}} · {{count}} segments",
+      "back": "Back to meetings",
+      "noTranscript": "No transcript was captured for this meeting.",
+      "detectedTitle": "{{app}} call detected",
+      "detectedBody": "Record & transcribe this meeting on-device?",
+      "startCapture": "Start capturing",
+      "startError": "Couldn't start capture: {{error}}",
+      "stopError": "Couldn't stop capture: {{error}}",
+      "deleteError": "Couldn't delete the meeting: {{error}}",
+      "notice": {
+        "mic_only": "Capturing your microphone only. The other side of the call isn't being captured.",
+        "unsupported": "System audio capture needs macOS 14.4 or newer — capturing your microphone only.",
+        "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
+        "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
+        "error": "System audio couldn't be captured — capturing your microphone only."
+      },
+      "captureHotkeyTitle": "Phím tắt ghi"
     }
   },
   "footer": {

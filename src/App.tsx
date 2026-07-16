@@ -19,6 +19,7 @@ import {
   isSectionVisible,
 } from "./components/Sidebar";
 import { WhatsNewGate } from "./components/whats-new";
+import { MeetingDetectionListener } from "./components/settings";
 import { useSettings } from "./hooks/useSettings";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useNavigationStore } from "./stores/navigationStore";
@@ -309,6 +310,7 @@ function App() {
         }}
       />
       <WhatsNewGate />
+      <MeetingDetectionListener />
       {/* Main content area that takes remaining space */}
       <div className="flex-1 flex overflow-hidden">
         <Sidebar

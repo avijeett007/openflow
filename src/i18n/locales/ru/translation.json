@@ -22,6 +22,7 @@
     "advancedMode": "Расширенный режим",
     "advancedModeTooltip": "Показать все настройки и расширенные функции",
     "missionControl": "Центр управления",
+    "meetings": "Meetings",
     "resizeHandle": "Изменить размер боковой панели"
   },
   "onboarding": {
@@ -191,6 +192,8 @@
         "none": "Ярлыки не настроены",
         "notFound": "Ярлык не найден",
         "pressKeys": "Нажимайте клавиши...",
+        "setHotkey": "Задать сочетание",
+        "clear": "Очистить сочетание",
         "bindings": {
           "transcribe": {
             "name": "Горячая клавиша транскрипции",
@@ -203,6 +206,10 @@
           "transcribe_with_post_process": {
             "name": "Горячая клавиша постобработки",
             "description": "Специальное сочетание клавиш для ИИ-постобработки вашей транскрипции."
+          },
+          "meeting_capture": {
+            "name": "Горячая клавиша записи встречи",
+            "description": "Запускает или останавливает запись текущей встречи. Захватывает системный звук активного приложения (например, Chrome для Google Meet)."
           }
         },
         "errors": {
@@ -846,6 +853,37 @@
         "viewAll": "Показать все",
         "empty": "Пока нет диктовок — здесь появятся недавние расшифровки."
       }
+    },
+    "meetings": {
+      "title": "Meeting capture",
+      "intro": "Capture and transcribe your meetings on-device. Your voice and the meeting app's audio are transcribed locally — nothing leaves your Mac.",
+      "settingsTitle": "Detection",
+      "autoDetect": "Auto-detect meetings",
+      "autoDetectHint": "Offer to capture when a Zoom, Teams, or FaceTime call starts. Capture always requires your confirmation.",
+      "start": "Start capture",
+      "stop": "Stop",
+      "capturing": "Capturing",
+      "idleHint": "Start capturing the current meeting.",
+      "you": "You",
+      "them": "Them",
+      "emptyState": "No meetings yet. Start a capture, or accept the prompt when a call is detected.",
+      "rowMeta": "{{duration}} · {{count}} segments",
+      "back": "Back to meetings",
+      "noTranscript": "No transcript was captured for this meeting.",
+      "detectedTitle": "{{app}} call detected",
+      "detectedBody": "Record & transcribe this meeting on-device?",
+      "startCapture": "Start capturing",
+      "startError": "Couldn't start capture: {{error}}",
+      "stopError": "Couldn't stop capture: {{error}}",
+      "deleteError": "Couldn't delete the meeting: {{error}}",
+      "notice": {
+        "mic_only": "Capturing your microphone only. The other side of the call isn't being captured.",
+        "unsupported": "System audio capture needs macOS 14.4 or newer — capturing your microphone only.",
+        "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
+        "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
+        "error": "System audio couldn't be captured — capturing your microphone only."
+      },
+      "captureHotkeyTitle": "Горячая клавиша записи"
     }
   },
   "footer": {

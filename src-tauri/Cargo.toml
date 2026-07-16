@@ -157,6 +157,21 @@ transcribe-cpp = { version = "0.1.0", default-features = false, features = ["met
 # replacing the osascript/System Events path that errored with -1719.
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }
+# OpenFlow Meetings (M1): system-audio capture via CoreAudio process taps
+# (macOS 14.4+ CATapDescription / AudioHardwareCreateProcessTap / aggregate
+# device) plus mic-in-use detection. All FFI is contained in meeting/capture.rs
+# and degrades gracefully on older macOS / when the tap permission is denied.
+objc2-core-audio = "0.3"
+objc2-core-audio-types = "0.3"
+objc2-core-foundation = { version = "0.3", features = ["CFDictionary", "CFBase"] }
+objc2-foundation = { version = "0.3", features = [
+  "NSString",
+  "NSArray",
+  "NSDictionary",
+  "NSValue",
+  "NSUUID",
+  "NSObject",
+] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk-layer-shell = { version = "0.8", features = ["v0_6"] }

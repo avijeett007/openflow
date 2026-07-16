@@ -33,6 +33,13 @@ pub fn init_shortcuts(app: &AppHandle) {
             .cloned()
             .unwrap_or(default_binding);
 
+        // Seeded-but-unbound defaults (e.g. `meeting_capture`) carry an empty
+        // hotkey until the user assigns one — parsing an empty shortcut errors, so
+        // skip it here (nothing to register), mirroring the agent-binding handling.
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
+
         if let Err(e) = register_shortcut(app, binding) {
             error!("Failed to register shortcut {} during init: {}", id, e);
         }

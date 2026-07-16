@@ -33,6 +33,7 @@ interface SettingsStore {
   refreshOutputDevices: () => Promise<void>;
   updateBinding: (id: string, binding: string) => Promise<void>;
   resetBinding: (id: string) => Promise<void>;
+  clearBinding: (id: string) => Promise<void>;
   getSetting: <K extends keyof Settings>(key: K) => Settings[K] | undefined;
   isUpdatingKey: (key: string) => boolean;
   playTestSound: (soundType: "start" | "stop") => Promise<void>;
@@ -121,6 +122,9 @@ const settingUpdaters: {
   debug_mode: (value) => commands.changeDebugModeSetting(value as boolean),
   advanced_mode: (value) =>
     commands.changeAdvancedModeSetting(value as boolean),
+  meetings_enabled: (value) => commands.setMeetingsEnabled(value as boolean),
+  meeting_auto_detect: (value) =>
+    commands.setMeetingAutoDetect(value as boolean),
   dictionary: (value) => commands.updateDictionary(value as DictionaryEntry[]),
   word_correction_threshold: (value) =>
     commands.changeWordCorrectionThresholdSetting(value as number),
@@ -397,6 +401,31 @@ export const useSettingsStore = create<SettingsStore>()(
         await refreshSettings();
       } catch (error) {
         console.error(`Failed to reset binding ${id}:`, error);
+      } finally {
+        setUpdating(updateKey, false);
+      }
+    },
+
+    // Clear a specific binding back to unbound (empty). Only meaningful for
+    // bindings that seed unbound (e.g. meeting capture, per-agent hotkeys);
+    // `change_binding` rejects empty values, so this uses a dedicated command.
+    clearBinding: async (id) => {
+      const { setUpdating, refreshSettings } = get();
+      const updateKey = `binding_${id}`;
+
+      setUpdating(updateKey, true);
+
+      try {
+        const result = await commands.clearBinding(id);
+        if (result.status === "error") {
+          throw new Error(result.error);
+        }
+        if (!result.data.success) {
+          throw new Error(result.data.error || "Failed to clear binding");
+        }
+        await refreshSettings();
+      } catch (error) {
+        console.error(`Failed to clear binding ${id}:`, error);
       } finally {
         setUpdating(updateKey, false);
       }

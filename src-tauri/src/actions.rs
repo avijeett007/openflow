@@ -1411,6 +1411,165 @@ impl ShortcutAction for TestAction {
     }
 }
 
+// Meeting Capture Action
+//
+// A SIMPLE press-fire action (template: CancelAction) — NOT the transcribe
+// pipeline. The shortcut handler calls `start` on key press and `stop` on
+// release for non-cancel/non-transcribe bindings; we do the whole toggle in
+// `start` and make `stop` a no-op, so ONE physical press toggles capture exactly
+// once whether the user taps or holds-and-releases the key.
+
+/// Debounce window for the meeting-capture hotkey. A single physical press can
+/// surface as several `Pressed` events in quick succession (OS auto-repeat while
+/// the key is held); without this, one hold would toggle start→stop→start and
+/// corrupt the session. Any press within this window of the last accepted one is
+/// ignored.
+const MEETING_CAPTURE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// What a meeting-capture key press should do, given whether a capture is live.
+#[derive(Debug, PartialEq, Eq)]
+enum MeetingToggle {
+    Start,
+    Stop,
+}
+
+/// Pure toggle decision: a press stops a running capture, else starts one.
+fn meeting_toggle_decision(is_active: bool) -> MeetingToggle {
+    if is_active {
+        MeetingToggle::Stop
+    } else {
+        MeetingToggle::Start
+    }
+}
+
+/// Pure frontmost-target resolution for a capture START. Given the frontmost app
+/// (bundle id + display name) and OpenFlow's own bundle id, return the app to
+/// target for the system-audio tap, or `None` to start mic-only. Mic-only when
+/// the frontmost app is OpenFlow itself (the hotkey was pressed from our own
+/// window, so there is no call to tap) or the frontmost app is unresolved. For a
+/// Google Meet call this returns the browser (e.g. Google Chrome) — exactly the
+/// app whose tab is playing the call audio, which bundle-id auto-detection can
+/// never catch because Meet has no app of its own.
+fn resolve_capture_target(
+    frontmost: Option<(String, String)>,
+    own_bundle: &str,
+) -> Option<(String, String)> {
+    let (bundle, name) = frontmost?;
+    if bundle.eq_ignore_ascii_case(own_bundle) {
+        return None;
+    }
+    Some((bundle, name))
+}
+
+struct MeetingCaptureAction {
+    /// Timestamp of the last accepted press, for auto-repeat debounce.
+    last_fire: std::sync::Mutex<Option<Instant>>,
+}
+
+impl MeetingCaptureAction {
+    fn new() -> Self {
+        Self {
+            last_fire: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Accept this press unless it lands inside the debounce window of the last
+    /// accepted one (i.e. an OS auto-repeat of a held key).
+    fn accept_press(&self) -> bool {
+        let mut guard = self.last_fire.lock().unwrap();
+        let now = Instant::now();
+        if let Some(prev) = *guard {
+            if now.duration_since(prev) < MEETING_CAPTURE_DEBOUNCE {
+                return false;
+            }
+        }
+        *guard = Some(now);
+        true
+    }
+}
+
+/// Fire a desktop notification for meeting-capture feedback so the user gets
+/// confirmation without the app window open. Best-effort — errors are ignored.
+/// Text is English-only: OpenFlow's Rust-side i18n (`tray_i18n`) is a build-time
+/// codegen keyed to the `tray` block of the locale files and doesn't cover ad-hoc
+/// notification strings; the agent-run notifications (`agent_run.rs`) are English
+/// for the same reason, so this stays consistent with the existing pattern.
+fn notify_meeting(app: &AppHandle, title: &str, body: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title(format!("OpenFlow · {title}"))
+        .body(body.to_string())
+        .show();
+}
+
+impl ShortcutAction for MeetingCaptureAction {
+    fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        // Fire once per physical press; ignore OS auto-repeat of a held key.
+        if !self.accept_press() {
+            debug!("meeting_capture: ignoring debounced repeat press");
+            return;
+        }
+
+        let Some(mm) = app.try_state::<Arc<crate::managers::meeting::MeetingManager>>() else {
+            warn!("meeting_capture hotkey fired but MeetingManager is not initialized");
+            return;
+        };
+
+        match meeting_toggle_decision(mm.is_active()) {
+            MeetingToggle::Stop => {
+                // Grab the id before stopping so we can report the segment count.
+                let meeting_id = mm.capture_status().meeting_id;
+                match mm.stop_capture() {
+                    Ok(()) => {
+                        // The manager already emits the `meeting-state` event the
+                        // Meetings UI listens on; add audio + a notification so the
+                        // user gets feedback with no window open.
+                        play_feedback_sound(app, SoundType::Stop);
+                        let seg_count = meeting_id
+                            .and_then(|id| mm.get_meeting(id).ok().flatten())
+                            .map(|d| d.segments.len())
+                            .unwrap_or(0);
+                        notify_meeting(
+                            app,
+                            "Meeting capture stopped",
+                            &format!("{seg_count} segments transcribed."),
+                        );
+                    }
+                    Err(e) => warn!("meeting_capture: stop failed: {e}"),
+                }
+            }
+            MeetingToggle::Start => {
+                let own_bundle = app.config().identifier.clone();
+                let target = resolve_capture_target(active_app::frontmost_bundle(), &own_bundle);
+                let (bundle, target_label) = match &target {
+                    Some((b, n)) => (Some(b.clone()), n.clone()),
+                    None => (None, "your microphone only".to_string()),
+                };
+                match mm.start_capture(bundle) {
+                    Ok(_id) => {
+                        play_feedback_sound(app, SoundType::Start);
+                        notify_meeting(
+                            app,
+                            "Meeting capture started",
+                            &format!("Capturing {target_label}."),
+                        );
+                    }
+                    Err(e) => {
+                        warn!("meeting_capture: start failed: {e}");
+                        notify_meeting(app, "Meeting capture failed", &e);
+                    }
+                }
+            }
+        }
+    }
+
+    fn stop(&self, _app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        // One-shot on press (like CancelAction): a key RELEASE must not toggle.
+    }
+}
+
 // Static Action Map
 pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -1431,6 +1590,10 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
     map.insert(
         "test".to_string(),
         Arc::new(TestAction) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "meeting_capture".to_string(),
+        Arc::new(MeetingCaptureAction::new()) as Arc<dyn ShortcutAction>,
     );
     map
 });
@@ -1619,6 +1782,71 @@ mod tests {
     fn strip_leaked_vocabulary_block_is_noop_when_absent() {
         let output = "Just a normal cleaned transcript with no leakage.";
         assert_eq!(strip_leaked_vocabulary_block(output), output);
+    }
+
+    // ---- Meeting-capture hotkey (toggle semantics + frontmost target) ----
+
+    use super::{meeting_toggle_decision, resolve_capture_target, MeetingToggle};
+
+    #[test]
+    fn meeting_toggle_starts_when_idle_and_stops_when_active() {
+        // Idle → a press starts a capture; active → the next press stops it.
+        assert_eq!(meeting_toggle_decision(false), MeetingToggle::Start);
+        assert_eq!(meeting_toggle_decision(true), MeetingToggle::Stop);
+    }
+
+    #[test]
+    fn meeting_capture_binding_is_seeded_unbound() {
+        // The binding must exist in defaults (so the reg loops enumerate it and
+        // the ShortcutInput can seed it) but start EMPTY — Google Meet is a
+        // browser tab, so there is no sane cross-app default to pick.
+        let defaults = crate::settings::get_default_settings();
+        let binding = defaults
+            .bindings
+            .get("meeting_capture")
+            .expect("meeting_capture must be present in default bindings");
+        assert!(binding.default_binding.is_empty());
+        assert!(binding.current_binding.is_empty());
+    }
+
+    #[test]
+    fn frontmost_target_is_the_browser_for_google_meet() {
+        // The frontmost app during a Meet call is the browser; we target it for
+        // system audio, since bundle-id auto-detection can never catch Meet.
+        let target = resolve_capture_target(
+            Some(("com.google.Chrome".to_string(), "Google Chrome".to_string())),
+            "knotie.ai.openflow",
+        );
+        assert_eq!(
+            target,
+            Some(("com.google.Chrome".to_string(), "Google Chrome".to_string()))
+        );
+    }
+
+    #[test]
+    fn frontmost_target_is_mic_only_when_openflow_is_frontmost() {
+        // Hotkey pressed from our own window → nothing to tap → mic-only (None).
+        // Case-insensitive on the bundle id.
+        assert_eq!(
+            resolve_capture_target(
+                Some(("knotie.ai.openflow".to_string(), "OpenFlow".to_string())),
+                "knotie.ai.openflow",
+            ),
+            None
+        );
+        assert_eq!(
+            resolve_capture_target(
+                Some(("KNOTIE.AI.OPENFLOW".to_string(), "OpenFlow".to_string())),
+                "knotie.ai.openflow",
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn frontmost_target_is_mic_only_when_unresolved() {
+        // No frontmost app (or no bundle id) → mic-only.
+        assert_eq!(resolve_capture_target(None, "knotie.ai.openflow"), None);
     }
 
     #[test]

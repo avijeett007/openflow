@@ -22,6 +22,7 @@
     "advancedMode": "Avancerat läge",
     "advancedModeTooltip": "Visa alla inställningar och avancerade funktioner",
     "missionControl": "Kontrollcenter",
+    "meetings": "Meetings",
     "resizeHandle": "Ändra storlek på sidofältet"
   },
   "onboarding": {
@@ -173,6 +174,8 @@
         "none": "Inga kortkommandon konfigurerade",
         "notFound": "Kortkommando hittades inte",
         "pressKeys": "Tryck på tangenter...",
+        "setHotkey": "Ange kortkommando",
+        "clear": "Rensa kortkommando",
         "bindings": {
           "transcribe": {
             "name": "Kortkommando för transkribering",
@@ -185,6 +188,10 @@
           "transcribe_with_post_process": {
             "name": "Snabbkommando för efterbearbetning",
             "description": "Valfritt: En dedikerad snabbknapp som alltid tillämpar AI-efterbearbetning på din transkription."
+          },
+          "meeting_capture": {
+            "name": "Kortkommando för mötesinspelning",
+            "description": "Starta eller stoppa inspelning av det aktuella mötet. Riktar in sig på appen i förgrunden (som Chrome för Google Meet) för systemljud."
           }
         },
         "errors": {
@@ -846,6 +853,37 @@
         "viewAll": "Visa alla",
         "empty": "Inga dikteringar ännu — dina senaste transkriberingar visas här."
       }
+    },
+    "meetings": {
+      "title": "Meeting capture",
+      "intro": "Capture and transcribe your meetings on-device. Your voice and the meeting app's audio are transcribed locally — nothing leaves your Mac.",
+      "settingsTitle": "Detection",
+      "autoDetect": "Auto-detect meetings",
+      "autoDetectHint": "Offer to capture when a Zoom, Teams, or FaceTime call starts. Capture always requires your confirmation.",
+      "start": "Start capture",
+      "stop": "Stop",
+      "capturing": "Capturing",
+      "idleHint": "Start capturing the current meeting.",
+      "you": "You",
+      "them": "Them",
+      "emptyState": "No meetings yet. Start a capture, or accept the prompt when a call is detected.",
+      "rowMeta": "{{duration}} · {{count}} segments",
+      "back": "Back to meetings",
+      "noTranscript": "No transcript was captured for this meeting.",
+      "detectedTitle": "{{app}} call detected",
+      "detectedBody": "Record & transcribe this meeting on-device?",
+      "startCapture": "Start capturing",
+      "startError": "Couldn't start capture: {{error}}",
+      "stopError": "Couldn't stop capture: {{error}}",
+      "deleteError": "Couldn't delete the meeting: {{error}}",
+      "notice": {
+        "mic_only": "Capturing your microphone only. The other side of the call isn't being captured.",
+        "unsupported": "System audio capture needs macOS 14.4 or newer — capturing your microphone only.",
+        "permission": "Audio-capture permission was denied. Grant it in System Settings → Privacy & Security to capture the other side of the call.",
+        "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
+        "error": "System audio couldn't be captured — capturing your microphone only."
+      },
+      "captureHotkeyTitle": "Kortkommando för inspelning"
     }
   },
   "footer": {

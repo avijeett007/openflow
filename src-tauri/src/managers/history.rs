@@ -58,6 +58,39 @@ static MIGRATIONS: &[M] = &[
             injected_ok INTEGER NOT NULL DEFAULT 1
         );",
     ),
+    // OpenFlow Meetings (M1): meeting sessions + their transcript segments. These
+    // live in the same history.db that MeetingManager opens (like AnalyticsManager).
+    // Columns are the full DESIGN-meetings.md §4.3 set — including diarization
+    // (`diarized`, `local_speaker`), fingerprint (`speaker_id`), and calendar
+    // (`cal_event_id`, `cal_event_title`) fields — so M2/M3/M4 need no schema churn
+    // in M1 (they stay NULL/0 until those phases populate them).
+    M::up(
+        "CREATE TABLE IF NOT EXISTS meetings (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at    INTEGER NOT NULL,
+            ended_at      INTEGER,
+            title         TEXT NOT NULL,
+            app_bundle_id TEXT,
+            status        TEXT NOT NULL,
+            mic_wav       TEXT,
+            system_wav    TEXT,
+            diarized      INTEGER NOT NULL DEFAULT 0,
+            cal_event_id  TEXT,
+            cal_event_title TEXT
+        );",
+    ),
+    M::up(
+        "CREATE TABLE IF NOT EXISTS meeting_segments (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            meeting_id    INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+            t_start_ms    INTEGER NOT NULL,
+            t_end_ms      INTEGER NOT NULL,
+            channel       TEXT NOT NULL,
+            local_speaker INTEGER,
+            speaker_id    INTEGER,
+            text          TEXT NOT NULL
+        );",
+    ),
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
@@ -746,6 +779,49 @@ mod tests {
         assert_eq!(entry.timestamp, 200);
         assert_eq!(entry.transcription_text, "second");
         assert_eq!(entry.post_processed_text.as_deref(), Some("processed"));
+    }
+
+    #[test]
+    fn meetings_migrations_apply_and_are_additive() {
+        // Applying the full MIGRATIONS array to a fresh DB must create the M1
+        // meetings tables with the DESIGN-meetings.md §4.3 columns, without
+        // disturbing the pre-existing dictation tables (additive migrations).
+        let mut conn = Connection::open_in_memory().expect("open in-memory db");
+        Migrations::new(MIGRATIONS.to_vec())
+            .to_latest(&mut conn)
+            .expect("apply all migrations");
+
+        let table_exists = |name: &str| -> bool {
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                [name],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|c| c > 0)
+            .unwrap_or(false)
+        };
+        assert!(table_exists("meetings"), "meetings table must exist");
+        assert!(
+            table_exists("meeting_segments"),
+            "meeting_segments table must exist"
+        );
+        // Pre-existing tables are untouched by the additive migrations.
+        assert!(table_exists("transcription_history"));
+        assert!(table_exists("dictation_events"));
+
+        // The columns M2/M3/M4 rely on exist now (no future schema churn).
+        conn.execute(
+            "INSERT INTO meetings (started_at, title, status, diarized) VALUES (1, 't', 'done', 0)",
+            [],
+        )
+        .expect("insert meeting");
+        let mid = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO meeting_segments (meeting_id, t_start_ms, t_end_ms, channel, local_speaker, speaker_id, text)
+             VALUES (?1, 0, 100, 'mic', NULL, NULL, 'hello')",
+            params![mid],
+        )
+        .expect("insert segment with M2/M3 speaker columns present");
     }
 
     #[test]

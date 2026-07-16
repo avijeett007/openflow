@@ -14,6 +14,7 @@ mod input;
 mod keychain;
 mod llm_client;
 mod managers;
+mod meeting;
 mod overlay;
 pub mod portable;
 mod settings;
@@ -191,6 +192,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Flow OS increment 2: registry of live/recent CLI-agent subprocess runs.
     let agent_run_manager = Arc::new(managers::agent_run::AgentRunManager::new());
 
+    // OpenFlow Meetings (M1): meeting capture + on-device transcription. Opens the
+    // same history.db HistoryManager just migrated (the meetings tables exist by
+    // now), and is a sibling of the TranscriptionCoordinator — never a client.
+    let meeting_manager = Arc::new(managers::meeting::MeetingManager::new(app_handle));
+
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
@@ -199,6 +205,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(analytics_manager.clone());
     app_handle.manage(wake_word_manager.clone());
     app_handle.manage(agent_run_manager.clone());
+    app_handle.manage(meeting_manager.clone());
 
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
@@ -334,6 +341,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     if settings::get_settings(app_handle).hands_free_enabled {
         wake_word_manager.start();
     }
+
+    // Start the meeting detector. Its loop reads settings live and self-suppresses
+    // while our own recorder/monitor is active or a meeting capture is running, so
+    // it is safe to start unconditionally here (like the other background loops).
+    meeting::detector::start(app_handle.clone());
 }
 
 #[tauri::command]
@@ -560,6 +572,7 @@ pub fn run(cli_args: CliArgs) {
         .commands(collect_commands![
             shortcut::change_binding,
             shortcut::reset_binding,
+            shortcut::clear_binding,
             shortcut::change_ptt_setting,
             shortcut::set_hands_free_enabled,
             shortcut::set_hands_free_voice_feedback,
@@ -701,6 +714,14 @@ pub fn run(cli_args: CliArgs) {
             commands::analytics::get_top_keywords,
             commands::analytics::set_analytics_privacy,
             commands::analytics::clear_analytics,
+            commands::meetings::start_meeting_capture,
+            commands::meetings::stop_meeting_capture,
+            commands::meetings::get_meeting_capture_status,
+            commands::meetings::list_meetings,
+            commands::meetings::get_meeting,
+            commands::meetings::delete_meeting,
+            commands::meetings::set_meetings_enabled,
+            commands::meetings::set_meeting_auto_detect,
             helpers::clamshell::is_laptop,
         ])
         .events(collect_events![
@@ -709,6 +730,10 @@ pub fn run(cli_args: CliArgs) {
             managers::transcription::StreamPhaseEvent,
             managers::agent_run::AgentRunOutput,
             managers::agent_run::AgentRunStatus,
+            managers::meeting::MeetingDetected,
+            managers::meeting::MeetingState,
+            managers::meeting::MeetingSegmentEvent,
+            managers::meeting::MeetingLevels,
         ]);
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds
