@@ -918,7 +918,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Yakalama kısayolu"
+      "captureHotkeyTitle": "Yakalama kısayolu",
+      "diarization": {
+        "title": "Konuşmacı ayrımı",
+        "enable": "Konuşmacıları cihazda etiketle",
+        "enableHint": "Görüşmenin diğer tarafında kimin konuştuğunu tamamen cihazda ayırır ve etiketler. Mikrofonunuz her zaman \"Sen\".",
+        "provisional": "Canlı geçici etiketler",
+        "provisionalHint": "Görüşme sırasında konuşmacıları yaklaşık her 30 saniyede bir yeniden etiketler. Varsayılan olarak kapalı — Intel Mac'lerde yetişemediğinden etiketler toplantı bitince tek seferde uygulanır.",
+        "modelsTitle": "Ayrım modelleri",
+        "modelsInstalled": "Kuruldu ve hazır.",
+        "modelsSize": "Yaklaşık {{size}} MB, bir kez indirilir.",
+        "modelsReady": "Hazır",
+        "download": "İndir",
+        "downloadError": "Modeller indirilemedi: {{error}}",
+        "speakerN": "Konuşmacı {{n}}",
+        "rename": "Konuşmacıyı yeniden adlandır",
+        "save": "Kaydet",
+        "renameError": "Konuşmacı yeniden adlandırılamadı: {{error}}",
+        "hidePrivate": "OpenFlow'a söylediklerimi gizle",
+        "youPrivate": "Sen → OpenFlow",
+        "chip": {
+          "off": "Etiket yok",
+          "on": "Konuşmacı etiketleri",
+          "provisional": "Geçici",
+          "finalPass": "Bitişte son geçiş",
+          "finalizing": "Konuşmacılar tamamlanıyor…",
+          "done": "Konuşmacılar etiketlendi"
+        }
+      }
     },
     "aiModes": {
       "write": {

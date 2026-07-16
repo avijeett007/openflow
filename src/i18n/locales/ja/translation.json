@@ -918,7 +918,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "キャプチャのショートカット"
+      "captureHotkeyTitle": "キャプチャのショートカット",
+      "diarization": {
+        "title": "話者分離",
+        "enable": "話者を端末上でラベル付け",
+        "enableHint": "通話の相手側で誰が話しているかを、完全に端末上で分離してラベル付けします。あなたのマイクは常に「あなた」です。",
+        "provisional": "ライブ暫定ラベル",
+        "provisionalHint": "通話中およそ30秒ごとに話者を付け直します。既定はオフ——Intel Mac では追いつかないため、会議終了時に一括でラベルを適用します。",
+        "modelsTitle": "分離モデル",
+        "modelsInstalled": "インストール済みで利用可能です。",
+        "modelsSize": "約 {{size}} MB、初回のみダウンロード。",
+        "modelsReady": "準備完了",
+        "download": "ダウンロード",
+        "downloadError": "モデルをダウンロードできませんでした：{{error}}",
+        "speakerN": "話者 {{n}}",
+        "rename": "話者の名前を変更",
+        "save": "保存",
+        "renameError": "話者の名前を変更できませんでした：{{error}}",
+        "hidePrivate": "OpenFlow に話した内容を隠す",
+        "youPrivate": "あなた → OpenFlow",
+        "chip": {
+          "off": "ラベルなし",
+          "on": "話者ラベル",
+          "provisional": "暫定",
+          "finalPass": "終了時に最終処理",
+          "finalizing": "話者を確定中…",
+          "done": "話者をラベル付け済み"
+        }
+      }
     },
     "aiModes": {
       "write": {

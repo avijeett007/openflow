@@ -8,7 +8,8 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
 use crate::managers::meeting::{
-    MeetingCaptureStatus, MeetingDetail, MeetingManager, MeetingSummary,
+    DiarizationStatus, MeetingCaptureStatus, MeetingDetail, MeetingManager, MeetingSpeakerRecord,
+    MeetingSummary,
 };
 use crate::settings::{get_settings, write_settings};
 
@@ -80,4 +81,103 @@ pub fn set_meeting_auto_detect(app: AppHandle, enabled: bool) -> Result<(), Stri
     settings.meeting_auto_detect = enabled;
     write_settings(&app, settings);
     Ok(())
+}
+
+/* ─────────────────────────  M2 — diarization  ─────────────────────────── */
+
+/// Rename a per-meeting speaker cluster ("Speaker 1" → "Alice"). An empty name
+/// clears the custom label back to the default. Scoped to this meeting only.
+#[tauri::command]
+#[specta::specta]
+pub fn rename_meeting_speaker(
+    app: AppHandle,
+    meeting_id: i64,
+    local_speaker: i64,
+    name: String,
+) -> Result<(), String> {
+    manager(&app)?.rename_speaker(meeting_id, local_speaker, name)
+}
+
+/// The per-meeting speaker display names.
+#[tauri::command]
+#[specta::specta]
+pub fn get_meeting_speakers(
+    app: AppHandle,
+    meeting_id: i64,
+) -> Result<Vec<MeetingSpeakerRecord>, String> {
+    manager(&app)?.get_speakers(meeting_id)
+}
+
+/// Diarization availability + effective mode (for the status chip + settings).
+#[tauri::command]
+#[specta::specta]
+pub fn get_diarization_status(app: AppHandle) -> Result<DiarizationStatus, String> {
+    Ok(manager(&app)?.diarization_status())
+}
+
+/// Toggle the diarization master switch. Enabling it does NOT download models —
+/// the frontend calls `download_diarization_models` explicitly so the ~34 MB
+/// fetch is always a deliberate, progress-tracked action.
+#[tauri::command]
+#[specta::specta]
+pub fn set_meetings_diarization(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.meetings_diarization = enabled;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+/// Toggle live provisional labels (opt-in; off by default on slow machines).
+#[tauri::command]
+#[specta::specta]
+pub fn set_meetings_diarization_provisional(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = get_settings(&app);
+    settings.meetings_diarization_provisional = enabled;
+    write_settings(&app, settings);
+    Ok(())
+}
+
+/// Whether the diarization models are installed + their total download size.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct DiarizationModelsStatus {
+    pub installed: bool,
+    pub size_mb: u64,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_diarization_models_status(app: AppHandle) -> Result<DiarizationModelsStatus, String> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(DiarizationModelsStatus {
+            installed: crate::meeting::diar_models::models_installed(&app),
+            size_mb: crate::meeting::diar_models::total_size_mb(),
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(DiarizationModelsStatus {
+            installed: false,
+            size_mb: 0,
+        })
+    }
+}
+
+/// Download + verify the diarization models (progress via
+/// `diarization-model-progress`). Only ever called on explicit user action.
+#[tauri::command]
+#[specta::specta]
+pub async fn download_diarization_models(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::meeting::diar_models::download_all(&app)
+            .await
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("Diarization is only available on macOS".to_string())
+    }
 }

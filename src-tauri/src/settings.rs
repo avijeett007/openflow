@@ -888,6 +888,21 @@ pub struct AppSettings {
     /// (Webex/Slack huddles etc.); defaults to Zoom, Teams (classic + new), FaceTime.
     #[serde(default = "default_meeting_app_allowlist")]
     pub meeting_app_allowlist: Vec<String>,
+
+    // ---- OpenFlow Meetings (M2) — diarization ----
+    /// Master switch for on-device speaker diarization. Default on: when the
+    /// models are absent nothing downloads and meetings behave exactly like M1
+    /// (segments stay "Them"), so on-by-default is safe. Enabling it in the UI is
+    /// what triggers the one-time model download — never at startup.
+    #[serde(default = "default_true")]
+    pub meetings_diarization: bool,
+    /// Run *live provisional* labels (re-diarize every ~30 s) in addition to the
+    /// canonical final pass. Default **off**: the Intel benchmark (~0.14× realtime
+    /// on the i9-9980HK) makes full-accumulated re-diarization every 30 s
+    /// infeasible past a few minutes, so the safe default is final-pass-only
+    /// (DESIGN-meetings.md §5.4 auto-degrade). Users on fast machines can opt in.
+    #[serde(default)]
+    pub meetings_diarization_provisional: bool,
 }
 
 fn default_meeting_app_allowlist() -> Vec<String> {
@@ -1469,6 +1484,8 @@ pub fn get_default_settings() -> AppSettings {
         meetings_enabled: true,
         meeting_auto_detect: true,
         meeting_app_allowlist: default_meeting_app_allowlist(),
+        meetings_diarization: true,
+        meetings_diarization_provisional: false,
     }
 }
 

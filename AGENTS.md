@@ -229,3 +229,5 @@ cleanup → inject) — must NOT be touched or impacted by new features. Concret
   capture is a sibling of the transcription coordinator, not a change to it).
 - Every PR's verification must include the **regression half**: prove pre-existing
   behavior is unchanged with the new feature present AND absent/unconfigured.
+- Run `bun run format` before committing — including verification/evidence markdown
+  (`format:check` gates CI).

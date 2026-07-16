@@ -91,6 +91,26 @@ static MIGRATIONS: &[M] = &[
             text          TEXT NOT NULL
         );",
     ),
+    // OpenFlow Meetings (M2): per-meeting speaker display names. A user can
+    // rename a diarization cluster ("Speaker 1" → "Alice") for a single meeting;
+    // the name is scoped to (meeting_id, local_speaker) and does NOT touch the M3
+    // cross-meeting fingerprint registry. Additive — absent rows just mean the
+    // default "Speaker N" label is shown.
+    M::up(
+        "CREATE TABLE IF NOT EXISTS meeting_speakers (
+            meeting_id    INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+            local_speaker INTEGER NOT NULL,
+            name          TEXT NOT NULL,
+            PRIMARY KEY (meeting_id, local_speaker)
+        );",
+    ),
+    // OpenFlow Meetings (M2): concurrent-dictation refinement. A bitset on each
+    // segment; bit 0 (`SEGMENT_FLAG_PRIVATE`) marks a mic-channel segment created
+    // while an OpenFlow dictation/agent/mode capture was in-flight — i.e. the user
+    // talking *to OpenFlow*, not to the meeting. The UI can dim/hide these. Purely
+    // additive (default 0 = a normal segment), so M1 rows and behavior are
+    // unchanged.
+    M::up("ALTER TABLE meeting_segments ADD COLUMN flags INTEGER NOT NULL DEFAULT 0;"),
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
@@ -822,6 +842,75 @@ mod tests {
             params![mid],
         )
         .expect("insert segment with M2/M3 speaker columns present");
+    }
+
+    #[test]
+    fn meetings_m2_migrations_add_speakers_and_flags() {
+        // M2 adds `meeting_speakers` and the `meeting_segments.flags` column,
+        // additively. Simulate an existing M1 DB (only the first N migrations
+        // applied), then apply the full set and verify the new schema arrives
+        // without disturbing the M1 rows already written.
+        let mut conn = Connection::open_in_memory().expect("open in-memory db");
+        let all = MIGRATIONS.to_vec();
+        // Apply everything up to (but not including) the two M2 migrations.
+        let m1_only: Vec<_> = all[..all.len() - 2].to_vec();
+        Migrations::new(m1_only)
+            .to_latest(&mut conn)
+            .expect("apply M1 migrations");
+        // Write an M1-era meeting + segment (no flags column yet).
+        conn.execute(
+            "INSERT INTO meetings (started_at, title, status, diarized) VALUES (1, 't', 'done', 0)",
+            [],
+        )
+        .unwrap();
+        let mid = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO meeting_segments (meeting_id, t_start_ms, t_end_ms, channel, text)
+             VALUES (?1, 0, 100, 'system', 'hello')",
+            params![mid],
+        )
+        .unwrap();
+
+        // Now upgrade to the full (M2) schema.
+        Migrations::new(all)
+            .to_latest(&mut conn)
+            .expect("apply M2 migrations on an existing M1 db");
+
+        let table_exists = |name: &str| -> bool {
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                [name],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|c| c > 0)
+            .unwrap_or(false)
+        };
+        assert!(table_exists("meeting_speakers"), "meeting_speakers added");
+
+        // The pre-existing segment survived and now has flags defaulted to 0.
+        let flags: i64 = conn
+            .query_row(
+                "SELECT flags FROM meeting_segments WHERE meeting_id = ?1",
+                params![mid],
+                |r| r.get(0),
+            )
+            .expect("existing M1 segment still present, flags defaulted");
+        assert_eq!(flags, 0, "additive column defaults to 0");
+
+        // The per-meeting rename table accepts an upsert.
+        conn.execute(
+            "INSERT INTO meeting_speakers (meeting_id, local_speaker, name) VALUES (?1, 0, 'Alice')",
+            params![mid],
+        )
+        .expect("insert speaker name");
+        let name: String = conn
+            .query_row(
+                "SELECT name FROM meeting_speakers WHERE meeting_id=?1 AND local_speaker=0",
+                params![mid],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(name, "Alice");
     }
 
     #[test]

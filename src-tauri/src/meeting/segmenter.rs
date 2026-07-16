@@ -17,6 +17,8 @@ use crate::audio_toolkit::audio::FrameResampler;
 use crate::audio_toolkit::constants::WHISPER_SAMPLE_RATE;
 use crate::audio_toolkit::vad::VoiceActivityDetector;
 use crate::meeting::MeetingChannel;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Silero frame size at 16 kHz (30 ms). The resampler emits frames of this size.
@@ -42,6 +44,10 @@ pub struct MeetingSegment {
     pub t_end_ms: u64,
     /// 16 kHz mono samples for `TranscriptionManager::transcribe`.
     pub samples: Vec<f32>,
+    /// Bit flags (see [`crate::meeting::SEGMENT_FLAG_PRIVATE`]). Set on mic
+    /// segments whose speech began while an OpenFlow dictation/agent capture was
+    /// in-flight — the concurrent-dictation refinement. 0 for a normal segment.
+    pub flags: i64,
 }
 
 /// Converts one channel's raw audio into timed [`MeetingSegment`]s at VAD
@@ -60,6 +66,16 @@ pub struct MeetingSegmenter {
     /// Optional full-stream 16 kHz capture for writing the channel WAV on stop.
     record_all: bool,
     all_samples: Vec<f32>,
+    /// Optional shared 16 kHz accumulator the live provisional-diarization worker
+    /// snapshots every ~30 s (M2). `None` in M1 and when provisional is off, so
+    /// the segmenter's behavior is byte-for-byte unchanged.
+    live_sink: Option<Arc<Mutex<Vec<f32>>>>,
+    /// Optional "is OpenFlow dictation capturing right now" probe. When set and a
+    /// mic-channel utterance begins while it reads true, the resulting segment is
+    /// flagged private (concurrent-dictation refinement). `None` disables tagging.
+    dictation_active: Option<Arc<AtomicBool>>,
+    /// Captured at speech onset: was dictation active when this utterance began?
+    seg_private: bool,
 }
 
 impl MeetingSegmenter {
@@ -87,7 +103,22 @@ impl MeetingSegmenter {
             trailing_silence: 0,
             record_all,
             all_samples: Vec::new(),
+            live_sink: None,
+            dictation_active: None,
+            seg_private: false,
         }
+    }
+
+    /// Attach a shared accumulator that receives every resampled 16 kHz sample
+    /// (used by the provisional-diarization worker to re-diarize the audio-so-far).
+    pub fn set_live_sink(&mut self, sink: Arc<Mutex<Vec<f32>>>) {
+        self.live_sink = Some(sink);
+    }
+
+    /// Attach a probe so mic segments beginning during OpenFlow dictation get the
+    /// private flag (concurrent-dictation refinement).
+    pub fn set_dictation_probe(&mut self, probe: Arc<AtomicBool>) {
+        self.dictation_active = Some(probe);
     }
 
     fn ms(samples: u64) -> u64 {
@@ -137,6 +168,11 @@ impl MeetingSegmenter {
         if self.record_all {
             self.all_samples.extend_from_slice(frame);
         }
+        if let Some(sink) = &self.live_sink {
+            if let Ok(mut buf) = sink.lock() {
+                buf.extend_from_slice(frame);
+            }
+        }
 
         let voiced = self.vad.is_voice(frame).unwrap_or(true);
 
@@ -147,6 +183,14 @@ impl MeetingSegmenter {
                 self.seg_buf.clear();
                 self.seg_buf.extend_from_slice(frame);
                 self.trailing_silence = 0;
+                // Capture, at speech onset, whether OpenFlow was dictating — a
+                // mic utterance that began then is the user talking to OpenFlow.
+                self.seg_private = self.channel == MeetingChannel::Mic
+                    && self
+                        .dictation_active
+                        .as_ref()
+                        .map(|a| a.load(Ordering::Relaxed))
+                        .unwrap_or(false);
             }
             return;
         }
@@ -179,12 +223,20 @@ impl MeetingSegmenter {
         self.trailing_silence = 0;
         self.seg_buf.clear();
 
+        let flags = if self.seg_private {
+            crate::meeting::SEGMENT_FLAG_PRIVATE
+        } else {
+            0
+        };
+        self.seg_private = false;
+
         if !samples.is_empty() {
             emit(MeetingSegment {
                 channel: self.channel,
                 t_start_ms: Self::ms(self.seg_start),
                 t_end_ms: Self::ms(t_end.max(self.seg_start)),
                 samples,
+                flags,
             });
         }
     }

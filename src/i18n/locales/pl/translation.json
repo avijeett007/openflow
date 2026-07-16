@@ -918,7 +918,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Skrót przechwytywania"
+      "captureHotkeyTitle": "Skrót przechwytywania",
+      "diarization": {
+        "title": "Rozpoznawanie mówców",
+        "enable": "Etykietuj mówców na urządzeniu",
+        "enableHint": "Rozdziela i etykietuje, kto mówi po drugiej stronie połączenia, w całości na urządzeniu. Twój mikrofon to zawsze „Ty”.",
+        "provisional": "Etykiety tymczasowe na żywo",
+        "provisionalHint": "Ponownie etykietuje mówców mniej więcej co 30 sekund podczas rozmowy. Domyślnie wyłączone — na Macach z Intelem nie nadąża, więc etykiety są nakładane jednorazowo po zakończeniu spotkania.",
+        "modelsTitle": "Modele rozpoznawania",
+        "modelsInstalled": "Zainstalowane i gotowe.",
+        "modelsSize": "Około {{size}} MB, pobierane raz.",
+        "modelsReady": "Gotowe",
+        "download": "Pobierz",
+        "downloadError": "Nie udało się pobrać modeli: {{error}}",
+        "speakerN": "Mówca {{n}}",
+        "rename": "Zmień nazwę mówcy",
+        "save": "Zapisz",
+        "renameError": "Nie udało się zmienić nazwy mówcy: {{error}}",
+        "hidePrivate": "Ukryj to, co powiedziałem do OpenFlow",
+        "youPrivate": "Ty → OpenFlow",
+        "chip": {
+          "off": "Brak etykiet",
+          "on": "Etykiety mówców",
+          "provisional": "Tymczasowe",
+          "finalPass": "Końcowy przebieg na koniec",
+          "finalizing": "Finalizowanie mówców…",
+          "done": "Mówcy oznaczeni"
+        }
+      }
     },
     "aiModes": {
       "write": {

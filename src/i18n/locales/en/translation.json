@@ -1163,7 +1163,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Capture hotkey"
+      "captureHotkeyTitle": "Capture hotkey",
+      "diarization": {
+        "title": "Speaker diarization",
+        "enable": "Label speakers on-device",
+        "enableHint": "Separate and label who is talking on the other side of the call, fully on-device. Your microphone is always \"You\".",
+        "provisional": "Live provisional labels",
+        "provisionalHint": "Re-label speakers roughly every 30 seconds during the call. Off by default — on Intel Macs it can't keep up, so labels are applied in one pass when the meeting ends.",
+        "modelsTitle": "Diarization models",
+        "modelsInstalled": "Installed and ready.",
+        "modelsSize": "About {{size}} MB, downloaded once.",
+        "modelsReady": "Ready",
+        "download": "Download",
+        "downloadError": "Couldn't download models: {{error}}",
+        "speakerN": "Speaker {{n}}",
+        "rename": "Rename speaker",
+        "save": "Save",
+        "renameError": "Couldn't rename speaker: {{error}}",
+        "hidePrivate": "Hide what I said to OpenFlow",
+        "youPrivate": "You → OpenFlow",
+        "chip": {
+          "off": "No labels",
+          "on": "Speaker labels",
+          "provisional": "Provisional",
+          "finalPass": "Final pass at end",
+          "finalizing": "Finalizing speakers…",
+          "done": "Speakers labeled"
+        }
+      }
     },
     "aiModes": {
       "write": {

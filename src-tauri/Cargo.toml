@@ -172,6 +172,18 @@ objc2-foundation = { version = "0.3", features = [
   "NSUUID",
   "NSObject",
 ] }
+# OpenFlow Meetings (M2): on-device speaker diarization via the OFFICIAL k2-fsa
+# Rust bindings (the community `sherpa-rs` crate is archived). `sherpa-onnx-sys`
+# does NOT compile C++ — its build script downloads the prebuilt static lib for
+# the target from the k2-fsa GitHub releases and links it (feature `static`, the
+# default), so onnxruntime is bundled *inside* the binary. That copy is fully
+# self-contained and coexists with the app's dynamic `ort`/onnxruntime used by
+# transcribe-rs (see OPENFLOW-NOTES.md "M2 — sherpa-onnx linkage"). macOS-only,
+# matching the CoreAudio-tap capture path — the models only ever exist on macOS.
+sherpa-onnx = "1.13.4"
+# Extracting the pyannote segmentation model, shipped by k2-fsa only as a
+# .tar.bz2 (bundles its MIT LICENSE, which we keep alongside the model).
+bzip2 = "0.4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk-layer-shell = { version = "0.8", features = ["v0_6"] }

@@ -34,6 +34,7 @@ use crate::audio_toolkit::vad::{SileroVad, VadFrame, VoiceActivityDetector};
 use crate::managers::transcription::TranscriptionManager;
 use crate::meeting::capture::{MeetingCapture, MicCapture, SystemAudioTap};
 use crate::meeting::detector::pid_for_bundle_id;
+use crate::meeting::diarize::{self, DiarTurn};
 use crate::meeting::segmenter::{MeetingSegment, MeetingSegmenter};
 use crate::meeting::MeetingChannel;
 
@@ -87,6 +88,25 @@ pub struct MeetingLevels {
     pub system: f32,
 }
 
+/// Diarization relabeled a meeting's remote segments (after a provisional cycle
+/// or the canonical final pass). The UI re-renders past segments with the new
+/// `local_speaker` labels. `final_pass` marks the canonical result.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct MeetingSpeakersUpdated {
+    pub meeting_id: i64,
+    /// Distinct per-meeting speaker ordinals present after relabeling.
+    pub speakers: Vec<i64>,
+    pub final_pass: bool,
+}
+
+/// A per-meeting speaker display name ("Speaker 1" renamed to "Alice"), scoped to
+/// one meeting. Does not touch the M3 fingerprint registry.
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+pub struct MeetingSpeakerRecord {
+    pub local_speaker: i64,
+    pub name: String,
+}
+
 /* ─────────────────────────────  DB records  ──────────────────────────── */
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
@@ -128,12 +148,32 @@ pub struct MeetingSegmentRecord {
     /// Voice-fingerprint registry match (M3); `None` in M1.
     pub speaker_id: Option<i64>,
     pub text: String,
+    /// Bit flags — bit 0 = private (spoken to OpenFlow during the meeting).
+    #[serde(default)]
+    pub flags: i64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type)]
 pub struct MeetingDetail {
     pub meeting: MeetingRecord,
     pub segments: Vec<MeetingSegmentRecord>,
+    /// Per-meeting speaker display names (M2 rename). Empty when none set.
+    #[serde(default)]
+    pub speakers: Vec<MeetingSpeakerRecord>,
+}
+
+/// Diarization availability + the mode a meeting would run in, for the settings
+/// card and the transcript status chip.
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+pub struct DiarizationStatus {
+    /// The `meetings_diarization` setting.
+    pub enabled: bool,
+    /// Whether both diarization models are on disk.
+    pub models_installed: bool,
+    /// The `meetings_diarization_provisional` opt-in.
+    pub provisional: bool,
+    /// Effective mode (`provisional` | `final_only` | `off`).
+    pub mode: diarize::DiarizationMode,
 }
 
 /// Snapshot for the frontend: is a capture running, and did system audio degrade?
@@ -172,6 +212,9 @@ struct ActiveSession {
     levels_thread: Option<JoinHandle<()>>,
     mic_only: bool,
     notice: Option<String>,
+    /// Set true to stop the provisional worker; joined on stop.
+    provisional_stop: Arc<AtomicBool>,
+    provisional_thread: Option<JoinHandle<()>>,
 }
 
 pub struct MeetingManager {
@@ -269,6 +312,22 @@ impl MeetingManager {
         let mut captures: Vec<Box<dyn MeetingCapture>> = Vec::new();
         let mut seg_threads: Vec<(JoinHandle<Vec<f32>>, MeetingChannel)> = Vec::new();
 
+        // Shared "is OpenFlow dictating right now" flag, updated by the levels
+        // ticker and read by the segmenters to flag private mic utterances.
+        let dictation_probe = Arc::new(AtomicBool::new(false));
+
+        // Diarization mode for this meeting (after the Intel auto-degrade). Only a
+        // provisional-capable mode needs the live system accumulator + worker; the
+        // final pass runs on stop regardless of mode (when models are present).
+        let models_installed = diarization_models_installed(&self.app_handle);
+        let mode = effective_diarization_mode(&settings, models_installed);
+        let system_accum: Option<Arc<Mutex<Vec<f32>>>> =
+            if mode == diarize::DiarizationMode::Provisional {
+                Some(Arc::new(Mutex::new(Vec::new())))
+            } else {
+                None
+            };
+
         // ---- mic channel (essential) ----
         let device = self.resolve_mic_device(&settings);
         let (mic_ftx, mic_frx) = mpsc::channel::<Vec<f32>>();
@@ -288,6 +347,8 @@ impl MeetingManager {
                 vad_path.clone(),
                 Arc::clone(&levels),
                 0,
+                Some(Arc::clone(&dictation_probe)),
+                None,
             ),
             MeetingChannel::Mic,
         ));
@@ -311,6 +372,8 @@ impl MeetingManager {
                                 vad_path.clone(),
                                 Arc::clone(&levels),
                                 1,
+                                None,
+                                system_accum.clone(),
                             ),
                             MeetingChannel::System,
                         ));
@@ -335,13 +398,43 @@ impl MeetingManager {
         // ---- transcription worker ----
         let worker = spawn_worker(self.app_handle.clone(), self.db_path()?, meeting_id, seg_rx);
 
-        // ---- levels ticker ----
+        // ---- levels ticker (also drives the dictation probe) ----
         let levels_stop = Arc::new(AtomicBool::new(false));
         let levels_thread = spawn_levels_ticker(
             self.app_handle.clone(),
             Arc::clone(&levels),
             Arc::clone(&levels_stop),
+            Arc::clone(&dictation_probe),
         );
+
+        // ---- provisional diarization worker (opt-in; off by default on Intel) ----
+        let provisional_stop = Arc::new(AtomicBool::new(false));
+        let provisional_thread = match (&system_accum, models_installed) {
+            (Some(accum), true) => {
+                if let Some((seg_model, emb_model)) = diarization_model_paths(&self.app_handle) {
+                    info!("meeting {meeting_id}: provisional diarization enabled");
+                    if !diarize::provisional_default_enabled(diarize::REFERENCE_RATIO_RT) {
+                        warn!(
+                            "meeting {meeting_id}: live provisional labels may lag on this class \
+                             of hardware (reference Intel can't keep up past a few minutes); the \
+                             canonical final pass is unaffected"
+                        );
+                    }
+                    Some(spawn_provisional_worker(
+                        self.app_handle.clone(),
+                        self.db_path()?,
+                        meeting_id,
+                        Arc::clone(accum),
+                        seg_model,
+                        emb_model,
+                        Arc::clone(&provisional_stop),
+                    ))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
 
         *guard = Some(ActiveSession {
             meeting_id,
@@ -352,6 +445,8 @@ impl MeetingManager {
             levels_thread: Some(levels_thread),
             mic_only,
             notice: notice.clone(),
+            provisional_stop,
+            provisional_thread,
         });
         drop(guard);
 
@@ -378,9 +473,13 @@ impl MeetingManager {
         let meeting_id = s.meeting_id;
         info!("meeting {meeting_id}: stopping capture");
 
-        // Stop the meters first.
+        // Stop the meters + provisional worker first.
         s.levels_stop.store(true, Ordering::Relaxed);
         if let Some(h) = s.levels_thread.take() {
+            let _ = h.join();
+        }
+        s.provisional_stop.store(true, Ordering::Relaxed);
+        if let Some(h) = s.provisional_thread.take() {
             let _ = h.join();
         }
 
@@ -392,6 +491,8 @@ impl MeetingManager {
         let _ = std::fs::create_dir_all(&dir);
         let mut mic_wav: Option<String> = None;
         let mut system_wav: Option<String> = None;
+        // Hold the remote (system) 16 kHz samples for the canonical final pass.
+        let mut system_samples: Vec<f32> = Vec::new();
         for (handle, channel) in s.seg_threads.drain(..) {
             let samples = handle.join().unwrap_or_default();
             if samples.is_empty() {
@@ -401,6 +502,9 @@ impl MeetingManager {
                 MeetingChannel::Mic => "mic.wav",
                 MeetingChannel::System => "system.wav",
             };
+            if channel == MeetingChannel::System {
+                system_samples = samples.clone();
+            }
             match write_wav_16k_mono(&dir.join(file_name), &samples) {
                 Ok(()) => {
                     let rel = format!("meetings/{meeting_id}/{file_name}");
@@ -413,21 +517,55 @@ impl MeetingManager {
             }
         }
 
-        // Drain any remaining queued transcriptions.
+        // Drain any remaining queued transcriptions so every system segment exists
+        // in the DB before the final pass fuses turns onto them.
         if let Some(worker) = s.worker.take() {
             let _ = worker.join();
         }
 
         let ended_at = Utc::now().timestamp();
-        self.finish_meeting(meeting_id, ended_at, "done", mic_wav, system_wav)?;
 
-        let _ = MeetingState {
-            meeting_id,
-            status: "done".to_string(),
-            mic_only: s.mic_only,
-            notice: None,
+        // Decide whether the canonical final diarization pass runs. When it can't
+        // (disabled / models missing / no remote audio / non-macOS), the meeting
+        // completes exactly as M1 — segments stay "Them" — never a failure.
+        let settings = crate::settings::get_settings(&self.app_handle);
+        let can_diarize = settings.meetings_diarization
+            && !system_samples.is_empty()
+            && diarization_model_paths(&self.app_handle).is_some();
+
+        if can_diarize {
+            // Mark processing, then diarize off-thread (a 30-min pass is ~4 min on
+            // Intel — must not block the stop command). The bg pass sets diarized
+            // and flips to done itself.
+            self.finish_meeting(meeting_id, ended_at, "processing", mic_wav, system_wav)?;
+            let _ = MeetingState {
+                meeting_id,
+                status: "processing".to_string(),
+                mic_only: s.mic_only,
+                notice: None,
+            }
+            .emit(&self.app_handle);
+            let (seg_model, emb_model) =
+                diarization_model_paths(&self.app_handle).expect("checked by can_diarize");
+            spawn_final_pass(
+                self.app_handle.clone(),
+                self.db_path()?,
+                meeting_id,
+                system_samples,
+                seg_model,
+                emb_model,
+                s.mic_only,
+            );
+        } else {
+            self.finish_meeting(meeting_id, ended_at, "done", mic_wav, system_wav)?;
+            let _ = MeetingState {
+                meeting_id,
+                status: "done".to_string(),
+                mic_only: s.mic_only,
+                notice: None,
+            }
+            .emit(&self.app_handle);
         }
-        .emit(&self.app_handle);
         info!("meeting {meeting_id}: capture finished");
         Ok(())
     }
@@ -552,7 +690,60 @@ impl MeetingManager {
         };
 
         let segments = read_segments(&conn, meeting_id).map_err(|e| e.to_string())?;
-        Ok(Some(MeetingDetail { meeting, segments }))
+        let speakers = read_speakers(&conn, meeting_id).map_err(|e| e.to_string())?;
+        Ok(Some(MeetingDetail {
+            meeting,
+            segments,
+            speakers,
+        }))
+    }
+
+    /// Rename a per-meeting diarization cluster (M2). Upserts into
+    /// `meeting_speakers`; an empty name clears the custom label.
+    pub fn rename_speaker(
+        &self,
+        meeting_id: i64,
+        local_speaker: i64,
+        name: String,
+    ) -> Result<(), String> {
+        let conn = self.conn()?;
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            conn.execute(
+                "DELETE FROM meeting_speakers WHERE meeting_id = ?1 AND local_speaker = ?2",
+                params![meeting_id, local_speaker],
+            )
+            .map_err(|e| e.to_string())?;
+        } else {
+            conn.execute(
+                "INSERT INTO meeting_speakers (meeting_id, local_speaker, name) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(meeting_id, local_speaker) DO UPDATE SET name = excluded.name",
+                params![meeting_id, local_speaker, trimmed],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    /// The per-meeting speaker display names.
+    pub fn get_speakers(&self, meeting_id: i64) -> Result<Vec<MeetingSpeakerRecord>, String> {
+        let conn = self.conn()?;
+        read_speakers(&conn, meeting_id).map_err(|e| e.to_string())
+    }
+
+    /// Diarization availability + effective mode for the settings card / status
+    /// chip. Never fails: returns `Off` when models are missing or the platform
+    /// has no engine.
+    pub fn diarization_status(&self) -> DiarizationStatus {
+        let settings = crate::settings::get_settings(&self.app_handle);
+        let models_installed = diarization_models_installed(&self.app_handle);
+        let mode = effective_diarization_mode(&settings, models_installed);
+        DiarizationStatus {
+            enabled: settings.meetings_diarization,
+            models_installed,
+            provisional: settings.meetings_diarization_provisional,
+            mode,
+        }
     }
 
     pub fn delete_meeting(&self, meeting_id: i64) -> Result<(), String> {
@@ -592,7 +783,7 @@ fn read_segments(
     meeting_id: i64,
 ) -> rusqlite::Result<Vec<MeetingSegmentRecord>> {
     let mut stmt = conn.prepare(
-        "SELECT id, meeting_id, t_start_ms, t_end_ms, channel, local_speaker, speaker_id, text
+        "SELECT id, meeting_id, t_start_ms, t_end_ms, channel, local_speaker, speaker_id, text, flags
          FROM meeting_segments WHERE meeting_id = ?1 ORDER BY t_start_ms ASC, id ASC",
     )?;
     let rows = stmt.query_map(params![meeting_id], |row| {
@@ -605,6 +796,24 @@ fn read_segments(
             local_speaker: row.get(5)?,
             speaker_id: row.get(6)?,
             text: row.get(7)?,
+            flags: row.get(8)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Read the per-meeting speaker display names.
+fn read_speakers(
+    conn: &Connection,
+    meeting_id: i64,
+) -> rusqlite::Result<Vec<MeetingSpeakerRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT local_speaker, name FROM meeting_speakers WHERE meeting_id = ?1 ORDER BY local_speaker ASC",
+    )?;
+    let rows = stmt.query_map(params![meeting_id], |row| {
+        Ok(MeetingSpeakerRecord {
+            local_speaker: row.get(0)?,
+            name: row.get(1)?,
         })
     })?;
     rows.collect()
@@ -619,14 +828,15 @@ fn insert_segment(
 ) -> Result<MeetingSegmentRecord, String> {
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     conn.execute(
-        "INSERT INTO meeting_segments (meeting_id, t_start_ms, t_end_ms, channel, local_speaker, speaker_id, text)
-         VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5)",
+        "INSERT INTO meeting_segments (meeting_id, t_start_ms, t_end_ms, channel, local_speaker, speaker_id, text, flags)
+         VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, ?6)",
         params![
             meeting_id,
             seg.t_start_ms as i64,
             seg.t_end_ms as i64,
             seg.channel.as_str(),
             text,
+            seg.flags,
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -639,9 +849,11 @@ fn insert_segment(
         local_speaker: None,
         speaker_id: None,
         text: text.to_string(),
+        flags: seg.flags,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_segmenter(
     channel: MeetingChannel,
     in_hz: u32,
@@ -650,6 +862,8 @@ fn spawn_segmenter(
     vad_path: Option<String>,
     levels: Arc<[AtomicU32; 2]>,
     level_idx: usize,
+    dictation_probe: Option<Arc<AtomicBool>>,
+    live_sink: Option<Arc<Mutex<Vec<f32>>>>,
 ) -> JoinHandle<Vec<f32>> {
     std::thread::Builder::new()
         .name(format!("meeting-seg-{}", channel.as_str()))
@@ -668,6 +882,12 @@ fn spawn_segmenter(
                 }
             };
             let mut seg = MeetingSegmenter::new(channel, in_hz, vad, true);
+            if let Some(probe) = dictation_probe {
+                seg.set_dictation_probe(probe);
+            }
+            if let Some(sink) = live_sink {
+                seg.set_live_sink(sink);
+            }
 
             while let Ok(frame) = frame_rx.recv() {
                 let level = rms(&frame);
@@ -760,6 +980,7 @@ fn spawn_levels_ticker(
     app: AppHandle,
     levels: Arc<[AtomicU32; 2]>,
     stop: Arc<AtomicBool>,
+    dictation_probe: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("meeting-levels".into())
@@ -768,6 +989,14 @@ fn spawn_levels_ticker(
                 let mic = f32::from_bits(levels[0].load(Ordering::Relaxed));
                 let system = f32::from_bits(levels[1].load(Ordering::Relaxed));
                 let _ = MeetingLevels { mic, system }.emit(&app);
+                // Track whether OpenFlow's own dictation is actively capturing, so
+                // a mic utterance that begins during it is flagged private. Only
+                // active dictation counts — passive wake-word monitoring does not.
+                let dictating = app
+                    .try_state::<Arc<crate::managers::audio::AudioRecordingManager>>()
+                    .map(|rm| rm.is_recording())
+                    .unwrap_or(false);
+                dictation_probe.store(dictating, Ordering::Relaxed);
                 std::thread::sleep(std::time::Duration::from_millis(66));
             }
         })
@@ -780,6 +1009,287 @@ fn rms(frame: &[f32]) -> f32 {
     }
     let sum: f32 = frame.iter().map(|s| s * s).sum();
     (sum / frame.len() as f32).sqrt()
+}
+
+/* ─────────────────────────  diarization glue  ─────────────────────────── */
+
+/// Are both diarization models installed? macOS-only (no engine elsewhere).
+fn diarization_models_installed(app: &AppHandle) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::meeting::diar_models::models_installed(app)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        false
+    }
+}
+
+/// Resolve the (segmentation, embedding) model paths iff both installed.
+fn diarization_model_paths(app: &AppHandle) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::meeting::diar_models::resolve_model_paths(app)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        None
+    }
+}
+
+/// The mode a meeting runs in, given settings + model availability.
+fn effective_diarization_mode(
+    settings: &crate::settings::AppSettings,
+    models_installed: bool,
+) -> diarize::DiarizationMode {
+    if !settings.meetings_diarization || !models_installed {
+        return diarize::DiarizationMode::Off;
+    }
+    if settings.meetings_diarization_provisional {
+        diarize::DiarizationMode::Provisional
+    } else {
+        diarize::DiarizationMode::FinalOnly
+    }
+}
+
+/// Remote (system) channel segments as `(id, t_start_ms, t_end_ms)` for fusion.
+fn read_system_segments(
+    db_path: &std::path::Path,
+    meeting_id: i64,
+) -> Result<Vec<(i64, i64, i64)>, String> {
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, t_start_ms, t_end_ms FROM meeting_segments
+             WHERE meeting_id = ?1 AND channel = 'system' ORDER BY t_start_ms ASC, id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![meeting_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|e| e.to_string())
+}
+
+/// Persist the fused per-segment speaker labels.
+fn apply_speaker_labels(
+    db_path: &std::path::Path,
+    labels: &[(i64, Option<i64>)],
+) -> Result<(), String> {
+    let mut conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    for (seg_id, speaker) in labels {
+        tx.execute(
+            "UPDATE meeting_segments SET local_speaker = ?2 WHERE id = ?1",
+            params![seg_id, speaker],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn set_diarized(db_path: &std::path::Path, meeting_id: i64) -> Result<(), String> {
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE meetings SET diarized = 1 WHERE id = ?1",
+        params![meeting_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn finalize_meeting_done(db_path: &std::path::Path, meeting_id: i64) -> Result<(), String> {
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE meetings SET status = 'done' WHERE id = ?1",
+        params![meeting_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Run the engine over `samples`, fuse turns onto the remote segments, persist
+/// labels, and emit `meeting-speakers-updated`. Returns the (relabeled) turns so
+/// the provisional worker can keep them as the next cycle's baseline. macOS-only
+/// engine; a no-op returning `None` on other platforms.
+#[allow(unused_variables)]
+fn diarize_and_apply(
+    app: &AppHandle,
+    db_path: &std::path::Path,
+    meeting_id: i64,
+    samples: &[f32],
+    seg_model: &std::path::Path,
+    emb_model: &std::path::Path,
+    previous: &[DiarTurn],
+    final_pass: bool,
+) -> Option<Vec<DiarTurn>> {
+    #[cfg(target_os = "macos")]
+    {
+        let engine = match diarize::open_default(seg_model, emb_model) {
+            Ok(e) => e,
+            Err(e) => {
+                warn!("meeting {meeting_id}: diarization engine load failed: {e}");
+                return None;
+            }
+        };
+        debug!(
+            "meeting {meeting_id}: diarization engine sample_rate={}",
+            engine.sample_rate()
+        );
+        let raw = match engine.diarize(samples) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!("meeting {meeting_id}: diarization failed: {e}");
+                return None;
+            }
+        };
+        // Keep provisional cluster ids stable across cycles; the final pass is
+        // canonical and stands on its own.
+        let turns = if final_pass {
+            raw
+        } else {
+            diarize::stabilize_labels(previous, &raw)
+        };
+
+        let segments = match read_system_segments(db_path, meeting_id) {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("meeting {meeting_id}: read segments failed: {e}");
+                return Some(turns);
+            }
+        };
+        let labels = diarize::fuse_speaker_labels(&segments, &turns);
+        if let Err(e) = apply_speaker_labels(db_path, &labels) {
+            warn!("meeting {meeting_id}: apply labels failed: {e}");
+            return Some(turns);
+        }
+        let speakers = {
+            let mut v: Vec<i64> = turns.iter().map(|t| t.speaker).collect();
+            v.sort_unstable();
+            v.dedup();
+            v
+        };
+        let _ = MeetingSpeakersUpdated {
+            meeting_id,
+            speakers,
+            final_pass,
+        }
+        .emit(app);
+        Some(turns)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Background canonical final pass: diarize the whole remote channel, overwrite
+/// provisional labels, set `diarized = 1`, flip the meeting to `done`. Any
+/// failure leaves the meeting done-as-M1 (labels stay "Them").
+#[allow(clippy::too_many_arguments)]
+fn spawn_final_pass(
+    app: AppHandle,
+    db_path: std::path::PathBuf,
+    meeting_id: i64,
+    system_samples: Vec<f32>,
+    seg_model: std::path::PathBuf,
+    emb_model: std::path::PathBuf,
+    mic_only: bool,
+) {
+    std::thread::Builder::new()
+        .name("meeting-diarize-final".into())
+        .spawn(move || {
+            info!("meeting {meeting_id}: canonical diarization pass started");
+            let applied = diarize_and_apply(
+                &app,
+                &db_path,
+                meeting_id,
+                &system_samples,
+                &seg_model,
+                &emb_model,
+                &[],
+                true,
+            );
+            if applied.is_some() {
+                let _ = set_diarized(&db_path, meeting_id);
+                info!("meeting {meeting_id}: diarization complete");
+            }
+            let _ = finalize_meeting_done(&db_path, meeting_id);
+            let _ = MeetingState {
+                meeting_id,
+                status: "done".to_string(),
+                mic_only,
+                notice: None,
+            }
+            .emit(&app);
+        })
+        .expect("failed to spawn final diarization pass");
+}
+
+/// Provisional worker: every ~30 s re-diarize the accumulated remote audio and
+/// relabel, so live labels appear during the call. Skips a cycle if the audio
+/// hasn't grown. Off by default on Intel (auto-degrade); only spawned when the
+/// user opts in and models are present.
+#[allow(clippy::too_many_arguments)]
+fn spawn_provisional_worker(
+    app: AppHandle,
+    db_path: std::path::PathBuf,
+    meeting_id: i64,
+    accum: Arc<Mutex<Vec<f32>>>,
+    seg_model: std::path::PathBuf,
+    emb_model: std::path::PathBuf,
+    stop: Arc<AtomicBool>,
+) -> JoinHandle<()> {
+    const CYCLE_MS: u64 = 30_000;
+    const TICK_MS: u64 = 500;
+    std::thread::Builder::new()
+        .name("meeting-diarize-provisional".into())
+        .spawn(move || {
+            let mut previous: Vec<DiarTurn> = Vec::new();
+            let mut last_len = 0usize;
+            let mut elapsed = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                std::thread::sleep(std::time::Duration::from_millis(TICK_MS));
+                elapsed += TICK_MS;
+                if elapsed < CYCLE_MS {
+                    continue;
+                }
+                elapsed = 0;
+                let snapshot = match accum.lock() {
+                    Ok(g) => g.clone(),
+                    Err(_) => continue,
+                };
+                // Skip if no new audio since last cycle (nothing to relabel).
+                if snapshot.len() <= last_len || snapshot.is_empty() {
+                    continue;
+                }
+                last_len = snapshot.len();
+                let snap_s = snapshot.len() as f32
+                    / crate::audio_toolkit::constants::WHISPER_SAMPLE_RATE as f32;
+                if !diarize::provisional_cycle_budget_ok(
+                    diarize::REFERENCE_RATIO_RT,
+                    snap_s,
+                    diarize::PROVISIONAL_CYCLE_BUDGET_S,
+                ) {
+                    warn!(
+                        "meeting {meeting_id}: provisional cycle over {snap_s:.0}s of audio likely \
+                         exceeds the {}s budget — labels will lag",
+                        diarize::PROVISIONAL_CYCLE_BUDGET_S
+                    );
+                }
+                if let Some(turns) = diarize_and_apply(
+                    &app, &db_path, meeting_id, &snapshot, &seg_model, &emb_model, &previous, false,
+                ) {
+                    previous = turns;
+                }
+            }
+        })
+        .expect("failed to spawn provisional diarization worker")
 }
 
 fn write_wav_16k_mono(path: &std::path::Path, samples: &[f32]) -> Result<()> {

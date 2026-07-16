@@ -918,7 +918,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Scorciatoia di cattura"
+      "captureHotkeyTitle": "Scorciatoia di cattura",
+      "diarization": {
+        "title": "Diarizzazione dei parlanti",
+        "enable": "Etichetta i parlanti sul dispositivo",
+        "enableHint": "Separa ed etichetta chi parla dall'altro lato della chiamata, interamente sul dispositivo. Il tuo microfono è sempre «Tu».",
+        "provisional": "Etichette provvisorie in tempo reale",
+        "provisionalHint": "Rietichetta i parlanti circa ogni 30 secondi durante la chiamata. Disattivato di default: sui Mac Intel non riesce a stare al passo, quindi le etichette vengono applicate in un'unica passata alla fine della riunione.",
+        "modelsTitle": "Modelli di diarizzazione",
+        "modelsInstalled": "Installati e pronti.",
+        "modelsSize": "Circa {{size}} MB, scaricati una volta.",
+        "modelsReady": "Pronto",
+        "download": "Scarica",
+        "downloadError": "Impossibile scaricare i modelli: {{error}}",
+        "speakerN": "Parlante {{n}}",
+        "rename": "Rinomina parlante",
+        "save": "Salva",
+        "renameError": "Impossibile rinominare il parlante: {{error}}",
+        "hidePrivate": "Nascondi ciò che ho detto a OpenFlow",
+        "youPrivate": "Tu → OpenFlow",
+        "chip": {
+          "off": "Nessuna etichetta",
+          "on": "Etichette parlante",
+          "provisional": "Provvisorio",
+          "finalPass": "Passata finale alla fine",
+          "finalizing": "Finalizzazione parlanti…",
+          "done": "Parlanti etichettati"
+        }
+      }
     },
     "aiModes": {
       "write": {
