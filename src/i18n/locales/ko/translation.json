@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "일반",
-    "models": "모델",
+    "models": "모델 다운로드",
+    "modelSetup": "음성 설정",
     "advanced": "고급",
-    "postProcessing": "후처리",
+    "postProcessing": "AI 모드",
     "dictionary": "사전",
     "agents": "에이전트",
     "history": "히스토리",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "모든 설정 및 고급 기능 표시",
     "missionControl": "미션 컨트롤",
     "meetings": "Meetings",
-    "resizeHandle": "사이드바 크기 조절"
+    "resizeHandle": "사이드바 크기 조절",
+    "groups": {
+      "dictation": "받아쓰기",
+      "speechEngine": "음성 엔진",
+      "agents": "에이전트",
+      "meetings": "회의",
+      "system": "시스템"
+    }
   },
   "onboarding": {
     "subtitle": "시작하려면 음성 인식 모델을 선택하세요",
@@ -192,6 +200,10 @@
           "meeting_capture": {
             "name": "회의 캡처 단축키",
             "description": "현재 회의 캡처를 시작하거나 중지합니다. 시스템 오디오는 맨 앞 앱(예: Google Meet의 경우 Chrome)을 대상으로 합니다."
+          },
+          "hotkey_overlay": {
+            "name": "단축키 표시",
+            "description": "누르고 있으면 설정된 모든 단축키의 요약을 표시합니다. 놓으면 숨겨집니다."
           }
         },
         "errors": {
@@ -210,6 +222,29 @@
       "pushToTalk": {
         "label": "녹음 중 단축키 홀딩",
         "description": "누르고 있으면 녹음, 놓으면 정지"
+      },
+      "postProcessing": {
+        "title": "AI 후처리",
+        "master": {
+          "label": "AI 후처리",
+          "description": "기본 단축키에서 AI가 받아쓴 내용을 다듬습니다. 끄면 기본 단축키는 말한 그대로의 자연스러운 전사를 삽입합니다. 자체 단축키나 앱 규칙이 있는 AI 모드는 계속 작동합니다."
+        },
+        "defaultMode": {
+          "label": "기본 모드",
+          "description": "후처리가 켜져 있을 때 기본 단축키가 적용하는 모드입니다. Write는 내장 정리 기능입니다."
+        },
+        "writeMode": "Write(내장 정리)",
+        "fillerFilter": {
+          "label": "군말 제거",
+          "description": "AI 없이 단독 군말(음, 어, 흠)을 제거합니다. 원본 또는 직접 받아쓰기에만 적용됩니다."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "단축키 개요",
+        "enable": {
+          "label": "단축키 오버레이 표시",
+          "description": "지정한 단축키를 누르고 있으면 설정된 모든 단축키의 요약을 표시합니다."
+        }
       }
     },
     "sound": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "캡처 단축키"
+    },
+    "aiModes": {
+      "write": {
+        "title": "쓰기 (기본 제공)",
+        "description": "기본 후처리 모드입니다. 아래 AI 모드가 받아쓰는 중인 앱과 일치하지 않는 한, 기본 받아쓰기 단축키는 이 설정을 사용합니다. 여기서 설정을 편집하면 이전과 동일한 후처리 설정이 변경됩니다."
+      },
+      "addMode": {
+        "title": "AI 모드",
+        "intro": "이름이 지정된 받아쓰기 프로필을 만드세요. 각 프로필에는 선택적 단축키와 앱별 자동 선택 기능이 있습니다. 우선순위: 모드 단축키가 우선하고, 그다음 일치하는 앱 규칙, 그다음 기존 앱별 프롬프트, 마지막으로 위의 쓰기 후처리가 적용됩니다.",
+        "blank": "빈 모드",
+        "created": "\"{{name}}\" 추가됨",
+        "error": "모드를 추가할 수 없습니다: {{error}}"
+      },
+      "emptyState": "아직 AI 모드가 없습니다. 템플릿에서 추가하거나 빈 상태로 시작하세요.",
+      "templates": {
+        "command": {
+          "name": "명령",
+          "description": "말한 요청을 셸 명령으로 변환하여 커서 위치에 입력합니다(실행되지 않음). 터미널 앱을 위한 사전 설정입니다."
+        },
+        "direct": {
+          "name": "직접 받아쓰기",
+          "description": "후처리나 LLM 없이 원본 텍스트를 그대로 삽입합니다."
+        },
+        "translate": {
+          "name": "번역",
+          "description": "받아쓴 내용을 삽입하기 전에 다른 언어로 번역합니다. 프롬프트에서 대상 언어를 편집하세요."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "모드 이름",
+          "placeholder": "모드 이름"
+        },
+        "enabled": {
+          "label": "사용"
+        },
+        "kind": {
+          "label": "모드 유형",
+          "description": "재작성은 프롬프트를 사용해 텍스트를 LLM에 통과시킵니다. 명령은 음성을 셸 명령으로 변환합니다(입력만 되고 실행되지 않음). 직접은 LLM 없이 원본 텍스트를 그대로 삽입합니다.",
+          "rewrite": "재작성",
+          "command": "명령",
+          "direct": "직접"
+        },
+        "provider": {
+          "label": "제공자",
+          "description": "이 모드가 사용하는 LLM 제공자입니다. 상속을 선택하면 기본 후처리 제공자를 사용합니다.",
+          "inherit": "기본 후처리 제공자 상속"
+        },
+        "model": {
+          "label": "모델",
+          "description": "모델 재정의입니다. 비워두면 제공자에 설정된 후처리 모델을 사용합니다.",
+          "placeholder": "기본값 상속"
+        },
+        "prompt": {
+          "label": "프롬프트",
+          "description": "직접 편집할 수 있는 지침입니다. 출력 형식이 깨지지 않도록 고정된 안전 기본 프롬프트가 항상 함께 적용됩니다.",
+          "placeholder": "이 모드가 받아쓴 내용을 어떻게 변환할지 설명하세요..."
+        },
+        "appRules": {
+          "label": "다음 사용 시 활성화",
+          "description": "최상단 앱이 일치하면 기본 단축키에서 이 모드를 자동으로 선택합니다. 번들 ID 또는 앱 이름과 일치합니다(대소문자 구분 없음, 양방향 일치).",
+          "placeholder": "번들 ID 또는 앱 이름 (예: com.apple.Terminal)",
+          "add": "추가",
+          "remove": "{{rule}} 제거",
+          "pickRunning": "실행 중인 앱에서 선택",
+          "loadingApps": "앱 불러오는 중...",
+          "noApps": "실행 중인 앱을 찾을 수 없습니다. 대신 번들 ID나 이름을 입력하세요."
+        },
+        "directHint": "직접 모드는 LLM 없이 원본 텍스트를 그대로 삽입하므로 설정하거나 테스트할 항목이 없습니다.",
+        "test": {
+          "label": "테스트",
+          "description": "커서를 건드리지 않고 샘플 텍스트로 이 모드를 실행합니다.",
+          "run": "테스트 실행",
+          "running": "실행 중...",
+          "sampleText": {
+            "placeholder": "샘플 텍스트를 입력하세요..."
+          },
+          "latency": "{{ms}}ms 만에 완료됨",
+          "error": "테스트 실패: {{error}}"
+        },
+        "update": {
+          "error": "모드를 업데이트할 수 없습니다: {{error}}"
+        },
+        "delete": {
+          "button": "모드 삭제",
+          "success": "\"{{name}}\" 삭제됨",
+          "error": "모드를 삭제할 수 없습니다: {{error}}",
+          "confirmTitle": "\"{{name}}\"을(를) 삭제할까요?",
+          "confirmDescription": "이 모드와 단축키가 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+          "cancel": "취소",
+          "confirm": "삭제"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "단축키",
+      "empty": "아직 설정된 단축키가 없습니다.",
+      "groups": {
+        "dictation": "받아쓰기",
+        "aiModes": "AI 모드",
+        "agents": "에이전트",
+        "meetings": "회의"
+      },
+      "bindings": {
+        "transcribe": "전사",
+        "postProcess": "후처리",
+        "cancel": "취소",
+        "meetingCapture": "회의 캡처",
+        "showHotkeys": "단축키 표시"
+      }
     }
   },
   "footer": {

@@ -101,6 +101,58 @@ pub fn frontmost_bundle() -> Option<(String, String)> {
     None
 }
 
+/// A currently-running application with a bundle id and localized name. Used by
+/// the AI Mode "Activate when using" app-rules picker.
+#[derive(Clone, Debug, Serialize, Deserialize, Type)]
+pub struct RunningApp {
+    pub bundle_id: String,
+    pub name: String,
+}
+
+/// List the regular (dock-visible) running applications, deduplicated by bundle
+/// id and sorted by name. Best-effort; returns an empty list on any failure or
+/// non-macOS platform, so the picker simply shows nothing to choose from and the
+/// user falls back to free-text entry.
+#[cfg(target_os = "macos")]
+pub fn running_apps() -> Vec<RunningApp> {
+    use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
+    use std::collections::BTreeMap;
+
+    let workspace = NSWorkspace::sharedWorkspace();
+    let apps = workspace.runningApplications();
+    let mut by_bundle: BTreeMap<String, String> = BTreeMap::new();
+    for app in apps.iter() {
+        // Only regular (dock) apps — skip background/agent processes the user
+        // would never dictate into.
+        if app.activationPolicy() != NSApplicationActivationPolicy::Regular {
+            continue;
+        }
+        let Some(bundle) = app.bundleIdentifier().map(|b| b.to_string()) else {
+            continue;
+        };
+        if bundle.is_empty() {
+            continue;
+        }
+        let name = app
+            .localizedName()
+            .map(|n| n.to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| bundle.clone());
+        by_bundle.entry(bundle).or_insert(name);
+    }
+    let mut out: Vec<RunningApp> = by_bundle
+        .into_iter()
+        .map(|(bundle_id, name)| RunningApp { bundle_id, name })
+        .collect();
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn running_apps() -> Vec<RunningApp> {
+    Vec::new()
+}
+
 /// Frontmost application's localized name via NSWorkspace (no Accessibility
 /// permission required). Returns `None` when there is no frontmost app or the
 /// name is nil.

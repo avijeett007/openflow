@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "General",
-    "models": "Modelos",
+    "models": "Descargas de modelos",
+    "modelSetup": "Configuración de voz",
     "advanced": "Avanzado",
-    "postProcessing": "Post Proceso",
+    "postProcessing": "Modos de IA",
     "dictionary": "Diccionario",
     "agents": "Agentes",
     "history": "Historial",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Mostrar todos los ajustes y las funciones avanzadas",
     "missionControl": "Centro de Control",
     "meetings": "Meetings",
-    "resizeHandle": "Cambiar el tamaño de la barra lateral"
+    "resizeHandle": "Cambiar el tamaño de la barra lateral",
+    "groups": {
+      "dictation": "Dictado",
+      "speechEngine": "Motor de voz",
+      "agents": "Agentes",
+      "meetings": "Reuniones",
+      "system": "Sistema"
+    }
   },
   "onboarding": {
     "subtitle": "Para comenzar, elige un modelo de transcripción",
@@ -210,6 +218,10 @@
           "meeting_capture": {
             "name": "Atajo de captura de reunión",
             "description": "Inicia o detiene la captura de la reunión actual. Apunta a la app en primer plano (como Chrome para Google Meet) para el audio del sistema."
+          },
+          "hotkey_overlay": {
+            "name": "Mostrar atajos",
+            "description": "Mantén pulsado para ver una chuleta de todos los atajos configurados. Suelta para ocultar."
           }
         },
         "errors": {
@@ -228,6 +240,29 @@
       "pushToTalk": {
         "label": "Presionar para Hablar",
         "description": "Mantén presionado para grabar, suelta para detener"
+      },
+      "postProcessing": {
+        "title": "Posprocesamiento con IA",
+        "master": {
+          "label": "Posprocesamiento con IA",
+          "description": "Reformula tu dictado con IA en la tecla principal. Cuando está desactivado, la tecla principal inserta la transcripción natural tal como se habló; los modos de IA con su propia tecla o reglas de app siguen funcionando."
+        },
+        "defaultMode": {
+          "label": "Modo predeterminado",
+          "description": "Qué modo aplica la tecla principal cuando el posprocesamiento está activado. Escribir es la limpieza integrada."
+        },
+        "writeMode": "Escribir (limpieza integrada)",
+        "fillerFilter": {
+          "label": "Eliminar muletillas",
+          "description": "Elimina muletillas sueltas (em, eh, mmm) sin IA. Solo se aplica al dictado sin procesar o directo."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Resumen de atajos",
+        "enable": {
+          "label": "Mostrar panel de atajos",
+          "description": "Mantén pulsada la tecla asignada para ver una chuleta de todos los atajos configurados."
+        }
       }
     },
     "sound": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Atajo de captura"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Escribir (integrado)",
+        "description": "El modo de limpieza predeterminado. Tu atajo principal de dictado usa esta configuración a menos que un Modo de IA de abajo coincida con la app en la que estás dictando. Editar estos controles edita la misma configuración de limpieza que antes."
+      },
+      "addMode": {
+        "title": "Modos de IA",
+        "intro": "Crea perfiles de dictado con nombre, cada uno con su propio atajo opcional y selección automática según la app. Prioridad: primero gana el atajo de un modo, luego una regla de app coincidente, luego el prompt heredado por app, luego la limpieza de Escribir de arriba.",
+        "blank": "Modo en blanco",
+        "created": "«{{name}}» añadido",
+        "error": "No se pudo añadir el modo: {{error}}"
+      },
+      "emptyState": "Aún no hay Modos de IA. Añade uno desde una plantilla o empieza en blanco.",
+      "templates": {
+        "command": {
+          "name": "Comando",
+          "description": "Convierte solicitudes habladas en comandos de shell, escritos (nunca ejecutados) en el cursor. Preconfigurado para apps de terminal."
+        },
+        "direct": {
+          "name": "Dictado directo",
+          "description": "Inserta la transcripción sin procesar, sin limpieza ni LLM."
+        },
+        "translate": {
+          "name": "Traducir",
+          "description": "Traduce el dictado a otro idioma antes de insertarlo. Edita el idioma de destino en el prompt."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Nombre del modo",
+          "placeholder": "Nombre del modo"
+        },
+        "enabled": {
+          "label": "Habilitado"
+        },
+        "kind": {
+          "label": "Tipo de modo",
+          "description": "Reescribir pasa la transcripción por un LLM con tu prompt. Comando convierte el habla en un comando de shell (escrito, nunca ejecutado). Directo inserta la transcripción sin procesar, sin LLM.",
+          "rewrite": "Reescribir",
+          "command": "Comando",
+          "direct": "Directo"
+        },
+        "provider": {
+          "label": "Proveedor",
+          "description": "Qué proveedor de LLM usa este modo. «Heredar» usa tu proveedor de limpieza predeterminado.",
+          "inherit": "Heredar el proveedor de limpieza predeterminado"
+        },
+        "model": {
+          "label": "Modelo",
+          "description": "Sobrescritura del modelo. Déjalo en blanco para usar el modelo de limpieza configurado del proveedor.",
+          "placeholder": "Heredar el predeterminado"
+        },
+        "prompt": {
+          "label": "Prompt",
+          "description": "Tus instrucciones editables. Siempre se aplica además un prompt base de seguridad fijo, para que el contrato de salida no pueda romperse.",
+          "placeholder": "Describe cómo debe transformar este modo tu dictado..."
+        },
+        "appRules": {
+          "label": "Activar al usar",
+          "description": "Selecciona automáticamente este modo en tu atajo principal cuando coincide la app en primer plano. Coincide con un id de bundle o nombre de app (sin distinguir mayúsculas y minúsculas, en cualquier dirección).",
+          "placeholder": "Id de bundle o nombre de app (p. ej. com.apple.Terminal)",
+          "add": "Añadir",
+          "remove": "Eliminar {{rule}}",
+          "pickRunning": "Elegir entre las apps en ejecución",
+          "loadingApps": "Cargando apps...",
+          "noApps": "No se encontraron apps en ejecución. Escribe un id de bundle o un nombre en su lugar."
+        },
+        "directHint": "Los modos directos insertan la transcripción sin procesar sin LLM, así que no hay nada que configurar ni probar.",
+        "test": {
+          "label": "Prueba",
+          "description": "Prueba este modo con una transcripción de muestra sin tocar tu cursor.",
+          "run": "Ejecutar prueba",
+          "running": "Ejecutando...",
+          "sampleText": {
+            "placeholder": "Escribe una transcripción de muestra..."
+          },
+          "latency": "Completado en {{ms}} ms",
+          "error": "La prueba falló: {{error}}"
+        },
+        "update": {
+          "error": "No se pudo actualizar el modo: {{error}}"
+        },
+        "delete": {
+          "button": "Eliminar modo",
+          "success": "«{{name}}» eliminado",
+          "error": "No se pudo eliminar el modo: {{error}}",
+          "confirmTitle": "¿Eliminar «{{name}}»?",
+          "confirmDescription": "Esto elimina el modo y su atajo. Esta acción no se puede deshacer.",
+          "cancel": "Cancelar",
+          "confirm": "Eliminar"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Atajos",
+      "empty": "Aún no hay atajos configurados.",
+      "groups": {
+        "dictation": "Dictado",
+        "aiModes": "Modos de IA",
+        "agents": "Agentes",
+        "meetings": "Reuniones"
+      },
+      "bindings": {
+        "transcribe": "Transcribir",
+        "postProcess": "Posprocesamiento",
+        "cancel": "Cancelar",
+        "meetingCapture": "Captura de reunión",
+        "showHotkeys": "Mostrar atajos"
+      }
     }
   },
   "footer": {

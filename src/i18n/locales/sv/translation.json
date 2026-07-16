@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Allmänt",
-    "models": "Modeller",
+    "models": "Modellhämtningar",
+    "modelSetup": "Röstinställning",
     "advanced": "Avancerat",
-    "postProcessing": "Efterbearbetning",
+    "postProcessing": "AI-lägen",
     "dictionary": "Ordlista",
     "agents": "Agenter",
     "history": "Historik",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Visa alla inställningar och avancerade funktioner",
     "missionControl": "Kontrollcenter",
     "meetings": "Meetings",
-    "resizeHandle": "Ändra storlek på sidofältet"
+    "resizeHandle": "Ändra storlek på sidofältet",
+    "groups": {
+      "dictation": "Diktering",
+      "speechEngine": "Röstmotor",
+      "agents": "Agenter",
+      "meetings": "Möten",
+      "system": "System"
+    }
   },
   "onboarding": {
     "subtitle": "För att komma igång, välj en transkriptionsmodell",
@@ -192,6 +200,10 @@
           "meeting_capture": {
             "name": "Kortkommando för mötesinspelning",
             "description": "Starta eller stoppa inspelning av det aktuella mötet. Riktar in sig på appen i förgrunden (som Chrome för Google Meet) för systemljud."
+          },
+          "hotkey_overlay": {
+            "name": "Visa kortkommandon",
+            "description": "Håll in för att visa en lathund över alla konfigurerade kortkommandon. Släpp för att dölja."
           }
         },
         "errors": {
@@ -210,6 +222,29 @@
       "pushToTalk": {
         "label": "Tryck för att tala",
         "description": "Håll ned för att spela in, släpp för att stoppa"
+      },
+      "postProcessing": {
+        "title": "AI-efterbearbetning",
+        "master": {
+          "label": "AI-efterbearbetning",
+          "description": "Omforma din diktering med AI via huvudkortkommandot. När det är av infogar huvudkortkommandot naturlig transkribering exakt som du talade — AI-lägen med eget kortkommando eller appregler fortsätter fungera."
+        },
+        "defaultMode": {
+          "label": "Standardläge",
+          "description": "Vilket läge huvudkortkommandot tillämpar när efterbearbetning är på. Write är den inbyggda rensningen."
+        },
+        "writeMode": "Write (inbyggd rensning)",
+        "fillerFilter": {
+          "label": "Ta bort utfyllnadsord",
+          "description": "Tar bort enstaka utfyllnadsord (öh, eh, hmm) utan AI. Gäller endast rå eller direkt diktering."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Översikt över kortkommandon",
+        "enable": {
+          "label": "Visa kortkommando-överlägg",
+          "description": "Håll in det tilldelade kortkommandot för att visa en lathund över alla konfigurerade kortkommandon."
+        }
       }
     },
     "models": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Kortkommando för inspelning"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Write (inbyggd)",
+        "description": "Standardläget för rensning. Din huvudsakliga snabbtangent för diktering använder dessa inställningar om inte ett AI-läge nedan matchar appen du dikterar i. Att redigera dessa kontroller ändrar samma rensningsinställningar som tidigare."
+      },
+      "addMode": {
+        "title": "AI-lägen",
+        "intro": "Skapa namngivna dikteringsprofiler, var och en med sin egen valfria snabbtangent och appspecifikt automatiskt val. Prioritetsordning: ett läges snabbtangent vinner, sedan en matchande appregel, sedan den äldre appspecifika prompten och sist rensningen för Write ovan.",
+        "blank": "Tomt läge",
+        "created": "”{{name}}” lades till",
+        "error": "Kunde inte lägga till läget: {{error}}"
+      },
+      "emptyState": "Inga AI-lägen ännu. Lägg till ett från en mall eller börja tomt.",
+      "templates": {
+        "command": {
+          "name": "Kommando",
+          "description": "Omvandlar talade förfrågningar till skalkommandon som skrivs (men aldrig körs) vid markören. Förinställning för terminalappar."
+        },
+        "direct": {
+          "name": "Direktdiktering",
+          "description": "Infogar den råa transkriptionen utan rensning eller LLM."
+        },
+        "translate": {
+          "name": "Översätt",
+          "description": "Översätter dikteringen till ett annat språk innan den infogas. Redigera målspråket i prompten."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Lägesnamn",
+          "placeholder": "Lägesnamn"
+        },
+        "enabled": {
+          "label": "Aktiverad"
+        },
+        "kind": {
+          "label": "Lägestyp",
+          "description": "Omskrivning kör transkriptionen genom en LLM med din prompt. Kommando omvandlar tal till ett skalkommando (skrivs, körs aldrig). Direkt infogar den råa transkriptionen utan LLM.",
+          "rewrite": "Omskrivning",
+          "command": "Kommando",
+          "direct": "Direkt"
+        },
+        "provider": {
+          "label": "Leverantör",
+          "description": "Vilken LLM-leverantör det här läget använder. Ärv använder din standardleverantör för rensning.",
+          "inherit": "Ärv standardleverantör för rensning"
+        },
+        "model": {
+          "label": "Modell",
+          "description": "Åsidosättning av modell. Lämna tomt för att använda leverantörens konfigurerade rensningsmodell.",
+          "placeholder": "Ärv standard"
+        },
+        "prompt": {
+          "label": "Prompt",
+          "description": "Dina redigerbara instruktioner. En fast säkerhetsbasprompt tillämpas alltid ovanpå så att utdatakontraktet inte kan brytas.",
+          "placeholder": "Beskriv hur det här läget ska omvandla din diktering..."
+        },
+        "appRules": {
+          "label": "Aktivera när du använder",
+          "description": "Väljer automatiskt det här läget på din huvudsakliga snabbtangent när den främsta appen matchar. Matchar ett bundle-id eller appnamn (skiftlägesokänsligt, i endera riktningen).",
+          "placeholder": "Bundle-id eller appnamn (t.ex. com.apple.Terminal)",
+          "add": "Lägg till",
+          "remove": "Ta bort {{rule}}",
+          "pickRunning": "Välj bland körande appar",
+          "loadingApps": "Läser in appar...",
+          "noApps": "Inga körande appar hittades. Skriv istället ett bundle-id eller namn."
+        },
+        "directHint": "Direkta lägen infogar den råa transkriptionen utan LLM, så det finns inget att konfigurera eller testa.",
+        "test": {
+          "label": "Test",
+          "description": "Kör det här läget på en exempeltranskription utan att röra din markör.",
+          "run": "Kör test",
+          "running": "Kör...",
+          "sampleText": {
+            "placeholder": "Skriv en exempeltranskription..."
+          },
+          "latency": "Slutfördes på {{ms}} ms",
+          "error": "Testet misslyckades: {{error}}"
+        },
+        "update": {
+          "error": "Kunde inte uppdatera läget: {{error}}"
+        },
+        "delete": {
+          "button": "Ta bort läge",
+          "success": "”{{name}}” togs bort",
+          "error": "Kunde inte ta bort läget: {{error}}",
+          "confirmTitle": "Ta bort ”{{name}}”?",
+          "confirmDescription": "Detta tar bort läget och dess snabbtangent. Det här går inte att ångra.",
+          "cancel": "Avbryt",
+          "confirm": "Ta bort"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Kortkommandon",
+      "empty": "Inga kortkommandon konfigurerade ännu.",
+      "groups": {
+        "dictation": "Diktering",
+        "aiModes": "AI-lägen",
+        "agents": "Agenter",
+        "meetings": "Möten"
+      },
+      "bindings": {
+        "transcribe": "Transkribera",
+        "postProcess": "Efterbearbetning",
+        "cancel": "Avbryt",
+        "meetingCapture": "Mötesinspelning",
+        "showHotkeys": "Visa kortkommandon"
+      }
     }
   },
   "footer": {

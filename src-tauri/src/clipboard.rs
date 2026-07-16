@@ -589,6 +589,22 @@ fn should_send_auto_submit(auto_submit: bool, paste_method: PasteMethod) -> bool
 }
 
 pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
+    paste_internal(text, app_handle, false)
+}
+
+/// Like [`paste`], but force auto-submit OFF regardless of the user's global
+/// `auto_submit` setting. Used by AI Command modes, which TYPE the command at the
+/// cursor and must NEVER execute it (no Enter). All other paste behavior
+/// (method, delay, trailing space, clipboard handling) is identical.
+pub fn paste_without_auto_submit(text: String, app_handle: AppHandle) -> Result<(), String> {
+    paste_internal(text, app_handle, true)
+}
+
+fn paste_internal(
+    text: String,
+    app_handle: AppHandle,
+    suppress_auto_submit: bool,
+) -> Result<(), String> {
     let settings = get_settings(&app_handle);
     let paste_method = settings.paste_method;
     let paste_delay_ms = settings.paste_delay_ms;
@@ -646,7 +662,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         }
     }
 
-    if should_send_auto_submit(settings.auto_submit, paste_method) {
+    if !suppress_auto_submit && should_send_auto_submit(settings.auto_submit, paste_method) {
         std::thread::sleep(Duration::from_millis(50));
         send_return_key(&mut enigo, settings.auto_submit_key)?;
     }

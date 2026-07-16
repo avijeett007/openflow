@@ -21,6 +21,15 @@ async resetBinding(id: string) : Promise<Result<BindingResponse, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Clear a binding back to UNBOUND (empty `current_binding`).
+ * 
+ * `change_binding` deliberately rejects an empty value — every *normal*
+ * shortcut must always hold one. But bindings seeded unbound (a meeting-capture
+ * hotkey, per-agent hotkeys) have "unset" as a legitimate state the user can
+ * return to. This unregisters the live shortcut and persists the empty value
+ * without going through `change_binding`, so transcribe/cancel are untouched.
+ */
 async clearBinding(id: string) : Promise<Result<BindingResponse, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("clear_binding", { id }) };
@@ -934,6 +943,88 @@ async testAgent(id: string, sampleText: string) : Promise<Result<AgentTestResult
     else return { status: "error", error: e  as any };
 }
 },
+async createAiMode(mode: AiMode) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_ai_mode", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateAiMode(mode: AiMode) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_ai_mode", { mode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteAiMode(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_ai_mode", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Run the mode's transform over `sample_text` and return the output + latency.
+ * Powers the mode card's "Test" button (mirrors `test_agent`). For `Direct`
+ * modes this returns the sample text unchanged (no LLM call).
+ */
+async testAiMode(id: string, sampleText: string) : Promise<Result<AiModeTestResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_ai_mode", { id, sampleText }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * List currently-running apps for the mode card's "Activate when using" picker.
+ * Best-effort — an empty list just means the user types bundle ids / names by
+ * hand.
+ */
+async getRunningApps() : Promise<RunningApp[]> {
+    return await TAURI_INVOKE("get_running_apps");
+},
+/**
+ * Set the default AI Mode applied on the main hotkey when post-processing is on.
+ * `None` (or an empty/whitespace string) = the built-in **Write** mode = today's
+ * cleanup path. `Some(id)` must reference an existing mode; unknown/disabled ids
+ * are accepted (stored) but degrade to Write at resolution time.
+ */
+async setDefaultAiModeId(modeId: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_default_ai_mode_id", { modeId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle the light, NON-AI basic filler filter (um/uh/… on Raw/Direct only).
+ */
+async setBasicFillerFilter(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_basic_filler_filter", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle the hotkey cheat-sheet overlay master switch (D2). The `hotkey_overlay`
+ * binding ships unbound, so this only matters once the user assigns a hotkey.
+ */
+async setHotkeyOverlayEnabled(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_hotkey_overlay_enabled", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Resolve a CLI agent's binary path by looking up its canonical name on PATH
  * (`which`-style). Returns the absolute path, or an error if not found. The
@@ -1491,6 +1582,73 @@ export type AgentRunStatus = { run_id: string; status: RunStatus }
  */
 export type AgentTestResult = { output: string; latency_ms: number }
 /**
+ * A user-defined **AI Mode**: a named dictation profile with its own optional
+ * global hotkey and optional per-app auto-selection rules. Modes generalize the
+ * built-in cleanup ("Write") path — see [`AiModeKind`]. Every field beyond
+ * `id`/`name`/`binding_id` is `#[serde(default)]` so an old settings store (no
+ * `ai_modes` key, or partial entries) always deserializes cleanly; with
+ * `ai_modes` empty the app behaves byte-for-byte as before this field existed.
+ */
+export type AiMode = { 
+/**
+ * Stable slug, e.g. "translate"; unique. Matches `^[a-z0-9_-]{1,48}$`.
+ */
+id: string; 
+/**
+ * Display name shown in the UI.
+ */
+name: string; 
+/**
+ * What this mode does to the transcript. Defaults to `Rewrite`.
+ */
+kind?: AiModeKind; enabled?: boolean; 
+/**
+ * ALWAYS `"mode:<id>"` — the join key into `AppSettings.bindings`.
+ */
+binding_id: string; 
+/**
+ * The editable prompt *body* (tone/instructions). Appended to a fixed hidden
+ * base prompt at call time; empty for `Direct`.
+ */
+prompt?: string; 
+/**
+ * Optional provider override. `None`/empty → inherit the active cleanup
+ * provider (`active_post_process_provider`).
+ */
+provider_id?: string | null; 
+/**
+ * Optional model override. `None`/empty → inherit the provider's configured
+ * cleanup model (`post_process_models[provider_id]`).
+ */
+model?: string | null; 
+/**
+ * Bundle-id or app-name substrings for per-app auto-selection on the MAIN
+ * hotkey. Empty → this mode is never auto-selected (hotkey-only). Matching is
+ * case-insensitive substring both directions against the frontmost app's
+ * bundle id AND localized name (same semantics as `per_app_prompts`).
+ */
+app_rules?: string[] }
+/**
+ * What an AI Mode does with the raw transcript before it reaches the cursor.
+ * 
+ * - `Rewrite` (default): route the transcript through a cleanup-style LLM using
+ * the mode's editable prompt as the tone/instruction body (on top of a fixed,
+ * hidden base prompt). This generalizes the existing post-process cleanup.
+ * - `Command`: ask the LLM to translate the spoken request into a single bare
+ * shell command via structured output, then TYPE it at the cursor. It is
+ * NEVER executed and auto-submit is force-disabled for the injection.
+ * - `Direct`: inject the raw transcript verbatim, skipping the LLM entirely.
+ * 
+ * Defaults to `Rewrite` so any partial/older stored mode deserializes as a
+ * plain rewrite mode.
+ */
+export type AiModeKind = "rewrite" | "command" | "direct"
+/**
+ * Result of the AI mode "Test" action: the transformed output plus how long it
+ * took. Mirrors `AgentTestResult` / `test_agent`.
+ */
+export type AiModeTestResult = { output: string; latency_ms: number }
+/**
  * The wire protocol an HTTP STT endpoint speaks. Most providers and
  * self-hosted servers (OpenAI, Groq, Speaches, whisper-server, LocalAI) use the
  * OpenAI `/audio/transcriptions` multipart shape; Deepgram is different enough
@@ -1618,6 +1776,38 @@ hands_free_voice_feedback?: boolean;
  * agents configured is byte-for-byte identical to before this field existed.
  */
 agents?: AgentDefinition[]; 
+/**
+ * User-defined AI Modes. Empty by default. Purely additive — an old store
+ * with no `ai_modes` key deserializes to an empty list, so behavior with no
+ * modes configured is byte-for-byte identical to before this field existed.
+ * The built-in cleanup ("Write") path is NOT stored here; it remains the
+ * existing `post_process_*` settings and is only *presented* as a mode.
+ */
+ai_modes?: AiMode[]; 
+/**
+ * The default AI Mode applied on the MAIN hotkey when post-processing is on
+ * and no higher-precedence source (hotkey mode / app-rule mode / legacy
+ * per-app prompt) matched. `None` = the built-in **Write** mode = today's
+ * exact cleanup path (byte-for-byte unchanged). `Some(id)` points at an
+ * enabled `ai_modes` entry that replaces the cleanup pass. Additive &
+ * serde-defaulted: an old store deserializes to `None` → no behavior change.
+ */
+default_ai_mode_id?: string | null; 
+/**
+ * Light, NON-AI filler filter. When `true`, standalone latin-script fillers
+ * (um/uh/uhm/erm/hmm variants) are stripped from the injected text — but ONLY
+ * for utterances that resolve to Raw (post-processing off) or a `Direct`
+ * mode, never when an LLM cleanup/rewrite already runs. Default `false` = no
+ * behavior change. See `audio_toolkit::text::strip_basic_fillers`.
+ */
+basic_filler_filter?: boolean; 
+/**
+ * Master switch for the "Show hotkeys" cheat-sheet overlay. Default `true` is
+ * safe because the `hotkey_overlay` binding ships UNBOUND — there is zero
+ * behavior until the user assigns it a hotkey. When bound, holding the hotkey
+ * shows a panel of every configured shortcut.
+ */
+hotkey_overlay_enabled?: boolean; 
 /**
  * Master switch for the meetings feature (capture + on-device transcription).
  * Additive & fully defaultable; when false the detector never runs and manual
@@ -1829,6 +2019,11 @@ export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "
  * | `{ status: "failed", error }` | `{ status: "stopped" }`.
  */
 export type RunStatus = { status: "running" } | { status: "finished"; code: number } | { status: "failed"; error: string } | { status: "stopped" }
+/**
+ * A currently-running application with a bundle id and localized name. Used by
+ * the AI Mode "Activate when using" app-rules picker.
+ */
+export type RunningApp = { bundle_id: string; name: string }
 export type SecretMap = Partial<{ [key in string]: string }>
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "custom"

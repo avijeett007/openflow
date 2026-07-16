@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Geral",
-    "models": "Modelos",
+    "models": "Downloads de modelos",
+    "modelSetup": "Configuração de voz",
     "advanced": "Avançado",
-    "postProcessing": "Pós-Processamento",
+    "postProcessing": "Modos de IA",
     "dictionary": "Dicionário",
     "agents": "Agentes",
     "history": "Histórico",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Mostrar todas as configurações e recursos avançados",
     "missionControl": "Central de Controle",
     "meetings": "Meetings",
-    "resizeHandle": "Redimensionar barra lateral"
+    "resizeHandle": "Redimensionar barra lateral",
+    "groups": {
+      "dictation": "Ditado",
+      "speechEngine": "Motor de voz",
+      "agents": "Agentes",
+      "meetings": "Reuniões",
+      "system": "Sistema"
+    }
   },
   "onboarding": {
     "subtitle": "Para começar, escolha um modelo de transcrição",
@@ -192,6 +200,10 @@
           "meeting_capture": {
             "name": "Atalho de captura de reunião",
             "description": "Inicia ou interrompe a captura da reunião atual. Direciona o app em primeiro plano (como o Chrome para o Google Meet) para o áudio do sistema."
+          },
+          "hotkey_overlay": {
+            "name": "Mostrar atalhos",
+            "description": "Mantenha pressionado para mostrar um resumo de todos os atalhos configurados. Solte para ocultar."
           }
         },
         "errors": {
@@ -210,6 +222,29 @@
       "pushToTalk": {
         "label": "Pressionar para Falar",
         "description": "Segure para gravar, solte para parar"
+      },
+      "postProcessing": {
+        "title": "Pós-processamento com IA",
+        "master": {
+          "label": "Pós-processamento com IA",
+          "description": "Reformula o seu ditado com IA na tecla principal. Quando desativado, a tecla principal insere a transcrição natural exatamente como falada; os modos de IA com a própria tecla ou regras de app continuam a funcionar."
+        },
+        "defaultMode": {
+          "label": "Modo padrão",
+          "description": "Qual modo a tecla principal aplica quando o pós-processamento está ativado. Escrever é a limpeza integrada."
+        },
+        "writeMode": "Escrever (limpeza integrada)",
+        "fillerFilter": {
+          "label": "Remover palavras de preenchimento",
+          "description": "Remove hesitações isoladas (hum, é, hmm) sem IA. Aplica-se apenas ao ditado bruto ou direto."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Visão geral de atalhos",
+        "enable": {
+          "label": "Mostrar painel de atalhos",
+          "description": "Mantenha pressionada a tecla atribuída para mostrar um resumo de todos os atalhos configurados."
+        }
       }
     },
     "models": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Atalho de captura"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Write (integrado)",
+        "description": "O modo de limpeza padrão. Seu atalho de ditado principal usa essas configurações, a menos que um Modo de IA abaixo corresponda ao aplicativo em que você está ditando. Editar esses controles edita as mesmas configurações de limpeza de antes."
+      },
+      "addMode": {
+        "title": "Modos de IA",
+        "intro": "Crie perfis de ditado nomeados, cada um com seu próprio atalho opcional e seleção automática por aplicativo. Prioridade: um atalho de modo prevalece, depois uma regra de aplicativo correspondente, depois o prompt legado por aplicativo e, por fim, a limpeza do Write acima.",
+        "blank": "Modo em branco",
+        "created": "\"{{name}}\" adicionado",
+        "error": "Não foi possível adicionar o modo: {{error}}"
+      },
+      "emptyState": "Ainda não há Modos de IA. Adicione um a partir de um modelo ou comece em branco.",
+      "templates": {
+        "command": {
+          "name": "Comando",
+          "description": "Transforma pedidos falados em comandos de shell, digitados (nunca executados) no cursor. Predefinição para aplicativos de terminal."
+        },
+        "direct": {
+          "name": "Ditado Direto",
+          "description": "Insere a transcrição bruta sem limpeza ou LLM."
+        },
+        "translate": {
+          "name": "Traduzir",
+          "description": "Traduz o ditado para outro idioma antes de inserir. Edite o idioma de destino no prompt."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Nome do modo",
+          "placeholder": "Nome do modo"
+        },
+        "enabled": {
+          "label": "Ativado"
+        },
+        "kind": {
+          "label": "Tipo de modo",
+          "description": "Reescrever passa a transcrição por um LLM com seu prompt. Comando transforma a fala em um comando de shell (digitado, nunca executado). Direto insere a transcrição bruta sem LLM.",
+          "rewrite": "Reescrever",
+          "command": "Comando",
+          "direct": "Direto"
+        },
+        "provider": {
+          "label": "Provedor",
+          "description": "Qual provedor de LLM este modo usa. Herdar usa seu provedor de limpeza padrão.",
+          "inherit": "Herdar o provedor de limpeza padrão"
+        },
+        "model": {
+          "label": "Modelo",
+          "description": "Substituição de modelo. Deixe em branco para usar o modelo de limpeza configurado do provedor.",
+          "placeholder": "Herdar padrão"
+        },
+        "prompt": {
+          "label": "Prompt",
+          "description": "Suas instruções editáveis. Um prompt base de segurança fixo é sempre aplicado por cima para que o contrato de saída não possa ser quebrado.",
+          "placeholder": "Descreva como este modo deve transformar seu ditado..."
+        },
+        "appRules": {
+          "label": "Ativar ao usar",
+          "description": "Seleciona automaticamente este modo no seu atalho principal quando o aplicativo em primeiro plano corresponder. Corresponde a um id de pacote ou nome de aplicativo (sem diferenciar maiúsculas de minúsculas, em qualquer direção).",
+          "placeholder": "Id de pacote ou nome do aplicativo (ex.: com.apple.Terminal)",
+          "add": "Adicionar",
+          "remove": "Remover {{rule}}",
+          "pickRunning": "Escolher entre os aplicativos em execução",
+          "loadingApps": "Carregando aplicativos...",
+          "noApps": "Nenhum aplicativo em execução encontrado. Digite um id de pacote ou nome."
+        },
+        "directHint": "Os modos diretos inserem a transcrição bruta sem LLM, então não há nada para configurar ou testar.",
+        "test": {
+          "label": "Teste",
+          "description": "Execute este modo em uma transcrição de amostra sem alterar seu cursor.",
+          "run": "Executar teste",
+          "running": "Executando...",
+          "sampleText": {
+            "placeholder": "Digite uma transcrição de amostra..."
+          },
+          "latency": "Concluído em {{ms}} ms",
+          "error": "Falha no teste: {{error}}"
+        },
+        "update": {
+          "error": "Não foi possível atualizar o modo: {{error}}"
+        },
+        "delete": {
+          "button": "Excluir modo",
+          "success": "\"{{name}}\" excluído",
+          "error": "Não foi possível excluir o modo: {{error}}",
+          "confirmTitle": "Excluir \"{{name}}\"?",
+          "confirmDescription": "Isso remove o modo e seu atalho. Essa ação não pode ser desfeita.",
+          "cancel": "Cancelar",
+          "confirm": "Excluir"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Atalhos",
+      "empty": "Nenhum atalho configurado ainda.",
+      "groups": {
+        "dictation": "Ditado",
+        "aiModes": "Modos de IA",
+        "agents": "Agentes",
+        "meetings": "Reuniões"
+      },
+      "bindings": {
+        "transcribe": "Transcrever",
+        "postProcess": "Pós-processamento",
+        "cancel": "Cancelar",
+        "meetingCapture": "Captura de reunião",
+        "showHotkeys": "Mostrar atalhos"
+      }
     }
   },
   "footer": {

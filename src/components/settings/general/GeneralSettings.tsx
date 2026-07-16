@@ -11,6 +11,8 @@ import { useSettings } from "../../../hooks/useSettings";
 import { VolumeSlider } from "../VolumeSlider";
 import { MuteWhileRecording } from "../MuteWhileRecording";
 import { ModelSettingsCard } from "./ModelSettingsCard";
+import { PostProcessingControls } from "./PostProcessingControls";
+import { HotkeyOverviewControls } from "./HotkeyOverviewControls";
 
 export const GeneralSettings: React.FC = () => {
   const { t } = useTranslation();
@@ -26,6 +28,12 @@ export const GeneralSettings: React.FC = () => {
         {!isLinux && !pushToTalk && (
           <ShortcutInput shortcutId="cancel" grouped={true} />
         )}
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.general.postProcessing.title")}>
+        <PostProcessingControls />
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.general.hotkeyOverview.title")}>
+        <HotkeyOverviewControls />
       </SettingsGroup>
       <ModelSettingsCard />
       <SettingsGroup title={t("settings.sound.title")}>

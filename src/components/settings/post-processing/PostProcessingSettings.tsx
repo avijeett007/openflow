@@ -21,6 +21,7 @@ import { ModelSelect } from "../PostProcessingSettingsApi/ModelSelect";
 import { usePostProcessProviderState } from "../PostProcessingSettingsApi/usePostProcessProviderState";
 import { ShortcutInput } from "../ShortcutInput";
 import { useSettings } from "../../../hooks/useSettings";
+import { AiModesSection } from "../ai-modes/AiModesSection";
 
 const PostProcessingSettingsApiComponent: React.FC = () => {
   const { t } = useTranslation();
@@ -429,6 +430,17 @@ export const PostProcessingSettings: React.FC = () => {
 
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
+      {/* The built-in "Write" mode: the existing cleanup controls, unchanged
+          wiring and storage. It is simply presented as the first (non-deletable)
+          card of the AI Modes section. */}
+      <SettingsGroup title={t("settings.aiModes.write.title")}>
+        <div className="px-4 py-3">
+          <p className="text-sm text-mid-gray">
+            {t("settings.aiModes.write.description")}
+          </p>
+        </div>
+      </SettingsGroup>
+
       <SettingsGroup title={t("settings.postProcessing.hotkey.title")}>
         <ShortcutInput
           shortcutId="transcribe_with_post_process"
@@ -444,6 +456,9 @@ export const PostProcessingSettings: React.FC = () => {
       <SettingsGroup title={t("settings.postProcessing.prompts.title")}>
         <PostProcessingSettingsPrompts />
       </SettingsGroup>
+
+      {/* Additive: user-defined AI Modes below the built-in Write card. */}
+      <AiModesSection />
     </div>
   );
 };

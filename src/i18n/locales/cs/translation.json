@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Obecné",
-    "models": "Modely",
+    "models": "Stahování modelů",
+    "modelSetup": "Nastavení řeči",
     "advanced": "Pokročilé",
-    "postProcessing": "Následné zpracování",
+    "postProcessing": "Režimy AI",
     "dictionary": "Slovník",
     "agents": "Agenti",
     "history": "Historie",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Zobrazit všechna nastavení a pokročilé funkce",
     "missionControl": "Řídicí centrum",
     "meetings": "Meetings",
-    "resizeHandle": "Změnit velikost postranního panelu"
+    "resizeHandle": "Změnit velikost postranního panelu",
+    "groups": {
+      "dictation": "Diktát",
+      "speechEngine": "Řečový modul",
+      "agents": "Agenti",
+      "meetings": "Schůzky",
+      "system": "Systém"
+    }
   },
   "onboarding": {
     "subtitle": "Pro začátek vyberte model pro přepis",
@@ -210,6 +218,10 @@
           "meeting_capture": {
             "name": "Klávesová zkratka pro záznam schůzky",
             "description": "Spustí nebo zastaví záznam aktuální schůzky. Cílí na aplikaci v popředí (např. Chrome pro Google Meet) pro systémový zvuk."
+          },
+          "hotkey_overlay": {
+            "name": "Zobrazit zkratky",
+            "description": "Podržte pro zobrazení taháku všech nastavených zkratek. Uvolněte pro skrytí."
           }
         },
         "errors": {
@@ -228,6 +240,29 @@
       "pushToTalk": {
         "label": "Stisk a mluv",
         "description": "Podržte pro nahrávání, uvolněte pro zastavení"
+      },
+      "postProcessing": {
+        "title": "Následné zpracování AI",
+        "master": {
+          "label": "Následné zpracování AI",
+          "description": "Přetvořte diktování pomocí AI hlavní klávesovou zkratkou. Když je vypnuté, hlavní zkratka vloží přirozený přepis přesně tak, jak byl vysloven — režimy AI s vlastní zkratkou nebo pravidly aplikací fungují dál."
+        },
+        "defaultMode": {
+          "label": "Výchozí režim",
+          "description": "Který režim hlavní zkratka použije, když je následné zpracování zapnuté. „Write“ je vestavěné vyčištění."
+        },
+        "writeMode": "Write (vestavěné vyčištění)",
+        "fillerFilter": {
+          "label": "Odstranit výplňová slova",
+          "description": "Odstraní samostatná výplňová slova (ehm, hmm) bez AI. Platí jen pro surové nebo přímé diktování."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Přehled zkratek",
+        "enable": {
+          "label": "Zobrazit překryv zkratek",
+          "description": "Podržte přiřazenou zkratku pro zobrazení tahá­ku všech nastavených zkratek."
+        }
       }
     },
     "sound": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Zkratka pro záznam"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Psaní (vestavěné)",
+        "description": "Výchozí režim čištění. Vaše hlavní klávesová zkratka pro diktování používá tato nastavení, pokud níže neodpovídá aplikaci, do které diktujete, žádný Režim AI. Úprava těchto ovládacích prvků upravuje stejná nastavení čištění jako předtím."
+      },
+      "addMode": {
+        "title": "Režimy AI",
+        "intro": "Vytvářejte pojmenované diktovací profily, každý s vlastní volitelnou klávesovou zkratkou a automatickým výběrem podle aplikace. Priorita: nejprve vyhrává klávesová zkratka režimu, poté odpovídající pravidlo aplikace, poté starší prompt pro danou aplikaci, poté čištění Psaní výše.",
+        "blank": "Prázdný režim",
+        "created": "„{{name}}“ přidán",
+        "error": "Režim se nepodařilo přidat: {{error}}"
+      },
+      "emptyState": "Zatím žádné Režimy AI. Přidejte jeden ze šablony nebo začněte od prázdného.",
+      "templates": {
+        "command": {
+          "name": "Příkaz",
+          "description": "Změní mluvené požadavky na příkazy shellu, napsané (nikdy spuštěné) na pozici kurzoru. Přednastaveno pro terminálové aplikace."
+        },
+        "direct": {
+          "name": "Přímý diktát",
+          "description": "Vloží syrový přepis bez čištění nebo LLM."
+        },
+        "translate": {
+          "name": "Překlad",
+          "description": "Přeloží diktát do jiného jazyka před vložením. Cílový jazyk upravte v promptu."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Název režimu",
+          "placeholder": "Název režimu"
+        },
+        "enabled": {
+          "label": "Povoleno"
+        },
+        "kind": {
+          "label": "Typ režimu",
+          "description": "Přepis provede přepis textu přes LLM s vaším promptem. Příkaz změní řeč na příkaz shellu (napsaný, nikdy nespuštěný). Přímý vloží syrový přepis bez LLM.",
+          "rewrite": "Přepis",
+          "command": "Příkaz",
+          "direct": "Přímý"
+        },
+        "provider": {
+          "label": "Poskytovatel",
+          "description": "Který poskytovatel LLM tento režim používá. Zděděno použije vašeho výchozího poskytovatele čištění.",
+          "inherit": "Zdědit výchozího poskytovatele čištění"
+        },
+        "model": {
+          "label": "Model",
+          "description": "Přepsání modelu. Ponechte prázdné pro použití nakonfigurovaného čisticího modelu poskytovatele.",
+          "placeholder": "Zdědit výchozí"
+        },
+        "prompt": {
+          "label": "Prompt",
+          "description": "Vaše upravitelné instrukce. Vždy se navíc použije pevný bezpečnostní základní prompt, aby nemohla být porušena smlouva o výstupu.",
+          "placeholder": "Popište, jak by měl tento režim transformovat váš diktát..."
+        },
+        "appRules": {
+          "label": "Aktivovat při použití",
+          "description": "Automaticky vybere tento režim na hlavní klávesové zkratce, když odpovídá aplikace v popředí. Porovnává se ID balíčku nebo název aplikace (nerozlišuje velikost písmen, v obou směrech).",
+          "placeholder": "ID balíčku nebo název aplikace (např. com.apple.Terminal)",
+          "add": "Přidat",
+          "remove": "Odebrat {{rule}}",
+          "pickRunning": "Vybrat ze spuštěných aplikací",
+          "loadingApps": "Načítání aplikací...",
+          "noApps": "Nebyly nalezeny žádné spuštěné aplikace. Zadejte místo toho ID balíčku nebo název."
+        },
+        "directHint": "Přímé režimy vkládají syrový přepis bez LLM, takže není co konfigurovat ani testovat.",
+        "test": {
+          "label": "Test",
+          "description": "Vyzkoušejte tento režim na ukázkovém přepisu, aniž byste sáhli na svůj kurzor.",
+          "run": "Spustit test",
+          "running": "Probíhá...",
+          "sampleText": {
+            "placeholder": "Napište ukázkový přepis..."
+          },
+          "latency": "Dokončeno za {{ms}} ms",
+          "error": "Test selhal: {{error}}"
+        },
+        "update": {
+          "error": "Režim se nepodařilo aktualizovat: {{error}}"
+        },
+        "delete": {
+          "button": "Smazat režim",
+          "success": "„{{name}}“ smazán",
+          "error": "Režim se nepodařilo smazat: {{error}}",
+          "confirmTitle": "Smazat „{{name}}“?",
+          "confirmDescription": "Tímto se odstraní režim a jeho klávesová zkratka. Tuto akci nelze vrátit zpět.",
+          "cancel": "Zrušit",
+          "confirm": "Smazat"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Zkratky",
+      "empty": "Zatím nejsou nastaveny žádné zkratky.",
+      "groups": {
+        "dictation": "Diktování",
+        "aiModes": "Režimy AI",
+        "agents": "Agenti",
+        "meetings": "Schůzky"
+      },
+      "bindings": {
+        "transcribe": "Přepsat",
+        "postProcess": "Následné zpracování",
+        "cancel": "Zrušit",
+        "meetingCapture": "Záznam schůzky",
+        "showHotkeys": "Zobrazit zkratky"
+      }
     }
   },
   "footer": {

@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Generale",
-    "models": "Modelli",
+    "models": "Download dei modelli",
+    "modelSetup": "Configurazione vocale",
     "advanced": "Avanzate",
-    "postProcessing": "Post-Elaborazione",
+    "postProcessing": "Modalità IA",
     "dictionary": "Dizionario",
     "agents": "Agenti",
     "history": "Cronologia",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Mostra tutte le impostazioni e le funzionalità avanzate",
     "missionControl": "Centro di Controllo",
     "meetings": "Meetings",
-    "resizeHandle": "Ridimensiona la barra laterale"
+    "resizeHandle": "Ridimensiona la barra laterale",
+    "groups": {
+      "dictation": "Dettatura",
+      "speechEngine": "Motore vocale",
+      "agents": "Agenti",
+      "meetings": "Riunioni",
+      "system": "Sistema"
+    }
   },
   "onboarding": {
     "subtitle": "Per cominciare, scegli un modello di riconoscimento vocale",
@@ -210,6 +218,10 @@
           "meeting_capture": {
             "name": "Scorciatoia cattura riunione",
             "description": "Avvia o interrompe la cattura della riunione corrente. Prende di mira l'app in primo piano (come Chrome per Google Meet) per l'audio di sistema."
+          },
+          "hotkey_overlay": {
+            "name": "Mostra scorciatoie",
+            "description": "Tieni premuto per mostrare un promemoria di tutte le scorciatoie configurate. Rilascia per nascondere."
           }
         },
         "errors": {
@@ -228,6 +240,29 @@
       "pushToTalk": {
         "label": "Premi per Parlare",
         "description": "Tieni premuto per parlare, rilascia per interrompere"
+      },
+      "postProcessing": {
+        "title": "Post-elaborazione IA",
+        "master": {
+          "label": "Post-elaborazione IA",
+          "description": "Rielabora la dettatura con l’IA sulla scorciatoia principale. Se disattivata, la scorciatoia principale inserisce la trascrizione naturale così come dettata; le modalità IA con scorciatoia propria o regole per app continuano a funzionare."
+        },
+        "defaultMode": {
+          "label": "Modalità predefinita",
+          "description": "Quale modalità applica la scorciatoia principale quando la post-elaborazione è attiva. Scrivi è la pulizia integrata."
+        },
+        "writeMode": "Scrivi (pulizia integrata)",
+        "fillerFilter": {
+          "label": "Rimuovi intercalari",
+          "description": "Rimuove gli intercalari isolati (ehm, uh, hmm) senza IA. Si applica solo alla dettatura grezza o diretta."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Panoramica scorciatoie",
+        "enable": {
+          "label": "Mostra pannello scorciatoie",
+          "description": "Tieni premuta la scorciatoia assegnata per mostrare un promemoria di tutte le scorciatoie configurate."
+        }
       }
     },
     "sound": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Scorciatoia di cattura"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Scrittura (integrata)",
+        "description": "La modalità di Post-Elaborazione predefinita. La scorciatoia di dettato principale usa queste impostazioni a meno che una Modalità IA qui sotto non corrisponda all'app in cui stai dettando. Modificare questi controlli modifica le stesse impostazioni di Post-Elaborazione di prima."
+      },
+      "addMode": {
+        "title": "Modalità IA",
+        "intro": "Crea profili di dettato con nome, ciascuno con la propria scorciatoia opzionale e selezione automatica per app. Priorità: vince la scorciatoia della modalità, poi una regola app corrispondente, poi il vecchio prompt per app, poi la Post-Elaborazione di Scrittura qui sopra.",
+        "blank": "Modalità vuota",
+        "created": "\"{{name}}\" creata",
+        "error": "Impossibile aggiungere la modalità: {{error}}"
+      },
+      "emptyState": "Nessuna modalità IA ancora. Aggiungine una da un modello o parti da zero.",
+      "templates": {
+        "command": {
+          "name": "Comando",
+          "description": "Trasforma le richieste pronunciate in comandi shell, digitati (mai eseguiti) al cursore. Preimpostazione per le app terminale."
+        },
+        "direct": {
+          "name": "Dettato diretto",
+          "description": "Inserisce la trascrizione grezza senza Post-Elaborazione né LLM."
+        },
+        "translate": {
+          "name": "Traduci",
+          "description": "Traduce il dettato in un'altra lingua prima di inserirlo. Modifica la lingua di destinazione nel prompt."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Nome modalità",
+          "placeholder": "Nome modalità"
+        },
+        "enabled": {
+          "label": "Abilitato"
+        },
+        "kind": {
+          "label": "Tipo di modalità",
+          "description": "Riscrittura fa passare la trascrizione attraverso un LLM con il tuo prompt. Comando trasforma il parlato in un comando shell (digitato, mai eseguito). Diretto inserisce la trascrizione grezza senza LLM.",
+          "rewrite": "Riscrittura",
+          "command": "Comando",
+          "direct": "Diretto"
+        },
+        "provider": {
+          "label": "Provider",
+          "description": "Quale provider LLM usa questa modalità. Eredita usa il tuo provider di Post-Elaborazione predefinito.",
+          "inherit": "Eredita il provider di Post-Elaborazione predefinito"
+        },
+        "model": {
+          "label": "Modello",
+          "description": "Sovrascrittura del modello. Lascia vuoto per usare il modello di Post-Elaborazione configurato del provider.",
+          "placeholder": "Eredita predefinito"
+        },
+        "prompt": {
+          "label": "Prompt",
+          "description": "Le tue istruzioni modificabili. Un prompt di sicurezza fisso viene sempre applicato sopra, così il contratto di output non può rompersi.",
+          "placeholder": "Descrivi come questa modalità deve trasformare il tuo dettato..."
+        },
+        "appRules": {
+          "label": "Attiva quando usi",
+          "description": "Seleziona automaticamente questa modalità sulla tua scorciatoia principale quando l'app in primo piano corrisponde. Corrisponde a un bundle id o a un nome app (senza distinzione tra maiuscole e minuscole, in entrambe le direzioni).",
+          "placeholder": "Bundle id o nome app (es. com.apple.Terminal)",
+          "add": "Aggiungi",
+          "remove": "Rimuovi {{rule}}",
+          "pickRunning": "Scegli tra le app in esecuzione",
+          "loadingApps": "Caricamento app...",
+          "noApps": "Nessuna app in esecuzione trovata. Digita invece un bundle id o un nome."
+        },
+        "directHint": "Le modalità Diretto inseriscono la trascrizione grezza senza LLM, quindi non c'è nulla da configurare o testare.",
+        "test": {
+          "label": "Test",
+          "description": "Esegui questa modalità su una trascrizione di esempio senza toccare il cursore.",
+          "run": "Esegui test",
+          "running": "In esecuzione...",
+          "sampleText": {
+            "placeholder": "Digita una trascrizione di esempio..."
+          },
+          "latency": "Completato in {{ms}} ms",
+          "error": "Test fallito: {{error}}"
+        },
+        "update": {
+          "error": "Impossibile aggiornare la modalità: {{error}}"
+        },
+        "delete": {
+          "button": "Elimina modalità",
+          "success": "\"{{name}}\" eliminata",
+          "error": "Impossibile eliminare la modalità: {{error}}",
+          "confirmTitle": "Eliminare \"{{name}}\"?",
+          "confirmDescription": "Questo rimuove la modalità e la sua scorciatoia. L'operazione non può essere annullata.",
+          "cancel": "Annulla",
+          "confirm": "Elimina"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Scorciatoie",
+      "empty": "Nessuna scorciatoia configurata.",
+      "groups": {
+        "dictation": "Dettatura",
+        "aiModes": "Modalità IA",
+        "agents": "Agenti",
+        "meetings": "Riunioni"
+      },
+      "bindings": {
+        "transcribe": "Trascrivi",
+        "postProcess": "Post-elaborazione",
+        "cancel": "Annulla",
+        "meetingCapture": "Cattura riunione",
+        "showHotkeys": "Mostra scorciatoie"
+      }
     }
   },
   "footer": {

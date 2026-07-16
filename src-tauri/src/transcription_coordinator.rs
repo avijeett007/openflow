@@ -48,12 +48,19 @@ pub fn is_agent_binding(id: &str) -> bool {
     id.starts_with("agent:")
 }
 
+/// An AI Mode binding is `mode:<id>`. Like agent bindings, mode invocations are
+/// dictation-shaped and serialize through this same coordinator exactly like
+/// `"transcribe"` (post_process = false; the mode is the processor).
+pub fn is_mode_binding(id: &str) -> bool {
+    id.starts_with("mode:")
+}
+
 /// Resolve the [`ShortcutAction`] that drives a binding. Agent bindings
 /// (`agent:<id>`) reuse the plain `"transcribe"` action — the binding_id is
 /// threaded through `start`/`stop` as a parameter, so the same action records
 /// under the agent's id and derives the agent from it at finish time.
 fn action_for(binding_id: &str) -> Option<Arc<dyn crate::actions::ShortcutAction>> {
-    if is_agent_binding(binding_id) {
+    if is_agent_binding(binding_id) || is_mode_binding(binding_id) {
         ACTION_MAP.get("transcribe").cloned()
     } else {
         ACTION_MAP.get(binding_id).cloned()
@@ -204,7 +211,7 @@ fn stop(app: &AppHandle, stage: &mut Stage, binding_id: &str, hotkey_string: &st
 
 #[cfg(test)]
 mod tests {
-    use super::{is_agent_binding, is_transcribe_binding};
+    use super::{is_agent_binding, is_mode_binding, is_transcribe_binding};
 
     #[test]
     fn recognizes_agent_bindings() {
@@ -220,13 +227,29 @@ mod tests {
         assert!(!is_agent_binding("transcribe_with_post_process"));
         assert!(!is_agent_binding("cancel"));
         assert!(!is_agent_binding("agentic")); // no colon → not an agent binding
+        assert!(!is_agent_binding("mode:translate")); // mode ≠ agent
     }
 
     #[test]
-    fn transcribe_and_agent_bindings_are_disjoint() {
+    fn recognizes_mode_bindings() {
+        assert!(is_mode_binding("mode:translate"));
+        assert!(is_mode_binding("mode:command"));
+        assert!(is_mode_binding("mode:")); // bare prefix, harmless
+        assert!(!is_mode_binding("transcribe"));
+        assert!(!is_mode_binding("agent:coder"));
+        assert!(!is_mode_binding("model")); // no colon → not a mode binding
+    }
+
+    #[test]
+    fn transcribe_agent_and_mode_bindings_are_disjoint() {
         assert!(is_transcribe_binding("transcribe"));
         assert!(!is_agent_binding("transcribe"));
+        assert!(!is_mode_binding("transcribe"));
         assert!(is_agent_binding("agent:x"));
         assert!(!is_transcribe_binding("agent:x"));
+        assert!(!is_mode_binding("agent:x"));
+        assert!(is_mode_binding("mode:x"));
+        assert!(!is_transcribe_binding("mode:x"));
+        assert!(!is_agent_binding("mode:x"));
     }
 }

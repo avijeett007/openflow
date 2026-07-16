@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Genel",
-    "models": "Modeller",
+    "models": "Model İndirmeleri",
+    "modelSetup": "Konuşma Kurulumu",
     "advanced": "Gelişmiş",
-    "postProcessing": "Son İşlem",
+    "postProcessing": "AI Modları",
     "dictionary": "Sözlük",
     "agents": "Ajanlar",
     "history": "Geçmiş",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Tüm ayarları ve gelişmiş özellikleri göster",
     "missionControl": "Görev Kontrol",
     "meetings": "Meetings",
-    "resizeHandle": "Kenar çubuğunu yeniden boyutlandır"
+    "resizeHandle": "Kenar çubuğunu yeniden boyutlandır",
+    "groups": {
+      "dictation": "Dikte",
+      "speechEngine": "Konuşma Motoru",
+      "agents": "Ajanlar",
+      "meetings": "Toplantılar",
+      "system": "Sistem"
+    }
   },
   "onboarding": {
     "subtitle": "Başlamak için bir transkripsiyon modeli seçin",
@@ -210,6 +218,10 @@
           "meeting_capture": {
             "name": "Toplantı yakalama kısayolu",
             "description": "Geçerli toplantının yakalanmasını başlatır veya durdurur. Sistem sesi için öndeki uygulamayı (Google Meet için Chrome gibi) hedefler."
+          },
+          "hotkey_overlay": {
+            "name": "Kısayolları göster",
+            "description": "Yapılandırılmış tüm kısayolların özetini görmek için basılı tutun. Gizlemek için bırakın."
           }
         },
         "errors": {
@@ -228,6 +240,29 @@
       "pushToTalk": {
         "label": "Bas Konuş",
         "description": "Kaydetmek için basılı tutun, durdurmak için bırakın"
+      },
+      "postProcessing": {
+        "title": "Yapay zeka son işlemesi",
+        "master": {
+          "label": "Yapay zeka son işlemesi",
+          "description": "Ana kısayolla dikte metnini yapay zekayla yeniden biçimlendirin. Kapalıyken ana kısayol, söylendiği gibi doğal dökümü ekler; kendi kısayolu veya uygulama kuralları olan yapay zeka modları çalışmaya devam eder."
+        },
+        "defaultMode": {
+          "label": "Varsayılan mod",
+          "description": "Son işleme açıkken ana kısayolun uyguladığı mod. Write yerleşik temizlemedir."
+        },
+        "writeMode": "Write (yerleşik temizleme)",
+        "fillerFilter": {
+          "label": "Dolgu sözcüklerini kaldır",
+          "description": "Yapay zeka olmadan tek başına dolgu sözcüklerini (ıı, ee, hmm) kaldırır. Yalnızca ham veya doğrudan diktede geçerlidir."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Kısayol özeti",
+        "enable": {
+          "label": "Kısayol katmanını göster",
+          "description": "Yapılandırılmış tüm kısayolların özetini görmek için atanan kısayolu basılı tutun."
+        }
       }
     },
     "sound": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Yakalama kısayolu"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Write (yerleşik)",
+        "description": "Varsayılan temizleme modu. Aşağıdaki bir AI Modu, dikte ettiğiniz uygulamayla eşleşmedikçe ana dikte kısayolunuz bu ayarları kullanır. Bu denetimleri düzenlemek, öncekiyle aynı temizleme ayarlarını düzenler."
+      },
+      "addMode": {
+        "title": "AI Modları",
+        "intro": "Her biri kendi isteğe bağlı kısayol tuşuna ve uygulama başına otomatik seçimine sahip, adlandırılmış dikte profilleri oluşturun. Öncelik sırası: bir mod kısayolu kazanır, ardından eşleşen bir uygulama kuralı, ardından eski uygulama başına istem, ardından yukarıdaki Write temizlemesi.",
+        "blank": "Boş mod",
+        "created": "\"{{name}}\" oluşturuldu",
+        "error": "Mod eklenemedi: {{error}}"
+      },
+      "emptyState": "Henüz AI Modu yok. Bir şablondan ekleyin veya boş başlayın.",
+      "templates": {
+        "command": {
+          "name": "Komut",
+          "description": "Sözlü istekleri, imleç konumunda yazılan (asla çalıştırılmayan) kabuk komutlarına dönüştürür. Terminal uygulamaları için hazır ayar."
+        },
+        "direct": {
+          "name": "Doğrudan Dikte",
+          "description": "Ham transkripti temizleme veya LLM olmadan ekler."
+        },
+        "translate": {
+          "name": "Çeviri",
+          "description": "Dikteyi eklemeden önce başka bir dile çevirir. Hedef dili istemde düzenleyin."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Mod adı",
+          "placeholder": "Mod adı"
+        },
+        "enabled": {
+          "label": "Etkin"
+        },
+        "kind": {
+          "label": "Mod türü",
+          "description": "Yeniden yazma, transkripti isteminizle bir LLM'den geçirir. Komut, konuşmayı bir kabuk komutuna dönüştürür (yazılır, asla çalıştırılmaz). Doğrudan, ham transkripti LLM olmadan ekler.",
+          "rewrite": "Yeniden yazma",
+          "command": "Komut",
+          "direct": "Doğrudan"
+        },
+        "provider": {
+          "label": "Sağlayıcı",
+          "description": "Bu modun hangi LLM sağlayıcısını kullandığı. Devral, varsayılan temizleme sağlayıcınızı kullanır.",
+          "inherit": "Varsayılan temizleme sağlayıcısını devral"
+        },
+        "model": {
+          "label": "Model",
+          "description": "Model geçersiz kılma. Sağlayıcının yapılandırılmış temizleme modelini kullanmak için boş bırakın.",
+          "placeholder": "Varsayılanı devral"
+        },
+        "prompt": {
+          "label": "İstem",
+          "description": "Düzenlenebilir talimatlarınız. Çıktı sözleşmesinin bozulmaması için üzerine her zaman sabit bir güvenlik temel istemi uygulanır.",
+          "placeholder": "Bu modun dikteyi nasıl dönüştürmesi gerektiğini açıklayın..."
+        },
+        "appRules": {
+          "label": "Kullanırken etkinleştir",
+          "description": "Öndeki uygulama eşleştiğinde ana kısayolunuzda bu modu otomatik olarak seçer. Bir paket kimliğiyle veya uygulama adıyla eşleşir (büyük/küçük harfe duyarsız, her iki yönde).",
+          "placeholder": "Paket kimliği veya uygulama adı (örn. com.apple.Terminal)",
+          "add": "Ekle",
+          "remove": "{{rule}} kuralını kaldır",
+          "pickRunning": "Çalışan uygulamalardan seç",
+          "loadingApps": "Uygulamalar yükleniyor...",
+          "noApps": "Çalışan uygulama bulunamadı. Bunun yerine bir paket kimliği veya ad yazın."
+        },
+        "directHint": "Doğrudan modlar, ham transkripti LLM olmadan ekler, bu nedenle yapılandırılacak veya test edilecek bir şey yoktur.",
+        "test": {
+          "label": "Test",
+          "description": "Bu modu, imlecinize dokunmadan örnek bir transkript üzerinde çalıştırın.",
+          "run": "Testi çalıştır",
+          "running": "Çalışıyor...",
+          "sampleText": {
+            "placeholder": "Örnek bir transkript yazın..."
+          },
+          "latency": "{{ms}} ms içinde tamamlandı",
+          "error": "Test başarısız oldu: {{error}}"
+        },
+        "update": {
+          "error": "Mod güncellenemedi: {{error}}"
+        },
+        "delete": {
+          "button": "Modu sil",
+          "success": "\"{{name}}\" silindi",
+          "error": "Mod silinemedi: {{error}}",
+          "confirmTitle": "\"{{name}}\" silinsin mi?",
+          "confirmDescription": "Bu, modu ve kısayol tuşunu kaldırır. Bu işlem geri alınamaz.",
+          "cancel": "İptal",
+          "confirm": "Sil"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Kısayollar",
+      "empty": "Henüz kısayol yapılandırılmadı.",
+      "groups": {
+        "dictation": "Dikte",
+        "aiModes": "Yapay zeka modları",
+        "agents": "Aracılar",
+        "meetings": "Toplantılar"
+      },
+      "bindings": {
+        "transcribe": "Deşifre et",
+        "postProcess": "Son işleme",
+        "cancel": "İptal",
+        "meetingCapture": "Toplantı kaydı",
+        "showHotkeys": "Kısayolları göster"
+      }
     }
   },
   "footer": {

@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "一般",
-    "models": "模型",
+    "models": "模型下載",
+    "modelSetup": "語音設定",
     "advanced": "進階",
-    "postProcessing": "後處理",
+    "postProcessing": "AI 模式",
     "dictionary": "字典",
     "agents": "代理人",
     "history": "歷史紀錄",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "顯示所有設定與進階功能",
     "missionControl": "任務控制",
     "meetings": "Meetings",
-    "resizeHandle": "調整側邊欄寬度"
+    "resizeHandle": "調整側邊欄寬度",
+    "groups": {
+      "dictation": "聽寫",
+      "speechEngine": "語音引擎",
+      "agents": "代理人",
+      "meetings": "會議",
+      "system": "系統"
+    }
   },
   "onboarding": {
     "subtitle": "首先，請選擇一種模型",
@@ -192,6 +200,10 @@
           "meeting_capture": {
             "name": "會議擷取快速鍵",
             "description": "開始或停止擷取目前的會議。系統音訊會以最前景的應用程式（例如用於 Google Meet 的 Chrome）為目標。"
+          },
+          "hotkey_overlay": {
+            "name": "顯示熱鍵",
+            "description": "按住可顯示所有已設定熱鍵的速查表，放開即隱藏。"
           }
         },
         "errors": {
@@ -210,6 +222,29 @@
       "pushToTalk": {
         "label": "按住說話",
         "description": "按住錄製，放開停止"
+      },
+      "postProcessing": {
+        "title": "AI 後處理",
+        "master": {
+          "label": "AI 後處理",
+          "description": "在主熱鍵上用 AI 重塑你的語音輸入。關閉時，主熱鍵會原樣插入自然的轉錄文字；擁有自己熱鍵或應用程式規則的 AI 模式仍會運作。"
+        },
+        "defaultMode": {
+          "label": "預設模式",
+          "description": "開啟後處理時主熱鍵套用的模式。「Write」為內建清理。"
+        },
+        "writeMode": "Write（內建清理）",
+        "fillerFilter": {
+          "label": "移除填充詞",
+          "description": "不使用 AI，移除單獨的填充詞（um、uh、hmm）。僅套用於原始或直接語音輸入。"
+        }
+      },
+      "hotkeyOverview": {
+        "title": "熱鍵總覽",
+        "enable": {
+          "label": "顯示熱鍵浮層",
+          "description": "按住指定的熱鍵，顯示所有已設定快速鍵的速查表。"
+        }
       }
     },
     "models": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "擷取快速鍵"
+    },
+    "aiModes": {
+      "write": {
+        "title": "寫作（內建）",
+        "description": "預設的清理模式。除非下方某個 AI 模式與你正在口述的應用程式相符，否則你的主要口述快捷鍵會使用這些設定。編輯這些選項，即是編輯與先前相同的清理設定。"
+      },
+      "addMode": {
+        "title": "AI 模式",
+        "intro": "建立具名稱的口述設定檔，各自擁有可選的快捷鍵與依應用程式自動選取規則。優先順序：模式快捷鍵優先，其次是相符的應用程式規則，接著是舊版的逐應用程式提示詞，最後才是上方的寫作清理。",
+        "blank": "空白模式",
+        "created": "已新增「{{name}}」",
+        "error": "無法新增模式：{{error}}"
+      },
+      "emptyState": "尚無 AI 模式。從範本新增一個，或從空白開始。",
+      "templates": {
+        "command": {
+          "name": "命令",
+          "description": "將語音請求轉換為 Shell 命令，於游標處輸入（但絕不執行）。適用於終端機應用程式的預設集。"
+        },
+        "direct": {
+          "name": "直接口述",
+          "description": "插入原始轉錄文字，不進行清理或使用 LLM。"
+        },
+        "translate": {
+          "name": "翻譯",
+          "description": "在插入前將口述內容翻譯成另一種語言。可在提示詞中編輯目標語言。"
+        }
+      },
+      "card": {
+        "name": {
+          "label": "模式名稱",
+          "placeholder": "模式名稱"
+        },
+        "enabled": {
+          "label": "啟用"
+        },
+        "kind": {
+          "label": "模式類型",
+          "description": "「改寫」會透過 LLM 並套用你的提示詞來處理轉錄文字。「命令」會將語音轉換為 Shell 命令（僅輸入，絕不執行）。「直接」會插入原始轉錄文字，不使用 LLM。",
+          "rewrite": "改寫",
+          "command": "命令",
+          "direct": "直接"
+        },
+        "provider": {
+          "label": "供應商",
+          "description": "此模式使用的 LLM 供應商。「繼承」會使用你的預設清理供應商。",
+          "inherit": "繼承預設清理供應商"
+        },
+        "model": {
+          "label": "模型",
+          "description": "模型覆寫設定。留空則使用該供應商已設定的清理模型。",
+          "placeholder": "繼承預設值"
+        },
+        "prompt": {
+          "label": "提示詞",
+          "description": "你可編輯的指示。系統一律會在其上疊加一個固定的安全基礎提示詞，確保輸出約定不會被破壞。",
+          "placeholder": "描述此模式應如何轉換你的口述內容……"
+        },
+        "appRules": {
+          "label": "在使用以下應用程式時啟用",
+          "description": "當最前景的應用程式相符時，於你的主要快捷鍵上自動選取此模式。比對 Bundle ID 或應用程式名稱（不區分大小寫，雙向比對）。",
+          "placeholder": "Bundle ID 或應用程式名稱（例如 com.apple.Terminal）",
+          "add": "新增",
+          "remove": "移除 {{rule}}",
+          "pickRunning": "從執行中的應用程式選取",
+          "loadingApps": "正在載入應用程式……",
+          "noApps": "找不到執行中的應用程式。請改為輸入 Bundle ID 或名稱。"
+        },
+        "directHint": "直接模式會插入原始轉錄文字，不使用 LLM，因此無需設定或測試。",
+        "test": {
+          "label": "測試",
+          "description": "在不影響你游標的情況下，以範例轉錄文字執行此模式。",
+          "run": "執行測試",
+          "running": "執行中……",
+          "sampleText": {
+            "placeholder": "輸入範例轉錄文字……"
+          },
+          "latency": "已於 {{ms}} 毫秒內完成",
+          "error": "測試失敗：{{error}}"
+        },
+        "update": {
+          "error": "無法更新模式：{{error}}"
+        },
+        "delete": {
+          "button": "刪除模式",
+          "success": "已刪除「{{name}}」",
+          "error": "無法刪除模式：{{error}}",
+          "confirmTitle": "刪除「{{name}}」？",
+          "confirmDescription": "這會移除此模式及其快捷鍵。此動作無法復原。",
+          "cancel": "取消",
+          "confirm": "刪除"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "熱鍵",
+      "empty": "尚未設定任何熱鍵。",
+      "groups": {
+        "dictation": "語音輸入",
+        "aiModes": "AI 模式",
+        "agents": "代理程式",
+        "meetings": "會議"
+      },
+      "bindings": {
+        "transcribe": "轉錄",
+        "postProcess": "後處理",
+        "cancel": "取消",
+        "meetingCapture": "會議擷取",
+        "showHotkeys": "顯示熱鍵"
+      }
     }
   },
   "footer": {

@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Allgemein",
-    "models": "Modelle",
+    "models": "Modell-Downloads",
+    "modelSetup": "Spracheinrichtung",
     "advanced": "Erweitert",
-    "postProcessing": "Nachbearbeitung",
+    "postProcessing": "KI-Modi",
     "dictionary": "Wörterbuch",
     "agents": "Agenten",
     "history": "Verlauf",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Alle Einstellungen und erweiterten Funktionen anzeigen",
     "missionControl": "Mission Control",
     "meetings": "Meetings",
-    "resizeHandle": "Seitenleiste in der Größe ändern"
+    "resizeHandle": "Seitenleiste in der Größe ändern",
+    "groups": {
+      "dictation": "Diktat",
+      "speechEngine": "Spracherkennung",
+      "agents": "Agenten",
+      "meetings": "Besprechungen",
+      "system": "System"
+    }
   },
   "onboarding": {
     "subtitle": "Wähle ein Transkriptionsmodell, um loszulegen",
@@ -210,6 +218,10 @@
           "meeting_capture": {
             "name": "Meeting-Aufnahme-Tastenkürzel",
             "description": "Aufnahme des aktuellen Meetings starten oder stoppen. Erfasst die Systemaudioausgabe der aktiven App (z. B. Chrome für Google Meet)."
+          },
+          "hotkey_overlay": {
+            "name": "Tastenkürzel anzeigen",
+            "description": "Gedrückt halten, um eine Übersicht aller konfigurierten Tastenkürzel anzuzeigen. Loslassen zum Ausblenden."
           }
         },
         "errors": {
@@ -228,6 +240,29 @@
       "pushToTalk": {
         "label": "Push-to-Talk",
         "description": "Gedrückt halten zum Aufnehmen, loslassen zum Stoppen"
+      },
+      "postProcessing": {
+        "title": "KI-Nachbearbeitung",
+        "master": {
+          "label": "KI-Nachbearbeitung",
+          "description": "Formt dein Diktat per KI über die Haupttaste. Wenn deaktiviert, fügt die Haupttaste die natürliche Transkription genau wie gesprochen ein – KI-Modi mit eigener Taste oder App-Regeln funktionieren weiterhin."
+        },
+        "defaultMode": {
+          "label": "Standardmodus",
+          "description": "Welchen Modus die Haupttaste anwendet, wenn die Nachbearbeitung aktiv ist. „Schreiben“ ist die integrierte Bereinigung."
+        },
+        "writeMode": "Schreiben (integrierte Bereinigung)",
+        "fillerFilter": {
+          "label": "Füllwörter entfernen",
+          "description": "Entfernt einzelne Füllwörter (äh, ähm, hmm) ohne KI. Gilt nur für rohe oder direkte Diktate."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Tastenkürzel-Übersicht",
+        "enable": {
+          "label": "Tastenkürzel-Overlay anzeigen",
+          "description": "Halte die zugewiesene Taste gedrückt, um eine Übersicht aller konfigurierten Tastenkürzel anzuzeigen."
+        }
       }
     },
     "sound": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Aufnahme-Tastenkürzel"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Schreiben (integriert)",
+        "description": "Der Standard-Bereinigungsmodus. Dein Haupt-Diktier-Tastenkürzel verwendet diese Einstellungen, sofern nicht unten ein KI-Modus zur App passt, in die du gerade diktierst. Das Bearbeiten dieser Optionen bearbeitet dieselben Bereinigungseinstellungen wie zuvor."
+      },
+      "addMode": {
+        "title": "KI-Modi",
+        "intro": "Erstelle benannte Diktierprofile, jedes mit eigenem optionalem Tastenkürzel und app-abhängiger automatischer Auswahl. Rangfolge: Zuerst gewinnt ein Modus-Tastenkürzel, dann eine passende App-Regel, dann der veraltete app-spezifische Prompt, dann die Bereinigung „Schreiben“ oben.",
+        "blank": "Leerer Modus",
+        "created": "„{{name}}“ hinzugefügt",
+        "error": "Modus konnte nicht hinzugefügt werden: {{error}}"
+      },
+      "emptyState": "Noch keine KI-Modi. Füge einen aus einer Vorlage hinzu oder beginne mit einem leeren.",
+      "templates": {
+        "command": {
+          "name": "Befehl",
+          "description": "Verwandelt gesprochene Anfragen in Shell-Befehle, die an der Cursorposition eingetippt (nie ausgeführt) werden. Voreinstellung für Terminal-Apps."
+        },
+        "direct": {
+          "name": "Direktdiktat",
+          "description": "Fügt die rohe Transkription ohne Bereinigung oder LLM ein."
+        },
+        "translate": {
+          "name": "Übersetzen",
+          "description": "Übersetzt das Diktat vor dem Einfügen in eine andere Sprache. Bearbeite die Zielsprache im Prompt."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Modusname",
+          "placeholder": "Modusname"
+        },
+        "enabled": {
+          "label": "Aktiviert"
+        },
+        "kind": {
+          "label": "Modustyp",
+          "description": "Umschreiben leitet die Transkription mit deinem Prompt durch ein LLM. Befehl verwandelt Sprache in einen Shell-Befehl (eingetippt, nie ausgeführt). Direkt fügt die rohe Transkription ohne LLM ein.",
+          "rewrite": "Umschreiben",
+          "command": "Befehl",
+          "direct": "Direkt"
+        },
+        "provider": {
+          "label": "Anbieter",
+          "description": "Welcher LLM-Anbieter für diesen Modus verwendet wird. „Übernehmen“ verwendet deinen Standard-Bereinigungsanbieter.",
+          "inherit": "Standard-Bereinigungsanbieter übernehmen"
+        },
+        "model": {
+          "label": "Modell",
+          "description": "Modell-Überschreibung. Leer lassen, um das konfigurierte Bereinigungsmodell des Anbieters zu verwenden.",
+          "placeholder": "Standard übernehmen"
+        },
+        "prompt": {
+          "label": "Prompt",
+          "description": "Deine bearbeitbaren Anweisungen. Ein fester Sicherheits-Basisprompt wird immer zusätzlich angewendet, damit der Ausgabevertrag nicht gebrochen werden kann.",
+          "placeholder": "Beschreibe, wie dieser Modus dein Diktat umwandeln soll..."
+        },
+        "appRules": {
+          "label": "Aktivieren bei Verwendung von",
+          "description": "Wählt diesen Modus automatisch bei deinem Haupt-Tastenkürzel aus, wenn die vorderste App übereinstimmt. Vergleicht eine Bundle-ID oder einen App-Namen (Groß-/Kleinschreibung wird ignoriert, in beide Richtungen).",
+          "placeholder": "Bundle-ID oder App-Name (z. B. com.apple.Terminal)",
+          "add": "Hinzufügen",
+          "remove": "{{rule}} entfernen",
+          "pickRunning": "Aus laufenden Apps auswählen",
+          "loadingApps": "Apps werden geladen...",
+          "noApps": "Keine laufenden Apps gefunden. Gib stattdessen eine Bundle-ID oder einen Namen ein."
+        },
+        "directHint": "Direkte Modi fügen die rohe Transkription ohne LLM ein, daher gibt es nichts zu konfigurieren oder zu testen.",
+        "test": {
+          "label": "Test",
+          "description": "Probiere diesen Modus an einer Beispieltranskription aus, ohne deinen Cursor zu berühren.",
+          "run": "Test ausführen",
+          "running": "Wird ausgeführt...",
+          "sampleText": {
+            "placeholder": "Gib eine Beispieltranskription ein..."
+          },
+          "latency": "Abgeschlossen in {{ms}} ms",
+          "error": "Test fehlgeschlagen: {{error}}"
+        },
+        "update": {
+          "error": "Modus konnte nicht aktualisiert werden: {{error}}"
+        },
+        "delete": {
+          "button": "Modus löschen",
+          "success": "„{{name}}“ gelöscht",
+          "error": "Modus konnte nicht gelöscht werden: {{error}}",
+          "confirmTitle": "„{{name}}“ löschen?",
+          "confirmDescription": "Dies entfernt den Modus und sein Tastenkürzel. Dies kann nicht rückgängig gemacht werden.",
+          "cancel": "Abbrechen",
+          "confirm": "Löschen"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Tastenkürzel",
+      "empty": "Noch keine Tastenkürzel konfiguriert.",
+      "groups": {
+        "dictation": "Diktat",
+        "aiModes": "KI-Modi",
+        "agents": "Agenten",
+        "meetings": "Meetings"
+      },
+      "bindings": {
+        "transcribe": "Transkribieren",
+        "postProcess": "Nachbearbeitung",
+        "cancel": "Abbrechen",
+        "meetingCapture": "Meeting-Aufnahme",
+        "showHotkeys": "Tastenkürzel anzeigen"
+      }
     }
   },
   "footer": {

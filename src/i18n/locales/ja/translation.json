@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "一般",
-    "models": "モデル",
+    "models": "モデルのダウンロード",
+    "modelSetup": "音声セットアップ",
     "advanced": "詳細設定",
-    "postProcessing": "後処理",
+    "postProcessing": "AIモード",
     "dictionary": "辞書",
     "agents": "エージェント",
     "history": "履歴",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "すべての設定と詳細機能を表示",
     "missionControl": "ミッションコントロール",
     "meetings": "Meetings",
-    "resizeHandle": "サイドバーのサイズを変更"
+    "resizeHandle": "サイドバーのサイズを変更",
+    "groups": {
+      "dictation": "音声入力",
+      "speechEngine": "音声エンジン",
+      "agents": "エージェント",
+      "meetings": "ミーティング",
+      "system": "システム"
+    }
   },
   "onboarding": {
     "subtitle": "開始するには、文字起こしモデルを選択してください",
@@ -210,6 +218,10 @@
           "meeting_capture": {
             "name": "会議キャプチャのショートカット",
             "description": "現在の会議のキャプチャを開始または停止します。システム音声は最前面のアプリ（Google Meet の場合は Chrome など）を対象にします。"
+          },
+          "hotkey_overlay": {
+            "name": "ホットキーを表示",
+            "description": "押し続けると設定済みのすべてのホットキーの一覧を表示します。離すと非表示になります。"
           }
         },
         "errors": {
@@ -228,6 +240,29 @@
       "pushToTalk": {
         "label": "プッシュトゥトーク",
         "description": "押し続けて録音、離して停止"
+      },
+      "postProcessing": {
+        "title": "AI 後処理",
+        "master": {
+          "label": "AI 後処理",
+          "description": "メインのホットキーで音声入力を AI が整えます。オフの場合、メインのホットキーは話したとおりの自然な文字起こしをそのまま入力します。独自のホットキーやアプリルールを持つ AI モードは引き続き動作します。"
+        },
+        "defaultMode": {
+          "label": "デフォルトモード",
+          "description": "後処理がオンのときにメインのホットキーが適用するモード。「Write」は組み込みのクリーンアップです。"
+        },
+        "writeMode": "Write（組み込みのクリーンアップ）",
+        "fillerFilter": {
+          "label": "フィラー語を削除",
+          "description": "AI を使わずに単独のフィラー語（um、uh、hmm）を除去します。生の入力またはダイレクト入力のみに適用されます。"
+        }
+      },
+      "hotkeyOverview": {
+        "title": "ホットキー一覧",
+        "enable": {
+          "label": "ホットキーのオーバーレイを表示",
+          "description": "割り当てたホットキーを押し続けると、設定済みのすべてのショートカットの一覧を表示します。"
+        }
       }
     },
     "sound": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "キャプチャのショートカット"
+    },
+    "aiModes": {
+      "write": {
+        "title": "ライティング（組み込み）",
+        "description": "既定の後処理モードです。下のAIモードがディクテーション先のアプリに一致しない限り、メインのディクテーション用ホットキーはこれらの設定を使用します。ここで設定を編集すると、これまでと同じ後処理の設定が変更されます。"
+      },
+      "addMode": {
+        "title": "AIモード",
+        "intro": "名前付きのディクテーションプロファイルを作成できます。それぞれに専用のオプションのホットキーと、アプリ単位の自動選択を設定できます。優先順位は、モードのホットキーが最優先され、次に一致するアプリルール、次に従来のアプリ単位のプロンプト、最後に上記のライティングの後処理が適用されます。",
+        "blank": "空のモード",
+        "created": "「{{name}}」を追加しました",
+        "error": "モードを追加できませんでした: {{error}}"
+      },
+      "emptyState": "AIモードはまだありません。テンプレートから追加するか、空の状態から始めてください。",
+      "templates": {
+        "command": {
+          "name": "コマンド",
+          "description": "話した内容をシェルコマンドに変換し、カーソル位置に入力します（実行はされません）。ターミナルアプリ向けのプリセットです。"
+        },
+        "direct": {
+          "name": "ダイレクトディクテーション",
+          "description": "後処理や LLM を挟まずに、文字起こしをそのまま入力します。"
+        },
+        "translate": {
+          "name": "翻訳",
+          "description": "文字起こしを別の言語に翻訳してから入力します。プロンプト内で対象言語を編集してください。"
+        }
+      },
+      "card": {
+        "name": {
+          "label": "モード名",
+          "placeholder": "モード名"
+        },
+        "enabled": {
+          "label": "有効"
+        },
+        "kind": {
+          "label": "モードの種類",
+          "description": "書き換えは、プロンプトを使って文字起こしを LLM に通します。コマンドは発話をシェルコマンドに変換します（入力のみで実行はされません）。ダイレクトは LLM を使わずに文字起こしをそのまま入力します。",
+          "rewrite": "書き換え",
+          "command": "コマンド",
+          "direct": "ダイレクト"
+        },
+        "provider": {
+          "label": "プロバイダー",
+          "description": "このモードが使用する LLM プロバイダーです。「継承」を選ぶと、既定の後処理プロバイダーが使用されます。",
+          "inherit": "既定の後処理プロバイダーを継承"
+        },
+        "model": {
+          "label": "モデル",
+          "description": "モデルの上書き設定です。空欄のままにすると、プロバイダーに設定された後処理モデルが使用されます。",
+          "placeholder": "既定値を継承"
+        },
+        "prompt": {
+          "label": "プロンプト",
+          "description": "編集可能な指示です。出力の仕様が壊れないよう、固定の安全用ベースプロンプトが常に上乗せで適用されます。",
+          "placeholder": "このモードが文字起こしをどのように変換すべきかを記述してください..."
+        },
+        "appRules": {
+          "label": "使用中に有効化するアプリ",
+          "description": "最前面のアプリが一致する場合、メインホットキーでこのモードを自動選択します。バンドル ID またはアプリ名に一致します（大文字・小文字は区別せず、双方向でマッチします）。",
+          "placeholder": "バンドル ID またはアプリ名（例: com.apple.Terminal）",
+          "add": "追加",
+          "remove": "{{rule}} を削除",
+          "pickRunning": "実行中のアプリから選択",
+          "loadingApps": "アプリを読み込み中...",
+          "noApps": "実行中のアプリが見つかりません。代わりにバンドル ID か名前を入力してください。"
+        },
+        "directHint": "ダイレクトモードは LLM を使わずに文字起こしをそのまま入力するため、設定やテストする項目はありません。",
+        "test": {
+          "label": "テスト",
+          "description": "カーソルに触れずに、サンプルの文字起こしでこのモードを実行します。",
+          "run": "テストを実行",
+          "running": "実行中...",
+          "sampleText": {
+            "placeholder": "サンプルの文字起こしを入力してください..."
+          },
+          "latency": "{{ms}} ms で完了しました",
+          "error": "テストに失敗しました: {{error}}"
+        },
+        "update": {
+          "error": "モードを更新できませんでした: {{error}}"
+        },
+        "delete": {
+          "button": "モードを削除",
+          "success": "「{{name}}」を削除しました",
+          "error": "モードを削除できませんでした: {{error}}",
+          "confirmTitle": "「{{name}}」を削除しますか？",
+          "confirmDescription": "このモードとそのホットキーが削除されます。この操作は元に戻せません。",
+          "cancel": "キャンセル",
+          "confirm": "削除"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "ホットキー",
+      "empty": "ホットキーはまだ設定されていません。",
+      "groups": {
+        "dictation": "音声入力",
+        "aiModes": "AI モード",
+        "agents": "エージェント",
+        "meetings": "会議"
+      },
+      "bindings": {
+        "transcribe": "文字起こし",
+        "postProcess": "後処理",
+        "cancel": "キャンセル",
+        "meetingCapture": "会議キャプチャ",
+        "showHotkeys": "ホットキーを表示"
+      }
     }
   },
   "footer": {

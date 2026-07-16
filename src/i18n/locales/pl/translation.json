@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Ogólne",
-    "models": "Modele",
+    "models": "Pobieranie modeli",
+    "modelSetup": "Konfiguracja mowy",
     "advanced": "Zaawansowane",
-    "postProcessing": "Postproces",
+    "postProcessing": "Tryby AI",
     "dictionary": "Słownik",
     "agents": "Agenci",
     "history": "Historia",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Pokaż wszystkie ustawienia i zaawansowane funkcje",
     "missionControl": "Centrum sterowania",
     "meetings": "Meetings",
-    "resizeHandle": "Zmień rozmiar paska bocznego"
+    "resizeHandle": "Zmień rozmiar paska bocznego",
+    "groups": {
+      "dictation": "Dyktowanie",
+      "speechEngine": "Silnik mowy",
+      "agents": "Agenci",
+      "meetings": "Spotkania",
+      "system": "System"
+    }
   },
   "onboarding": {
     "subtitle": "Aby rozpocząć, wybierz model transkrypcji",
@@ -210,6 +218,10 @@
           "meeting_capture": {
             "name": "Skrót przechwytywania spotkania",
             "description": "Rozpoczyna lub zatrzymuje przechwytywanie bieżącego spotkania. Kieruje na aplikację na pierwszym planie (np. Chrome dla Google Meet) w celu przechwycenia dźwięku systemowego."
+          },
+          "hotkey_overlay": {
+            "name": "Pokaż skróty",
+            "description": "Przytrzymaj, aby wyświetlić ściągę wszystkich skonfigurowanych skrótów. Zwolnij, aby ukryć."
           }
         },
         "errors": {
@@ -228,6 +240,29 @@
       "pushToTalk": {
         "label": "Push To Talk",
         "description": "Przytrzymaj, aby nagrywać, puść, aby zatrzymać"
+      },
+      "postProcessing": {
+        "title": "Przetwarzanie AI",
+        "master": {
+          "label": "Przetwarzanie AI",
+          "description": "Przekształcaj dyktowanie za pomocą AI głównym skrótem. Gdy wyłączone, główny skrót wstawia naturalną transkrypcję dokładnie tak, jak wypowiedziano — tryby AI z własnym skrótem lub regułami aplikacji nadal działają."
+        },
+        "defaultMode": {
+          "label": "Tryb domyślny",
+          "description": "Który tryb stosuje główny skrót, gdy przetwarzanie jest włączone. „Write” to wbudowane czyszczenie."
+        },
+        "writeMode": "Write (wbudowane czyszczenie)",
+        "fillerFilter": {
+          "label": "Usuń wtrącenia",
+          "description": "Usuwa pojedyncze wtrącenia (yy, eee, hmm) bez AI. Dotyczy tylko surowego lub bezpośredniego dyktowania."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Przegląd skrótów",
+        "enable": {
+          "label": "Pokaż nakładkę skrótów",
+          "description": "Przytrzymaj przypisany skrót, aby wyświetlić ściągę wszystkich skonfigurowanych skrótów."
+        }
       }
     },
     "sound": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Skrót przechwytywania"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Write (wbudowany)",
+        "description": "Domyślny tryb czyszczenia. Twój główny skrót dyktowania używa tych ustawień, chyba że poniższy tryb AI pasuje do aplikacji, do której dyktujesz. Edytowanie tych ustawień zmienia te same ustawienia czyszczenia co wcześniej."
+      },
+      "addMode": {
+        "title": "Tryby AI",
+        "intro": "Twórz nazwane profile dyktowania, każdy z własnym opcjonalnym skrótem klawiszowym i automatycznym wyborem dla poszczególnych aplikacji. Kolejność pierwszeństwa: skrót trybu wygrywa, następnie pasująca reguła aplikacji, potem starszy prompt dla danej aplikacji, a na końcu powyższe czyszczenie Write.",
+        "blank": "Pusty tryb",
+        "created": "Dodano „{{name}}”",
+        "error": "Nie udało się dodać trybu: {{error}}"
+      },
+      "emptyState": "Nie masz jeszcze żadnych trybów AI. Dodaj jeden na podstawie szablonu lub zacznij od pustego.",
+      "templates": {
+        "command": {
+          "name": "Polecenie",
+          "description": "Zamienia wypowiedziane polecenia na polecenia powłoki, wpisywane (nigdy nieuruchamiane) w miejscu kursora. Ustawienie wstępne dla aplikacji terminala."
+        },
+        "direct": {
+          "name": "Bezpośrednie dyktowanie",
+          "description": "Wstawia surową transkrypcję bez czyszczenia i bez LLM."
+        },
+        "translate": {
+          "name": "Tłumaczenie",
+          "description": "Tłumaczy dyktowanie na inny język przed wstawieniem. Edytuj język docelowy w promptcie."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Nazwa trybu",
+          "placeholder": "Nazwa trybu"
+        },
+        "enabled": {
+          "label": "Włączony"
+        },
+        "kind": {
+          "label": "Typ trybu",
+          "description": "Przepisywanie przepuszcza transkrypcję przez LLM z Twoim promptem. Polecenie zamienia mowę na polecenie powłoki (wpisywane, nigdy nieuruchamiane). Bezpośredni wstawia surową transkrypcję bez LLM.",
+          "rewrite": "Przepisywanie",
+          "command": "Polecenie",
+          "direct": "Bezpośredni"
+        },
+        "provider": {
+          "label": "Dostawca",
+          "description": "Którego dostawcy LLM używa ten tryb. Dziedzicz korzysta z domyślnego dostawcy czyszczenia.",
+          "inherit": "Dziedzicz domyślnego dostawcę czyszczenia"
+        },
+        "model": {
+          "label": "Model",
+          "description": "Zastąpienie modelu. Pozostaw puste, aby użyć modelu czyszczenia skonfigurowanego dla dostawcy.",
+          "placeholder": "Dziedzicz domyślny"
+        },
+        "prompt": {
+          "label": "Prompt",
+          "description": "Twoje edytowalne instrukcje. Stały bazowy prompt bezpieczeństwa jest zawsze stosowany na wierzchu, aby kontrakt wyjściowy nie mógł zostać złamany.",
+          "placeholder": "Opisz, jak ten tryb powinien przekształcać Twoje dyktowanie..."
+        },
+        "appRules": {
+          "label": "Aktywuj podczas korzystania z",
+          "description": "Automatycznie wybiera ten tryb na Twoim głównym skrócie, gdy aktywna aplikacja pasuje. Dopasowuje identyfikator pakietu lub nazwę aplikacji (bez rozróżniania wielkości liter, w obu kierunkach).",
+          "placeholder": "Identyfikator pakietu lub nazwa aplikacji (np. com.apple.Terminal)",
+          "add": "Dodaj",
+          "remove": "Usuń {{rule}}",
+          "pickRunning": "Wybierz spośród uruchomionych aplikacji",
+          "loadingApps": "Wczytywanie aplikacji...",
+          "noApps": "Nie znaleziono uruchomionych aplikacji. Wpisz zamiast tego identyfikator pakietu lub nazwę."
+        },
+        "directHint": "Tryby bezpośrednie wstawiają surową transkrypcję bez LLM, więc nie ma nic do skonfigurowania ani przetestowania.",
+        "test": {
+          "label": "Test",
+          "description": "Uruchom ten tryb na przykładowej transkrypcji bez naruszania kursora.",
+          "run": "Uruchom test",
+          "running": "Trwa uruchamianie...",
+          "sampleText": {
+            "placeholder": "Wpisz przykładową transkrypcję..."
+          },
+          "latency": "Ukończono w {{ms}} ms",
+          "error": "Test nie powiódł się: {{error}}"
+        },
+        "update": {
+          "error": "Nie udało się zaktualizować trybu: {{error}}"
+        },
+        "delete": {
+          "button": "Usuń tryb",
+          "success": "Usunięto „{{name}}”",
+          "error": "Nie udało się usunąć trybu: {{error}}",
+          "confirmTitle": "Usunąć „{{name}}”?",
+          "confirmDescription": "Spowoduje to usunięcie trybu i jego skrótu klawiszowego. Tej operacji nie można cofnąć.",
+          "cancel": "Anuluj",
+          "confirm": "Usuń"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Skróty",
+      "empty": "Nie skonfigurowano jeszcze żadnych skrótów.",
+      "groups": {
+        "dictation": "Dyktowanie",
+        "aiModes": "Tryby AI",
+        "agents": "Agenci",
+        "meetings": "Spotkania"
+      },
+      "bindings": {
+        "transcribe": "Transkrybuj",
+        "postProcess": "Przetwarzanie",
+        "cancel": "Anuluj",
+        "meetingCapture": "Przechwytywanie spotkania",
+        "showHotkeys": "Pokaż skróty"
+      }
     }
   },
   "footer": {

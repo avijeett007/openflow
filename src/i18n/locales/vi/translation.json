@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Chung",
-    "models": "Mô hình",
+    "models": "Tải xuống mô hình",
+    "modelSetup": "Thiết lập giọng nói",
     "advanced": "Nâng cao",
-    "postProcessing": "Xử lý sau",
+    "postProcessing": "Chế độ AI",
     "dictionary": "Từ điển",
     "agents": "Tác nhân",
     "history": "Lịch sử",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Hiển thị tất cả cài đặt và tính năng nâng cao",
     "missionControl": "Trung tâm điều khiển",
     "meetings": "Meetings",
-    "resizeHandle": "Thay đổi kích thước thanh bên"
+    "resizeHandle": "Thay đổi kích thước thanh bên",
+    "groups": {
+      "dictation": "Đọc chính tả",
+      "speechEngine": "Công cụ giọng nói",
+      "agents": "Tác nhân",
+      "meetings": "Cuộc họp",
+      "system": "Hệ thống"
+    }
   },
   "onboarding": {
     "subtitle": "Để bắt đầu, hãy chọn một mô hình chuyển đổi giọng nói",
@@ -210,6 +218,10 @@
           "meeting_capture": {
             "name": "Phím tắt ghi cuộc họp",
             "description": "Bắt đầu hoặc dừng ghi cuộc họp hiện tại. Nhắm vào ứng dụng ở phía trước (như Chrome cho Google Meet) để lấy âm thanh hệ thống."
+          },
+          "hotkey_overlay": {
+            "name": "Hiển thị phím tắt",
+            "description": "Giữ để hiển thị bảng tra cứu mọi phím tắt đã cấu hình. Thả ra để ẩn."
           }
         },
         "errors": {
@@ -228,6 +240,29 @@
       "pushToTalk": {
         "label": "Nhấn để nói",
         "description": "Giữ để ghi âm, thả để dừng"
+      },
+      "postProcessing": {
+        "title": "Hậu xử lý bằng AI",
+        "master": {
+          "label": "Hậu xử lý bằng AI",
+          "description": "Định hình lại nội dung đọc chính tả bằng AI trên phím tắt chính. Khi tắt, phím tắt chính chèn bản ghi tự nhiên đúng như bạn nói — các chế độ AI có phím tắt riêng hoặc quy tắc ứng dụng vẫn hoạt động."
+        },
+        "defaultMode": {
+          "label": "Chế độ mặc định",
+          "description": "Chế độ mà phím tắt chính áp dụng khi bật hậu xử lý. Write là bản dọn dẹp tích hợp."
+        },
+        "writeMode": "Write (dọn dẹp tích hợp)",
+        "fillerFilter": {
+          "label": "Loại bỏ từ đệm",
+          "description": "Loại bỏ các từ đệm đứng riêng (ừm, à, hmm) mà không cần AI. Chỉ áp dụng cho đọc chính tả thô hoặc trực tiếp."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Tổng quan phím tắt",
+        "enable": {
+          "label": "Hiển thị lớp phủ phím tắt",
+          "description": "Giữ phím tắt được gán để hiển thị bảng tra cứu mọi phím tắt đã cấu hình."
+        }
       }
     },
     "sound": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Phím tắt ghi"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Viết (tích hợp sẵn)",
+        "description": "Chế độ dọn dẹp mặc định. Phím tắt đọc chính của bạn dùng các cài đặt này trừ khi một Chế độ AI bên dưới khớp với ứng dụng bạn đang đọc vào. Chỉnh sửa các mục này sẽ chỉnh sửa cùng cài đặt dọn dẹp như trước."
+      },
+      "addMode": {
+        "title": "Chế độ AI",
+        "intro": "Tạo các hồ sơ đọc có tên riêng, mỗi hồ sơ có phím tắt tùy chọn và tự động chọn theo từng ứng dụng. Thứ tự ưu tiên: phím tắt của chế độ được ưu tiên trước, sau đó đến quy tắc ứng dụng khớp, rồi đến prompt cũ theo từng ứng dụng, cuối cùng là chế độ dọn dẹp Viết ở trên.",
+        "blank": "Chế độ trống",
+        "created": "Đã thêm \"{{name}}\"",
+        "error": "Không thể thêm chế độ: {{error}}"
+      },
+      "emptyState": "Chưa có Chế độ AI nào. Thêm một chế độ từ mẫu hoặc bắt đầu từ chế độ trống.",
+      "templates": {
+        "command": {
+          "name": "Lệnh",
+          "description": "Biến yêu cầu bằng giọng nói thành lệnh shell, được gõ ra (không bao giờ chạy) tại vị trí con trỏ. Mẫu dựng sẵn cho các ứng dụng terminal."
+        },
+        "direct": {
+          "name": "Đọc trực tiếp",
+          "description": "Chèn bản chép lời gốc mà không dọn dẹp hay dùng LLM."
+        },
+        "translate": {
+          "name": "Dịch",
+          "description": "Dịch nội dung đọc sang ngôn ngữ khác trước khi chèn. Chỉnh ngôn ngữ đích trong prompt."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Tên chế độ",
+          "placeholder": "Tên chế độ"
+        },
+        "enabled": {
+          "label": "Bật"
+        },
+        "kind": {
+          "label": "Loại chế độ",
+          "description": "Viết lại sẽ đưa bản chép lời qua LLM cùng prompt của bạn. Lệnh biến giọng nói thành lệnh shell (được gõ ra, không bao giờ chạy). Trực tiếp chèn bản chép lời gốc mà không dùng LLM.",
+          "rewrite": "Viết lại",
+          "command": "Lệnh",
+          "direct": "Trực tiếp"
+        },
+        "provider": {
+          "label": "Nhà cung cấp",
+          "description": "Nhà cung cấp LLM mà chế độ này sử dụng. Kế thừa sẽ dùng nhà cung cấp dọn dẹp mặc định của bạn.",
+          "inherit": "Kế thừa nhà cung cấp dọn dẹp mặc định"
+        },
+        "model": {
+          "label": "Mô hình",
+          "description": "Ghi đè mô hình. Để trống để dùng mô hình dọn dẹp đã cấu hình của nhà cung cấp.",
+          "placeholder": "Kế thừa mặc định"
+        },
+        "prompt": {
+          "label": "Prompt",
+          "description": "Hướng dẫn có thể chỉnh sửa của bạn. Một prompt an toàn cố định luôn được áp dụng thêm để hợp đồng đầu ra không thể bị phá vỡ.",
+          "placeholder": "Mô tả cách chế độ này nên biến đổi nội dung đọc của bạn..."
+        },
+        "appRules": {
+          "label": "Kích hoạt khi dùng",
+          "description": "Tự động chọn chế độ này trên phím tắt chính khi ứng dụng đang ở tiền cảnh khớp. Khớp với bundle id hoặc tên ứng dụng (không phân biệt hoa thường, theo cả hai chiều).",
+          "placeholder": "Bundle id hoặc tên ứng dụng (vd. com.apple.Terminal)",
+          "add": "Thêm",
+          "remove": "Xóa {{rule}}",
+          "pickRunning": "Chọn từ các ứng dụng đang chạy",
+          "loadingApps": "Đang tải ứng dụng...",
+          "noApps": "Không tìm thấy ứng dụng đang chạy. Hãy nhập bundle id hoặc tên."
+        },
+        "directHint": "Chế độ Trực tiếp chèn bản chép lời gốc mà không dùng LLM, nên không có gì để cấu hình hay kiểm tra.",
+        "test": {
+          "label": "Kiểm tra",
+          "description": "Chạy chế độ này trên một bản chép lời mẫu mà không ảnh hưởng đến con trỏ của bạn.",
+          "run": "Chạy kiểm tra",
+          "running": "Đang chạy...",
+          "sampleText": {
+            "placeholder": "Nhập một bản chép lời mẫu..."
+          },
+          "latency": "Hoàn tất sau {{ms}} ms",
+          "error": "Kiểm tra thất bại: {{error}}"
+        },
+        "update": {
+          "error": "Không thể cập nhật chế độ: {{error}}"
+        },
+        "delete": {
+          "button": "Xóa chế độ",
+          "success": "Đã xóa \"{{name}}\"",
+          "error": "Không thể xóa chế độ: {{error}}",
+          "confirmTitle": "Xóa \"{{name}}\"?",
+          "confirmDescription": "Thao tác này sẽ xóa chế độ và phím tắt của nó. Không thể hoàn tác.",
+          "cancel": "Hủy",
+          "confirm": "Xóa"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Phím tắt",
+      "empty": "Chưa cấu hình phím tắt nào.",
+      "groups": {
+        "dictation": "Đọc chính tả",
+        "aiModes": "Chế độ AI",
+        "agents": "Tác nhân",
+        "meetings": "Cuộc họp"
+      },
+      "bindings": {
+        "transcribe": "Phiên âm",
+        "postProcess": "Hậu xử lý",
+        "cancel": "Hủy",
+        "meetingCapture": "Ghi cuộc họp",
+        "showHotkeys": "Hiển thị phím tắt"
+      }
     }
   },
   "footer": {

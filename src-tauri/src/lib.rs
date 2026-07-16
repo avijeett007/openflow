@@ -335,6 +335,10 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Create the recording overlay window (hidden by default)
     utils::create_recording_overlay(app_handle);
 
+    // Phase D2: create the hotkey cheat-sheet overlay window (hidden by default).
+    // A separate window from the recording overlay so their states never collide.
+    utils::create_hotkey_overlay(app_handle);
+
     // Start the hands-free wake-word listener if enabled. Its loop drives the
     // shared recorder only when idle and loads the local STT model on demand, so
     // it is safe to start now even before any model is loaded.
@@ -676,6 +680,14 @@ pub fn run(cli_args: CliArgs) {
             commands::agents::update_agent,
             commands::agents::delete_agent,
             commands::agents::test_agent,
+            commands::ai_modes::create_ai_mode,
+            commands::ai_modes::update_ai_mode,
+            commands::ai_modes::delete_ai_mode,
+            commands::ai_modes::test_ai_mode,
+            commands::ai_modes::get_running_apps,
+            commands::ai_modes::set_default_ai_mode_id,
+            commands::ai_modes::set_basic_filler_filter,
+            commands::ai_modes::set_hotkey_overlay_enabled,
             commands::agent_runs::detect_agent_binary,
             commands::agent_runs::get_cli_agent_defaults,
             commands::agent_runs::test_agent_binary,

@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Général",
-    "models": "Modèles",
+    "models": "Téléchargements de modèles",
+    "modelSetup": "Configuration vocale",
     "advanced": "Avancé",
-    "postProcessing": "Post-traitement",
+    "postProcessing": "Modes IA",
     "dictionary": "Dictionnaire",
     "agents": "Agents",
     "history": "Historique",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Afficher tous les paramètres et les fonctionnalités avancées",
     "missionControl": "Centre de Contrôle",
     "meetings": "Meetings",
-    "resizeHandle": "Redimensionner la barre latérale"
+    "resizeHandle": "Redimensionner la barre latérale",
+    "groups": {
+      "dictation": "Dictée",
+      "speechEngine": "Moteur vocal",
+      "agents": "Agents",
+      "meetings": "Réunions",
+      "system": "Système"
+    }
   },
   "onboarding": {
     "subtitle": "Pour commencer, choisissez un modèle de transcription",
@@ -210,6 +218,10 @@
           "meeting_capture": {
             "name": "Raccourci de capture de réunion",
             "description": "Démarre ou arrête la capture de la réunion en cours. Cible l'application au premier plan (comme Chrome pour Google Meet) pour l'audio système."
+          },
+          "hotkey_overlay": {
+            "name": "Afficher les raccourcis",
+            "description": "Maintenez pour afficher un aide-mémoire de tous les raccourcis configurés. Relâchez pour masquer."
           }
         },
         "errors": {
@@ -228,6 +240,29 @@
       "pushToTalk": {
         "label": "Appuyer pour parler",
         "description": "Maintenez pour enregistrer, relâchez pour arrêter"
+      },
+      "postProcessing": {
+        "title": "Post-traitement par IA",
+        "master": {
+          "label": "Post-traitement par IA",
+          "description": "Reformule votre dictée par IA sur le raccourci principal. Désactivé, le raccourci principal insère la transcription naturelle telle que dictée ; les modes IA avec leur propre raccourci ou règles d’application continuent de fonctionner."
+        },
+        "defaultMode": {
+          "label": "Mode par défaut",
+          "description": "Le mode appliqué par le raccourci principal lorsque le post-traitement est activé. Écrire est le nettoyage intégré."
+        },
+        "writeMode": "Écrire (nettoyage intégré)",
+        "fillerFilter": {
+          "label": "Supprimer les mots de remplissage",
+          "description": "Supprime les hésitations isolées (euh, hum, hmm) sans IA. S’applique uniquement à la dictée brute ou directe."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Aperçu des raccourcis",
+        "enable": {
+          "label": "Afficher la fiche des raccourcis",
+          "description": "Maintenez le raccourci attribué pour afficher un aide-mémoire de tous les raccourcis configurés."
+        }
       }
     },
     "sound": {
@@ -884,6 +919,116 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Raccourci de capture"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Écriture (intégré)",
+        "description": "Le mode de post-traitement par défaut. Votre raccourci de dictée principal utilise ces paramètres, sauf si un mode IA ci-dessous correspond à l'application dans laquelle vous dictez. Modifier ces réglages modifie les mêmes paramètres de post-traitement qu'auparavant."
+      },
+      "addMode": {
+        "title": "Modes IA",
+        "intro": "Créez des profils de dictée nommés, chacun avec son propre raccourci facultatif et sa sélection automatique par application. Priorité : un raccourci de mode l'emporte, puis une règle d'application correspondante, puis l'ancien prompt par application, puis le post-traitement Écriture ci-dessus.",
+        "blank": "Mode vierge",
+        "created": "« {{name}} » ajouté",
+        "error": "Impossible d'ajouter le mode : {{error}}"
+      },
+      "emptyState": "Aucun mode IA pour l'instant. Ajoutez-en un à partir d'un modèle ou partez de zéro.",
+      "templates": {
+        "command": {
+          "name": "Commande",
+          "description": "Transforme les demandes orales en commandes shell, tapées (jamais exécutées) au niveau du curseur. Préréglage pour les applications de terminal."
+        },
+        "direct": {
+          "name": "Dictée directe",
+          "description": "Insère la transcription brute sans post-traitement ni LLM."
+        },
+        "translate": {
+          "name": "Traduire",
+          "description": "Traduit la dictée dans une autre langue avant de l'insérer. Modifiez la langue cible dans le prompt."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Nom du mode",
+          "placeholder": "Nom du mode"
+        },
+        "enabled": {
+          "label": "Activé"
+        },
+        "kind": {
+          "label": "Type de mode",
+          "description": "Réécriture fait passer la transcription par un LLM avec votre prompt. Commande transforme la parole en commande shell (tapée, jamais exécutée). Direct insère la transcription brute sans LLM.",
+          "rewrite": "Réécriture",
+          "command": "Commande",
+          "direct": "Direct"
+        },
+        "provider": {
+          "label": "Fournisseur",
+          "description": "Le fournisseur LLM utilisé par ce mode. Hériter utilise votre fournisseur de post-traitement par défaut.",
+          "inherit": "Hériter du fournisseur de post-traitement par défaut"
+        },
+        "model": {
+          "label": "Modèle",
+          "description": "Remplacement du modèle. Laissez vide pour utiliser le modèle de post-traitement configuré du fournisseur.",
+          "placeholder": "Hériter de la valeur par défaut"
+        },
+        "prompt": {
+          "label": "Prompt",
+          "description": "Vos instructions modifiables. Un prompt de sécurité fixe est toujours appliqué par-dessus afin que le contrat de sortie ne puisse pas être rompu.",
+          "placeholder": "Décrivez comment ce mode doit transformer votre dictée..."
+        },
+        "appRules": {
+          "label": "Activer lors de l'utilisation de",
+          "description": "Sélectionne automatiquement ce mode sur votre raccourci principal lorsque l'application au premier plan correspond. Correspond à un identifiant de bundle ou à un nom d'application (insensible à la casse, dans les deux sens).",
+          "placeholder": "Identifiant de bundle ou nom d'application (ex. com.apple.Terminal)",
+          "add": "Ajouter",
+          "remove": "Supprimer {{rule}}",
+          "pickRunning": "Choisir parmi les applications en cours d'exécution",
+          "loadingApps": "Chargement des applications...",
+          "noApps": "Aucune application en cours d'exécution trouvée. Saisissez plutôt un identifiant de bundle ou un nom."
+        },
+        "directHint": "Les modes Direct insèrent la transcription brute sans LLM ; il n'y a donc rien à configurer ni à tester.",
+        "test": {
+          "label": "Tester",
+          "description": "Exécutez ce mode sur une transcription d'exemple sans toucher à votre curseur.",
+          "run": "Lancer le test",
+          "running": "En cours...",
+          "sampleText": {
+            "placeholder": "Tapez une transcription d'exemple..."
+          },
+          "latency": "Terminé en {{ms}} ms",
+          "error": "Échec du test : {{error}}"
+        },
+        "update": {
+          "error": "Impossible de mettre à jour le mode : {{error}}"
+        },
+        "delete": {
+          "button": "Supprimer le mode",
+          "success": "« {{name}} » supprimé",
+          "error": "Impossible de supprimer le mode : {{error}}",
+          "confirmTitle": "Supprimer « {{name}} » ?",
+          "confirmDescription": "Cela supprime le mode et son raccourci. Cette action est irréversible.",
+          "cancel": "Annuler",
+          "confirm": "Supprimer"
+        }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Raccourcis",
+      "empty": "Aucun raccourci configuré pour l’instant.",
+      "groups": {
+        "dictation": "Dictée",
+        "aiModes": "Modes IA",
+        "agents": "Agents",
+        "meetings": "Réunions"
+      },
+      "bindings": {
+        "transcribe": "Transcrire",
+        "postProcess": "Post-traitement",
+        "cancel": "Annuler",
+        "meetingCapture": "Capture de réunion",
+        "showHotkeys": "Afficher les raccourcis"
+      }
     }
   },
   "footer": {
