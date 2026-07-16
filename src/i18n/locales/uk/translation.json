@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Гаряча клавіша запису"
+      "captureHotkeyTitle": "Гаряча клавіша запису",
+      "diarization": {
+        "title": "Розділення мовців",
+        "enable": "Позначати мовців на пристрої",
+        "enableHint": "Розділяє та позначає, хто говорить на іншому боці дзвінка, повністю на пристрої. Ваш мікрофон завжди «Ви».",
+        "provisional": "Живі попередні позначки",
+        "provisionalHint": "Перепозначає мовців приблизно кожні 30 секунд під час дзвінка. Вимкнено за замовчуванням — на Intel-Mac не встигає, тож позначки застосовуються за один прохід наприкінці зустрічі.",
+        "modelsTitle": "Моделі розділення",
+        "modelsInstalled": "Встановлено та готово.",
+        "modelsSize": "Близько {{size}} МБ, завантажується один раз.",
+        "modelsReady": "Готово",
+        "download": "Завантажити",
+        "downloadError": "Не вдалося завантажити моделі: {{error}}",
+        "speakerN": "Мовець {{n}}",
+        "rename": "Перейменувати мовця",
+        "save": "Зберегти",
+        "renameError": "Не вдалося перейменувати мовця: {{error}}",
+        "hidePrivate": "Приховати те, що я сказав OpenFlow",
+        "youPrivate": "Ви → OpenFlow",
+        "chip": {
+          "off": "Без позначок",
+          "on": "Позначки мовців",
+          "provisional": "Попередньо",
+          "finalPass": "Фінальний прохід у кінці",
+          "finalizing": "Завершення мовців…",
+          "done": "Мовців позначено"
+        }
+      }
     },
     "aiModes": {
       "write": {

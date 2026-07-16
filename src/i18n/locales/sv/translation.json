@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Kortkommando för inspelning"
+      "captureHotkeyTitle": "Kortkommando för inspelning",
+      "diarization": {
+        "title": "Talaridentifiering",
+        "enable": "Märk talare på enheten",
+        "enableHint": "Separerar och märker vem som talar på andra sidan av samtalet, helt på enheten. Din mikrofon är alltid ”Du”.",
+        "provisional": "Preliminära etiketter i realtid",
+        "provisionalHint": "Ommärker talare ungefär var 30:e sekund under samtalet. Av som standard — på Intel-Mac hinner det inte med, så etiketterna tillämpas i en omgång när mötet avslutas.",
+        "modelsTitle": "Diariseringsmodeller",
+        "modelsInstalled": "Installerade och klara.",
+        "modelsSize": "Cirka {{size}} MB, laddas ned en gång.",
+        "modelsReady": "Klar",
+        "download": "Ladda ned",
+        "downloadError": "Det gick inte att ladda ned modellerna: {{error}}",
+        "speakerN": "Talare {{n}}",
+        "rename": "Byt namn på talare",
+        "save": "Spara",
+        "renameError": "Det gick inte att byta namn på talaren: {{error}}",
+        "hidePrivate": "Dölj det jag sa till OpenFlow",
+        "youPrivate": "Du → OpenFlow",
+        "chip": {
+          "off": "Inga etiketter",
+          "on": "Talaretiketter",
+          "provisional": "Preliminär",
+          "finalPass": "Slutlig körning vid slutet",
+          "finalizing": "Slutför talare…",
+          "done": "Talare märkta"
+        }
+      }
     },
     "aiModes": {
       "write": {

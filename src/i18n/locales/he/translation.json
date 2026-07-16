@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "קיצור ללכידה"
+      "captureHotkeyTitle": "קיצור ללכידה",
+      "diarization": {
+        "title": "הפרדת דוברים",
+        "enable": "תיוג דוברים במכשיר",
+        "enableHint": "מפריד ומתייג מי מדבר בצד השני של השיחה, לגמרי במכשיר. המיקרופון שלך תמיד \"אתה\".",
+        "provisional": "תוויות זמניות בזמן אמת",
+        "provisionalHint": "מתייג מחדש את הדוברים בערך כל 30 שניות במהלך השיחה. כבוי כברירת מחדל — במחשבי Mac עם Intel לא מדביק את הקצב, ולכן התוויות מוחלות במעבר אחד בסיום הפגישה.",
+        "modelsTitle": "מודלי הפרדה",
+        "modelsInstalled": "מותקנים ומוכנים.",
+        "modelsSize": "כ-{{size}} מ\"ב, מורדים פעם אחת.",
+        "modelsReady": "מוכן",
+        "download": "הורדה",
+        "downloadError": "לא ניתן להוריד את המודלים: {{error}}",
+        "speakerN": "דובר {{n}}",
+        "rename": "שינוי שם הדובר",
+        "save": "שמירה",
+        "renameError": "לא ניתן לשנות את שם הדובר: {{error}}",
+        "hidePrivate": "הסתר את מה שאמרתי ל-OpenFlow",
+        "youPrivate": "אתה → OpenFlow",
+        "chip": {
+          "off": "ללא תוויות",
+          "on": "תוויות דוברים",
+          "provisional": "זמני",
+          "finalPass": "מעבר סופי בסיום",
+          "finalizing": "מסיים דוברים…",
+          "done": "הדוברים תויגו"
+        }
+      }
     },
     "aiModes": {
       "write": {

@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Atajo de captura"
+      "captureHotkeyTitle": "Atajo de captura",
+      "diarization": {
+        "title": "Diarización de hablantes",
+        "enable": "Etiquetar hablantes en el dispositivo",
+        "enableHint": "Separa y etiqueta quién habla al otro lado de la llamada, totalmente en el dispositivo. Tu micrófono siempre es «Tú».",
+        "provisional": "Etiquetas provisionales en vivo",
+        "provisionalHint": "Vuelve a etiquetar a los hablantes cada 30 segundos durante la llamada. Desactivado por defecto: en los Mac Intel no puede seguir el ritmo, así que las etiquetas se aplican de una vez al terminar la reunión.",
+        "modelsTitle": "Modelos de diarización",
+        "modelsInstalled": "Instalados y listos.",
+        "modelsSize": "Unos {{size}} MB, se descargan una vez.",
+        "modelsReady": "Listo",
+        "download": "Descargar",
+        "downloadError": "No se pudieron descargar los modelos: {{error}}",
+        "speakerN": "Hablante {{n}}",
+        "rename": "Renombrar hablante",
+        "save": "Guardar",
+        "renameError": "No se pudo renombrar el hablante: {{error}}",
+        "hidePrivate": "Ocultar lo que le dije a OpenFlow",
+        "youPrivate": "Tú → OpenFlow",
+        "chip": {
+          "off": "Sin etiquetas",
+          "on": "Etiquetas de hablante",
+          "provisional": "Provisional",
+          "finalPass": "Pase final al terminar",
+          "finalizing": "Finalizando hablantes…",
+          "done": "Hablantes etiquetados"
+        }
+      }
     },
     "aiModes": {
       "write": {

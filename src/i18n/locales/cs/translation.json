@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Zkratka pro záznam"
+      "captureHotkeyTitle": "Zkratka pro záznam",
+      "diarization": {
+        "title": "Rozpoznávání mluvčích",
+        "enable": "Označovat mluvčí v zařízení",
+        "enableHint": "Rozděluje a označuje, kdo mluví na druhé straně hovoru, zcela v zařízení. Váš mikrofon je vždy „Vy“.",
+        "provisional": "Živé předběžné štítky",
+        "provisionalHint": "Znovu označuje mluvčí přibližně každých 30 sekund během hovoru. Ve výchozím nastavení vypnuto — na Macích s Intelem to nestíhá, takže se štítky použijí najednou po skončení schůzky.",
+        "modelsTitle": "Modely rozpoznávání",
+        "modelsInstalled": "Nainstalováno a připraveno.",
+        "modelsSize": "Přibližně {{size}} MB, stáhne se jednou.",
+        "modelsReady": "Připraveno",
+        "download": "Stáhnout",
+        "downloadError": "Modely se nepodařilo stáhnout: {{error}}",
+        "speakerN": "Mluvčí {{n}}",
+        "rename": "Přejmenovat mluvčího",
+        "save": "Uložit",
+        "renameError": "Mluvčího se nepodařilo přejmenovat: {{error}}",
+        "hidePrivate": "Skrýt, co jsem řekl OpenFlow",
+        "youPrivate": "Vy → OpenFlow",
+        "chip": {
+          "off": "Bez štítků",
+          "on": "Štítky mluvčích",
+          "provisional": "Předběžné",
+          "finalPass": "Finální průchod na konci",
+          "finalizing": "Dokončování mluvčích…",
+          "done": "Mluvčí označeni"
+        }
+      }
     },
     "aiModes": {
       "write": {

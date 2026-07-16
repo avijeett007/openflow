@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Atalho de captura"
+      "captureHotkeyTitle": "Atalho de captura",
+      "diarization": {
+        "title": "Diarização de falantes",
+        "enable": "Rotular falantes no dispositivo",
+        "enableHint": "Separa e rotula quem está falando do outro lado da chamada, totalmente no dispositivo. Seu microfone é sempre \"Você\".",
+        "provisional": "Rótulos provisórios ao vivo",
+        "provisionalHint": "Reetiqueta os falantes a cada 30 segundos durante a chamada. Desativado por padrão — em Macs Intel não acompanha, então os rótulos são aplicados de uma vez ao fim da reunião.",
+        "modelsTitle": "Modelos de diarização",
+        "modelsInstalled": "Instalados e prontos.",
+        "modelsSize": "Cerca de {{size}} MB, baixados uma vez.",
+        "modelsReady": "Pronto",
+        "download": "Baixar",
+        "downloadError": "Não foi possível baixar os modelos: {{error}}",
+        "speakerN": "Falante {{n}}",
+        "rename": "Renomear falante",
+        "save": "Salvar",
+        "renameError": "Não foi possível renomear o falante: {{error}}",
+        "hidePrivate": "Ocultar o que eu disse ao OpenFlow",
+        "youPrivate": "Você → OpenFlow",
+        "chip": {
+          "off": "Sem rótulos",
+          "on": "Rótulos de falante",
+          "provisional": "Provisório",
+          "finalPass": "Passagem final no fim",
+          "finalizing": "Finalizando falantes…",
+          "done": "Falantes rotulados"
+        }
+      }
     },
     "aiModes": {
       "write": {

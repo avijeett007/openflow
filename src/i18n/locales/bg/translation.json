@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Клавишна комбинация за запис"
+      "captureHotkeyTitle": "Клавишна комбинация за запис",
+      "diarization": {
+        "title": "Разделяне на говорещи",
+        "enable": "Етикетиране на говорещите на устройството",
+        "enableHint": "Разделя и етикетира кой говори от другата страна на разговора, изцяло на устройството. Вашият микрофон винаги е „Вие“.",
+        "provisional": "Живи временни етикети",
+        "provisionalHint": "Преетикетира говорещите приблизително на всеки 30 секунди по време на разговора. Изключено по подразбиране — на Intel Mac не успява да насмогне, затова етикетите се прилагат наведнъж в края на срещата.",
+        "modelsTitle": "Модели за разделяне",
+        "modelsInstalled": "Инсталирани и готови.",
+        "modelsSize": "Около {{size}} MB, изтеглят се веднъж.",
+        "modelsReady": "Готово",
+        "download": "Изтегляне",
+        "downloadError": "Моделите не можаха да се изтеглят: {{error}}",
+        "speakerN": "Говорещ {{n}}",
+        "rename": "Преименуване на говорещ",
+        "save": "Запазване",
+        "renameError": "Говорещият не можа да бъде преименуван: {{error}}",
+        "hidePrivate": "Скрий какво казах на OpenFlow",
+        "youPrivate": "Вие → OpenFlow",
+        "chip": {
+          "off": "Без етикети",
+          "on": "Етикети на говорещи",
+          "provisional": "Временно",
+          "finalPass": "Финална обработка накрая",
+          "finalizing": "Финализиране на говорещите…",
+          "done": "Говорещите са етикетирани"
+        }
+      }
     },
     "aiModes": {
       "write": {

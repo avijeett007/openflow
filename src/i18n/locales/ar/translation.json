@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "اختصار الالتقاط"
+      "captureHotkeyTitle": "اختصار الالتقاط",
+      "diarization": {
+        "title": "تمييز المتحدثين",
+        "enable": "تسمية المتحدثين على الجهاز",
+        "enableHint": "يفصل ويُسمّي مَن يتحدث على الطرف الآخر من المكالمة، بالكامل على الجهاز. ميكروفونك دائمًا \"أنت\".",
+        "provisional": "تسميات مؤقتة مباشرة",
+        "provisionalHint": "يُعيد تسمية المتحدثين كل 30 ثانية تقريبًا أثناء المكالمة. مُعطَّل افتراضيًا — على أجهزة Mac بمعالج Intel لا يواكب السرعة، لذا تُطبَّق التسميات دفعة واحدة عند انتهاء الاجتماع.",
+        "modelsTitle": "نماذج التمييز",
+        "modelsInstalled": "مثبَّتة وجاهزة.",
+        "modelsSize": "نحو {{size}} ميغابايت، تُنزَّل مرة واحدة.",
+        "modelsReady": "جاهز",
+        "download": "تنزيل",
+        "downloadError": "تعذّر تنزيل النماذج: {{error}}",
+        "speakerN": "المتحدث {{n}}",
+        "rename": "إعادة تسمية المتحدث",
+        "save": "حفظ",
+        "renameError": "تعذّر إعادة تسمية المتحدث: {{error}}",
+        "hidePrivate": "إخفاء ما قلته لـ OpenFlow",
+        "youPrivate": "أنت → OpenFlow",
+        "chip": {
+          "off": "بدون تسميات",
+          "on": "تسميات المتحدثين",
+          "provisional": "مؤقت",
+          "finalPass": "معالجة نهائية عند الانتهاء",
+          "finalizing": "جارٍ إنهاء المتحدثين…",
+          "done": "تمّت تسمية المتحدثين"
+        }
+      }
     },
     "aiModes": {
       "write": {

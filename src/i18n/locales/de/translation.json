@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Aufnahme-Tastenkürzel"
+      "captureHotkeyTitle": "Aufnahme-Tastenkürzel",
+      "diarization": {
+        "title": "Sprecher­erkennung",
+        "enable": "Sprecher lokal beschriften",
+        "enableHint": "Erkennt und beschriftet, wer auf der anderen Seite des Gesprächs spricht – vollständig auf dem Gerät. Ihr Mikrofon ist immer „Sie“.",
+        "provisional": "Live-Vorabbeschriftung",
+        "provisionalHint": "Beschriftet Sprecher etwa alle 30 Sekunden während des Gesprächs neu. Standardmäßig aus – auf Intel-Macs zu langsam, daher werden die Beschriftungen am Ende in einem Durchlauf angewendet.",
+        "modelsTitle": "Diarisierungs­modelle",
+        "modelsInstalled": "Installiert und bereit.",
+        "modelsSize": "Etwa {{size}} MB, einmalig heruntergeladen.",
+        "modelsReady": "Bereit",
+        "download": "Herunterladen",
+        "downloadError": "Modelle konnten nicht heruntergeladen werden: {{error}}",
+        "speakerN": "Sprecher {{n}}",
+        "rename": "Sprecher umbenennen",
+        "save": "Speichern",
+        "renameError": "Sprecher konnte nicht umbenannt werden: {{error}}",
+        "hidePrivate": "Was ich zu OpenFlow gesagt habe, ausblenden",
+        "youPrivate": "Sie → OpenFlow",
+        "chip": {
+          "off": "Keine Beschriftung",
+          "on": "Sprecher­beschriftung",
+          "provisional": "Vorläufig",
+          "finalPass": "Endgültig am Ende",
+          "finalizing": "Sprecher werden finalisiert …",
+          "done": "Sprecher beschriftet"
+        }
+      }
     },
     "aiModes": {
       "write": {

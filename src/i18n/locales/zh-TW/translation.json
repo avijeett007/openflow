@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "擷取快速鍵"
+      "captureHotkeyTitle": "擷取快速鍵",
+      "diarization": {
+        "title": "說話者分離",
+        "enable": "在本機標註說話者",
+        "enableHint": "完全在本機分離並標註通話另一端是誰在說話。你的麥克風始終是「你」。",
+        "provisional": "即時暫定標籤",
+        "provisionalHint": "通話期間約每 30 秒重新標註一次說話者。預設關閉——Intel Mac 跟不上，因此會在會議結束時一次完成標註。",
+        "modelsTitle": "分離模型",
+        "modelsInstalled": "已安裝，隨時可用。",
+        "modelsSize": "約 {{size}} MB，只需下載一次。",
+        "modelsReady": "就緒",
+        "download": "下載",
+        "downloadError": "無法下載模型：{{error}}",
+        "speakerN": "說話者 {{n}}",
+        "rename": "重新命名說話者",
+        "save": "儲存",
+        "renameError": "無法重新命名說話者：{{error}}",
+        "hidePrivate": "隱藏我對 OpenFlow 說的話",
+        "youPrivate": "你 → OpenFlow",
+        "chip": {
+          "off": "無標籤",
+          "on": "說話者標籤",
+          "provisional": "暫定",
+          "finalPass": "結束時最終處理",
+          "finalizing": "正在完成說話者標註…",
+          "done": "已標註說話者"
+        }
+      }
     },
     "aiModes": {
       "write": {

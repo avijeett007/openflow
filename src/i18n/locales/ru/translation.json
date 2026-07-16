@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Горячая клавиша записи"
+      "captureHotkeyTitle": "Горячая клавиша записи",
+      "diarization": {
+        "title": "Разделение по дикторам",
+        "enable": "Помечать говорящих на устройстве",
+        "enableHint": "Разделяет и помечает, кто говорит на другой стороне звонка, полностью на устройстве. Ваш микрофон всегда «Вы».",
+        "provisional": "Живые предварительные метки",
+        "provisionalHint": "Переразмечает говорящих примерно каждые 30 секунд во время звонка. По умолчанию выключено — на Intel-Mac не успевает, поэтому метки применяются за один проход в конце встречи.",
+        "modelsTitle": "Модели разделения",
+        "modelsInstalled": "Установлены и готовы.",
+        "modelsSize": "Около {{size}} МБ, загружаются один раз.",
+        "modelsReady": "Готово",
+        "download": "Загрузить",
+        "downloadError": "Не удалось загрузить модели: {{error}}",
+        "speakerN": "Говорящий {{n}}",
+        "rename": "Переименовать говорящего",
+        "save": "Сохранить",
+        "renameError": "Не удалось переименовать говорящего: {{error}}",
+        "hidePrivate": "Скрыть то, что я сказал OpenFlow",
+        "youPrivate": "Вы → OpenFlow",
+        "chip": {
+          "off": "Без меток",
+          "on": "Метки говорящих",
+          "provisional": "Предварительно",
+          "finalPass": "Финальный проход в конце",
+          "finalizing": "Завершение разметки…",
+          "done": "Говорящие размечены"
+        }
+      }
     },
     "aiModes": {
       "write": {

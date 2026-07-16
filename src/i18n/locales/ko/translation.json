@@ -924,7 +924,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "캡처 단축키"
+      "captureHotkeyTitle": "캡처 단축키",
+      "diarization": {
+        "title": "화자 분리",
+        "enable": "기기에서 화자 라벨 지정",
+        "enableHint": "통화 상대편에서 누가 말하는지 전적으로 기기에서 분리하고 라벨을 지정합니다. 내 마이크는 항상 \"나\"입니다.",
+        "provisional": "실시간 임시 라벨",
+        "provisionalHint": "통화 중 약 30초마다 화자를 다시 라벨링합니다. 기본적으로 꺼짐 — Intel Mac에서는 따라가지 못하므로 회의가 끝날 때 한 번에 라벨을 적용합니다.",
+        "modelsTitle": "분리 모델",
+        "modelsInstalled": "설치되어 사용할 준비가 되었습니다.",
+        "modelsSize": "약 {{size}} MB, 한 번만 다운로드합니다.",
+        "modelsReady": "준비됨",
+        "download": "다운로드",
+        "downloadError": "모델을 다운로드하지 못했습니다: {{error}}",
+        "speakerN": "화자 {{n}}",
+        "rename": "화자 이름 변경",
+        "save": "저장",
+        "renameError": "화자 이름을 변경하지 못했습니다: {{error}}",
+        "hidePrivate": "OpenFlow에 말한 내용 숨기기",
+        "youPrivate": "나 → OpenFlow",
+        "chip": {
+          "off": "라벨 없음",
+          "on": "화자 라벨",
+          "provisional": "임시",
+          "finalPass": "종료 시 최종 처리",
+          "finalizing": "화자 확정 중…",
+          "done": "화자 라벨 완료"
+        }
+      }
     },
     "aiModes": {
       "write": {

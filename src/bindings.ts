@@ -1408,6 +1408,84 @@ async setMeetingAutoDetect(enabled: boolean) : Promise<Result<null, string>> {
 }
 },
 /**
+ * Rename a per-meeting speaker cluster ("Speaker 1" → "Alice"). An empty name
+ * clears the custom label back to the default. Scoped to this meeting only.
+ */
+async renameMeetingSpeaker(meetingId: number, localSpeaker: number, name: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rename_meeting_speaker", { meetingId, localSpeaker, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The per-meeting speaker display names.
+ */
+async getMeetingSpeakers(meetingId: number) : Promise<Result<MeetingSpeakerRecord[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_meeting_speakers", { meetingId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Diarization availability + effective mode (for the status chip + settings).
+ */
+async getDiarizationStatus() : Promise<Result<DiarizationStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_diarization_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle the diarization master switch. Enabling it does NOT download models —
+ * the frontend calls `download_diarization_models` explicitly so the ~34 MB
+ * fetch is always a deliberate, progress-tracked action.
+ */
+async setMeetingsDiarization(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_meetings_diarization", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle live provisional labels (opt-in; off by default on slow machines).
+ */
+async setMeetingsDiarizationProvisional(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_meetings_diarization_provisional", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getDiarizationModelsStatus() : Promise<Result<DiarizationModelsStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_diarization_models_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Download + verify the diarization models (progress via
+ * `diarization-model-progress`). Only ever called on explicit user action.
+ */
+async downloadDiarizationModels() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("download_diarization_models") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Checks if the Mac is a laptop by detecting battery presence
  * 
  * This uses pmset to check for battery information.
@@ -1433,6 +1511,7 @@ historyUpdatePayload: HistoryUpdatePayload,
 meetingDetected: MeetingDetected,
 meetingLevels: MeetingLevels,
 meetingSegmentEvent: MeetingSegmentEvent,
+meetingSpeakersUpdated: MeetingSpeakersUpdated,
 meetingState: MeetingState,
 streamPhaseEvent: StreamPhaseEvent,
 streamTextEvent: StreamTextEvent
@@ -1443,6 +1522,7 @@ historyUpdatePayload: "history-update-payload",
 meetingDetected: "meeting-detected",
 meetingLevels: "meeting-levels",
 meetingSegmentEvent: "meeting-segment-event",
+meetingSpeakersUpdated: "meeting-speakers-updated",
 meetingState: "meeting-state",
 streamPhaseEvent: "stream-phase-event",
 streamTextEvent: "stream-text-event"
@@ -1828,7 +1908,22 @@ meeting_auto_detect?: boolean;
  * Bundle ids treated as meeting apps for auto-detection. User-extensible
  * (Webex/Slack huddles etc.); defaults to Zoom, Teams (classic + new), FaceTime.
  */
-meeting_app_allowlist?: string[] }
+meeting_app_allowlist?: string[]; 
+/**
+ * Master switch for on-device speaker diarization. Default on: when the
+ * models are absent nothing downloads and meetings behave exactly like M1
+ * (segments stay "Them"), so on-by-default is safe. Enabling it in the UI is
+ * what triggers the one-time model download — never at startup.
+ */
+meetings_diarization?: boolean; 
+/**
+ * Run *live provisional* labels (re-diarize every ~30 s) in addition to the
+ * canonical final pass. Default **off**: the Intel benchmark (~0.14× realtime
+ * on the i9-9980HK) makes full-accumulated re-diarization every 30 s
+ * infeasible past a few minutes, so the safe default is final-pass-only
+ * (DESIGN-meetings.md §5.4 auto-degrade). Users on fast machines can opt in.
+ */
+meetings_diarization_provisional?: boolean }
 export type AppUsage = { app: string; dictations: number; words: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
@@ -1859,6 +1954,47 @@ export type CliAgentDefaults = { command_template: string; prompt_via: PromptDel
 binary_name: string | null }
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CustomSounds = { start: boolean; stop: boolean }
+/**
+ * Which diarization mode a meeting will run, after the degrade decision.
+ */
+export type DiarizationMode = 
+/**
+ * Live provisional labels (~30 s re-diarization) plus the final pass.
+ */
+"provisional" | 
+/**
+ * One canonical pass at meeting end only (the Intel-safe default).
+ */
+"final_only" | 
+/**
+ * Diarization disabled or models missing — segments stay "Them" (M1).
+ */
+"off"
+/**
+ * Whether the diarization models are installed + their total download size.
+ */
+export type DiarizationModelsStatus = { installed: boolean; size_mb: number }
+/**
+ * Diarization availability + the mode a meeting would run in, for the settings
+ * card and the transcript status chip.
+ */
+export type DiarizationStatus = { 
+/**
+ * The `meetings_diarization` setting.
+ */
+enabled: boolean; 
+/**
+ * Whether both diarization models are on disk.
+ */
+models_installed: boolean; 
+/**
+ * The `meetings_diarization_provisional` opt-in.
+ */
+provisional: boolean; 
+/**
+ * Effective mode (`provisional` | `final_only` | `off`).
+ */
+mode: DiarizationMode }
 /**
  * A user dictionary entry: a canonical spelling plus optional "sounds like"
  * aliases (misheard/alternate forms) that are rewritten to the canonical word.
@@ -1926,7 +2062,11 @@ export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
  * Snapshot for the frontend: is a capture running, and did system audio degrade?
  */
 export type MeetingCaptureStatus = { active: boolean; meeting_id: number | null; mic_only: boolean; notice?: string | null }
-export type MeetingDetail = { meeting: MeetingRecord; segments: MeetingSegmentRecord[] }
+export type MeetingDetail = { meeting: MeetingRecord; segments: MeetingSegmentRecord[]; 
+/**
+ * Per-meeting speaker display names (M2 rename). Empty when none set.
+ */
+speakers?: MeetingSpeakerRecord[] }
 /**
  * A known meeting app is running and the mic is in use — offer to capture.
  * Emitted by the [`crate::meeting::detector`].
@@ -1953,7 +2093,26 @@ local_speaker: number | null;
 /**
  * Voice-fingerprint registry match (M3); `None` in M1.
  */
-speaker_id: number | null; text: string }
+speaker_id: number | null; text: string; 
+/**
+ * Bit flags — bit 0 = private (spoken to OpenFlow during the meeting).
+ */
+flags?: number }
+/**
+ * A per-meeting speaker display name ("Speaker 1" renamed to "Alice"), scoped to
+ * one meeting. Does not touch the M3 fingerprint registry.
+ */
+export type MeetingSpeakerRecord = { local_speaker: number; name: string }
+/**
+ * Diarization relabeled a meeting's remote segments (after a provisional cycle
+ * or the canonical final pass). The UI re-renders past segments with the new
+ * `local_speaker` labels. `final_pass` marks the canonical result.
+ */
+export type MeetingSpeakersUpdated = { meeting_id: number; 
+/**
+ * Distinct per-meeting speaker ordinals present after relabeling.
+ */
+speakers: number[]; final_pass: boolean }
 /**
  * Meeting session status transition (`recording` | `processing` | `done` |
  * `failed`). `mic_only` / `notice` communicate a graceful system-audio degrade.
