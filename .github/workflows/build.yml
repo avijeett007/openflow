@@ -175,17 +175,32 @@ jobs:
 
       # tauri-action runs `bun run tauri build` and bundles the app. On tag builds
       # it creates/uploads to a DRAFT GitHub Release (published later by the
-      # `publish` job once all platforms succeed). No signing secrets are provided
-      # — builds are unsigned/ad-hoc.
+      # `publish` job once all platforms succeed). The Apple/Windows code-signing
+      # story is unchanged (ad-hoc), but the two TAURI_SIGNING_* secrets are the
+      # updater's *minisign* key: with them set (and createUpdaterArtifacts=true)
+      # the bundler emits the updater archives AND a `.sig` next to each one.
+      #
+      # uploadUpdaterJson is OFF on purpose: each matrix job only knows its own
+      # platform, so letting tauri-action write latest.json would have all three
+      # jobs clobber it down to a single platform. The `publish` job assembles a
+      # correct multi-platform latest.json from every job's signatures instead.
       - name: Build with Tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseDraft: true
           prerelease: false
+          # Both OFF: the `publish` job owns the updater assets. It uploads the
+          # per-arch archives + `.sig` under deterministic names (macOS archives
+          # are otherwise all named `OpenFlow.app.tar.gz` and would collide across
+          # the two mac jobs) and writes the multi-platform latest.json.
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
           args: ${{ matrix.args }}
 
       # The Intel .app links ONNX Runtime at an absolute Homebrew path, so the
@@ -198,6 +213,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euxo pipefail
           APP="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/OpenFlow.app"
@@ -225,6 +242,16 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             gh release upload "${GITHUB_REF#refs/tags/}" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
           fi
+          # The updater archive `tauri build` produced wraps the PRE-fix .app
+          # (absolute Homebrew onnxruntime path) and would ship a crashing update
+          # to Intel users. Rebuild the `.app.tar.gz` from the fixed+re-signed
+          # .app and re-sign it with the updater (minisign) key so its `.sig`
+          # matches. COPYFILE_DISABLE avoids AppleDouble `._*` entries.
+          MACOS_DIR="src-tauri/target/x86_64-apple-darwin/release/bundle/macos"
+          rm -f "$MACOS_DIR/OpenFlow.app.tar.gz" "$MACOS_DIR/OpenFlow.app.tar.gz.sig"
+          COPYFILE_DISABLE=1 tar -C "$MACOS_DIR" -czf "$MACOS_DIR/OpenFlow.app.tar.gz" OpenFlow.app
+          bun tauri signer sign "$MACOS_DIR/OpenFlow.app.tar.gz"
+          ls -lh "$MACOS_DIR/OpenFlow.app.tar.gz" "$MACOS_DIR/OpenFlow.app.tar.gz.sig"
 
       # Always upload the installers as workflow run artifacts (for both manual
       # dispatch and tag builds). macOS -> .dmg, Windows -> .exe (NSIS) + .msi.
@@ -251,6 +278,33 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      # Updater artifacts (the archive the app self-updates from + its `.sig`),
+      # kept in a SEPARATE per-target run artifact so the `publish` job can pull
+      # each platform's signed archive without the macOS `OpenFlow.app.tar.gz`
+      # name colliding across the two mac jobs. macOS -> .app.tar.gz(+.sig);
+      # Windows -> the NSIS -setup.exe(+.sig).
+      - name: Upload updater artifacts (macOS)
+        if: contains(matrix.platform, 'macos')
+        uses: actions/upload-artifact@v4
+        with:
+          name: openflow-updater-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload updater artifacts (Windows)
+        if: contains(matrix.platform, 'windows')
+        uses: actions/upload-artifact@v4
+        with:
+          name: openflow-updater-${{ matrix.target }}
+          path: |
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
+            ${{ env.CARGO_TARGET_DIR }}/${{ matrix.target }}/release/bundle/nsis/*-setup.exe.sig
+          if-no-files-found: error
+          retention-days: 30
+
   # ---------------------------------------------------------------------------
   # 3. Publish — flip the draft Release to published, only after ALL platforms
   #    built successfully and only on a `v*` tag. Keeps a failed matrix from
@@ -266,6 +320,82 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # Pull every platform's signed updater archive + `.sig` (one run artifact
+      # per target, so the identically-named macOS archives don't collide).
+      - name: Download updater artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: openflow-updater-*
+          path: updater-dl
+
+      # Assemble ONE multi-platform latest.json from the per-target signatures and
+      # attach it (plus the per-arch archives + sigs under deterministic names) to
+      # the draft release. The updater endpoint
+      # (releases/latest/download/latest.json) serves this after the release is
+      # published + marked latest below. Schema: Tauri v2 static updater manifest.
+      - name: Assemble and upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          NOTES="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body || true)"
+          if [ -z "$NOTES" ]; then
+            NOTES="See https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+          fi
+
+          DA_DIR="updater-dl/openflow-updater-aarch64-apple-darwin"
+          DX_DIR="updater-dl/openflow-updater-x86_64-apple-darwin"
+          WX_DIR="updater-dl/openflow-updater-x86_64-pc-windows-msvc"
+
+          # Canonical, collision-free asset names. Renaming does not invalidate a
+          # signature — minisign signs the archive bytes, not the filename.
+          DA_ASSET="OpenFlow_aarch64.app.tar.gz"
+          DX_ASSET="OpenFlow_x64.app.tar.gz"
+          WX_SRC="$(ls "$WX_DIR"/*-setup.exe)"
+          WX_ASSET="$(basename "$WX_SRC")"
+
+          cp "$DA_DIR/OpenFlow.app.tar.gz"       "$DA_ASSET"
+          cp "$DA_DIR/OpenFlow.app.tar.gz.sig"   "$DA_ASSET.sig"
+          cp "$DX_DIR/OpenFlow.app.tar.gz"       "$DX_ASSET"
+          cp "$DX_DIR/OpenFlow.app.tar.gz.sig"   "$DX_ASSET.sig"
+          cp "$WX_SRC"                           "$WX_ASSET"
+          cp "$WX_SRC.sig"                       "$WX_ASSET.sig"
+
+          DL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            --arg da_url "$DL/$DA_ASSET" --rawfile da_sig "$DA_ASSET.sig" \
+            --arg dx_url "$DL/$DX_ASSET" --rawfile dx_sig "$DX_ASSET.sig" \
+            --arg wx_url "$DL/$WX_ASSET" --rawfile wx_sig "$WX_ASSET.sig" \
+            '{
+               version: $version,
+               notes: $notes,
+               pub_date: $pub_date,
+               platforms: {
+                 "darwin-aarch64": { signature: ($da_sig | rtrimstr("\n")), url: $da_url },
+                 "darwin-x86_64":  { signature: ($dx_sig | rtrimstr("\n")), url: $dx_url },
+                 "windows-x86_64": { signature: ($wx_sig | rtrimstr("\n")), url: $wx_url }
+               }
+             }' > latest.json
+          cat latest.json
+
+          # tauri-action may have uploaded the ambiguous default-named macOS
+          # archive; drop it so only the per-arch assets remain (best-effort).
+          gh release delete-asset "$TAG" "OpenFlow.app.tar.gz" -y --repo "$GITHUB_REPOSITORY" || true
+          gh release delete-asset "$TAG" "OpenFlow.app.tar.gz.sig" -y --repo "$GITHUB_REPOSITORY" || true
+
+          gh release upload "$TAG" \
+            "$DA_ASSET" "$DA_ASSET.sig" \
+            "$DX_ASSET" "$DX_ASSET.sig" \
+            "$WX_ASSET" "$WX_ASSET.sig" \
+            latest.json \
+            --clobber --repo "$GITHUB_REPOSITORY"
 
       # tauri-action created the release as a draft (coalesced onto the same tag).
       # Publish it now that every installer is attached.

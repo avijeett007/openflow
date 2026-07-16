@@ -4,9 +4,22 @@ import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
 import { ProgressBar } from "../shared";
 import { useSettings } from "../../hooks/useSettings";
 import { commands } from "../../bindings";
+
+// Delay the first automatic check so it never competes with app launch work.
+const INITIAL_CHECK_DELAY_MS = 30_000;
+// Re-check once a day thereafter (the webview stays alive while the app runs).
+const DAILY_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// Remember the last version we notified about so a user isn't re-nagged every
+// day for the same release; a genuinely newer version re-arms the notification.
+const LAST_NOTIFIED_VERSION_KEY = "openflow:lastNotifiedUpdateVersion";
 
 interface UpdateCheckerProps {
   className?: string;
@@ -46,20 +59,53 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
       return;
     }
 
-    checkForUpdates();
+    // Automatic background checks: one shortly after launch, then daily. Both
+    // are silent (isManualCheckRef stays false) so a "no update" result never
+    // flashes the footer, and a discovered update fires one desktop notification.
+    const initialTimer = setTimeout(() => {
+      checkForUpdates();
+    }, INITIAL_CHECK_DELAY_MS);
+    const dailyTimer = setInterval(() => {
+      checkForUpdates();
+    }, DAILY_CHECK_INTERVAL_MS);
 
-    // Listen for update check events
+    // Listen for update check events (manual "Check for updates" from the tray/menu)
     const updateUnlisten = listen("check-for-updates", () => {
       handleManualUpdateCheck();
     });
 
     return () => {
+      clearTimeout(initialTimer);
+      clearInterval(dailyTimer);
       if (upToDateTimeoutRef.current) {
         clearTimeout(upToDateTimeoutRef.current);
       }
       updateUnlisten.then((fn) => fn());
     };
   }, [settingsLoaded, updateChecksEnabled]);
+
+  // Fire a single desktop notification per newly-discovered version. The
+  // last-notified version is persisted so daily re-checks don't re-nag for a
+  // version the user has already been told about.
+  const notifyUpdateAvailable = async (version: string) => {
+    try {
+      if (localStorage.getItem(LAST_NOTIFIED_VERSION_KEY) === version) return;
+
+      let granted = await isPermissionGranted();
+      if (!granted) {
+        granted = (await requestPermission()) === "granted";
+      }
+      if (!granted) return;
+
+      sendNotification({
+        title: t("footer.updateNotificationTitle"),
+        body: t("footer.updateNotificationBody", { version }),
+      });
+      localStorage.setItem(LAST_NOTIFIED_VERSION_KEY, version);
+    } catch (error) {
+      console.error("Failed to send update notification:", error);
+    }
+  };
 
   // Update checking functions
   const checkForUpdates = async () => {
@@ -72,6 +118,11 @@ const UpdateChecker: React.FC<UpdateCheckerProps> = ({ className = "" }) => {
       if (update) {
         setUpdateAvailable(true);
         setShowUpToDate(false);
+        // Only automatic (background) checks raise a notification; a manual
+        // check already has the user looking at the footer affordance.
+        if (!isManualCheckRef.current) {
+          void notifyUpdateAvailable(update.version);
+        }
       } else {
         setUpdateAvailable(false);
 

@@ -895,6 +895,8 @@
     "installing": "Instalace...",
     "preparing": "Příprava...",
     "checkForUpdates": "Zkontrolovat aktualizace",
+    "updateNotificationTitle": "K dispozici je aktualizace OpenFlow",
+    "updateNotificationBody": "OpenFlow {{version}} je k dispozici — otevřete aplikaci a aktualizujte.",
     "portableUpdateTitle": "Vyžadována ruční aktualizace",
     "portableUpdateMessage": "Přenosné instalace nelze aktualizovat automaticky. Postup aktualizace: stáhněte nejnovější instalátor NSIS z GitHub Releases, nainstalujte jej do stejné složky a poté zkopírujte svou složku Data/ (nastavení, modely, nahrávky) ze staré verze do nové.",
     "portableUpdateButton": "Otevřít GitHub Releases"

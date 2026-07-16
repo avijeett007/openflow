@@ -895,6 +895,8 @@
     "installing": "Instalando...",
     "preparing": "Preparando...",
     "checkForUpdates": "Verificar atualizações",
+    "updateNotificationTitle": "Atualização do OpenFlow disponível",
+    "updateNotificationBody": "OpenFlow {{version}} está disponível — abra o aplicativo para atualizar.",
     "portableUpdateTitle": "Atualização manual necessária",
     "portableUpdateMessage": "Instalações portáteis não podem ser atualizadas automaticamente. Para atualizar: baixe o instalador NSIS mais recente do GitHub Releases, instale-o na mesma pasta e, em seguida, copie sua pasta Data/ (configurações, modelos, gravações) da versão antiga para a nova.",
     "portableUpdateButton": "Abrir GitHub Releases"

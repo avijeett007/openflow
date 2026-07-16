@@ -895,6 +895,8 @@
     "installing": "설치 중...",
     "preparing": "준비 중...",
     "checkForUpdates": "업데이트 확인",
+    "updateNotificationTitle": "OpenFlow 업데이트 사용 가능",
+    "updateNotificationBody": "OpenFlow {{version}}을(를) 사용할 수 있습니다 — 앱을 열어 업데이트하세요.",
     "portableUpdateTitle": "수동 업데이트 필요",
     "portableUpdateMessage": "포터블 설치는 자동으로 업데이트할 수 없습니다. 업데이트하려면 GitHub Releases에서 최신 NSIS 설치 프로그램을 다운로드하여 같은 폴더에 설치한 다음, 이전 버전의 Data/ 폴더(설정, 모델, 녹음)를 새 버전으로 복사하세요.",
     "portableUpdateButton": "GitHub Releases 열기"

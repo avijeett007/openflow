@@ -64,6 +64,33 @@ Download the latest installer from **[openflow.computer](https://openflow.comput
 1. Run the installer.
 2. Windows SmartScreen will flag it as unrecognized — click **More info → Run anyway** to proceed.
 
+### Auto-updates
+
+OpenFlow checks for updates against this repo's latest GitHub Release (shortly
+after launch, then daily) — you can turn this off with the **Check for updates**
+toggle in Settings. When a newer version is available you'll get one desktop
+notification per version and an **Update available** affordance in the footer;
+clicking it downloads and installs the update, then relaunches.
+
+Updates are **cryptographically verified**: every update archive is signed with
+a private [minisign](https://jedisct1.github.io/minisign/) key and the app
+refuses to install anything that doesn't verify against the bundled public key.
+This is **independent of Apple/Windows code signing** — it works even though the
+builds are only ad-hoc signed.
+
+> **macOS note:** because each build is ad-hoc signed (no Apple Developer
+> certificate yet), its signature changes from version to version. macOS ties
+> some granted permissions (Accessibility, Input Monitoring, Microphone) to the
+> app's signature, so **after an auto-update macOS may re-prompt for those
+> permissions**. Re-granting them once per update is expected until proper Apple
+> Developer signing lands.
+
+> **Updating from v0.13.0 or earlier:** those builds predate the working updater
+> (they shipped with a dead signing key and no update manifest), so they can't
+> auto-update to the first updater-enabled release. Install that one release
+> manually from [GitHub Releases](https://github.com/avijeett007/openflow/releases/latest);
+> updates are automatic from then on.
+
 ## Building from source
 
 **Prerequisites:** [Rust](https://rustup.rs/) (stable, via rustup) and [Bun](https://bun.sh/) (`brew install bun`). Install frontend dependencies with `bun install` before building.
