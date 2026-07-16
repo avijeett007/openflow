@@ -895,94 +895,94 @@
     },
     "aiModes": {
       "write": {
-        "title": "Write (built-in)",
-        "description": "The default cleanup mode. Your main dictation hotkey uses these settings unless an AI Mode below matches the app you are dictating into. Editing these controls edits the same cleanup settings as before."
+        "title": "Написання (вбудовано)",
+        "description": "Типовий режим очищення. Ваша основна гаряча клавіша диктування використовує ці налаштування, якщо тільки один з режимів ШІ нижче не збігається із застосунком, у який ви диктуєте. Редагування цих параметрів змінює ті самі налаштування очищення, що й раніше."
       },
       "addMode": {
-        "title": "AI Modes",
-        "intro": "Create named dictation profiles, each with its own optional hotkey and per-app auto-selection. Precedence: a mode hotkey wins, then a matching app rule, then the legacy per-app prompt, then the Write cleanup above.",
-        "blank": "Blank mode",
-        "created": "Added \"{{name}}\"",
-        "error": "Couldn't add mode: {{error}}"
+        "title": "Режими ШІ",
+        "intro": "Створюйте іменовані профілі диктування, кожен із власною необов'язковою гарячою клавішею та автоматичним вибором для окремих застосунків. Пріоритет: гаряча клавіша режиму має перевагу, потім відповідне правило застосунку, потім застарілий промпт для окремого застосунку, і нарешті очищення «Написання» вище.",
+        "blank": "Порожній режим",
+        "created": "«{{name}}» додано",
+        "error": "Не вдалося додати режим: {{error}}"
       },
-      "emptyState": "No AI Modes yet. Add one from a template or start blank.",
+      "emptyState": "Ще немає режимів ШІ. Додайте один із шаблону або почніть з порожнього.",
       "templates": {
         "command": {
-          "name": "Command",
-          "description": "Turn spoken requests into shell commands, typed (never run) at the cursor. Preset for terminal apps."
+          "name": "Команда",
+          "description": "Перетворює усні запити на команди оболонки, які друкуються (але ніколи не виконуються) у позиції курсора. Пресет для термінальних застосунків."
         },
         "direct": {
-          "name": "Direct Dictation",
-          "description": "Inject the raw transcript with no cleanup or LLM."
+          "name": "Пряме диктування",
+          "description": "Вставляє необроблену транскрипцію без очищення чи LLM."
         },
         "translate": {
-          "name": "Translate",
-          "description": "Translate dictation into another language before injecting. Edit the target language in the prompt."
+          "name": "Переклад",
+          "description": "Перекладає диктовку іншою мовою перед вставкою. Змініть цільову мову в промпті."
         }
       },
       "card": {
         "name": {
-          "label": "Mode name",
-          "placeholder": "Mode name"
+          "label": "Назва режиму",
+          "placeholder": "Назва режиму"
         },
         "enabled": {
-          "label": "Enabled"
+          "label": "Увімкнено"
         },
         "kind": {
-          "label": "Mode type",
-          "description": "Rewrite runs the transcript through an LLM with your prompt. Command turns speech into a shell command (typed, never executed). Direct injects the raw transcript with no LLM.",
-          "rewrite": "Rewrite",
-          "command": "Command",
-          "direct": "Direct"
+          "label": "Тип режиму",
+          "description": "«Переписування» пропускає транскрипцію через LLM за вашим промптом. «Команда» перетворює мовлення на команду оболонки (друкується, але ніколи не виконується). «Пряме» вставляє необроблену транскрипцію без LLM.",
+          "rewrite": "Переписування",
+          "command": "Команда",
+          "direct": "Пряме"
         },
         "provider": {
-          "label": "Provider",
-          "description": "Which LLM provider this mode uses. Inherit uses your default cleanup provider.",
-          "inherit": "Inherit default cleanup provider"
+          "label": "Провайдер",
+          "description": "Який провайдер LLM використовує цей режим. Варіант «Успадкувати» використовує ваш типовий провайдер очищення.",
+          "inherit": "Успадкувати типовий провайдер очищення"
         },
         "model": {
-          "label": "Model",
-          "description": "Model override. Leave blank to use the provider's configured cleanup model.",
-          "placeholder": "Inherit default"
+          "label": "Модель",
+          "description": "Перевизначення моделі. Залиште порожнім, щоб використовувати модель очищення, налаштовану для провайдера.",
+          "placeholder": "Успадкувати типове"
         },
         "prompt": {
-          "label": "Prompt",
-          "description": "Your editable instructions. A fixed safety base prompt is always applied on top so the output contract can't break.",
-          "placeholder": "Describe how this mode should transform your dictation..."
+          "label": "Промпт",
+          "description": "Ваші редаговані інструкції. Зверху завжди застосовується фіксований базовий промпт безпеки, щоб контракт виводу не міг бути порушений.",
+          "placeholder": "Опишіть, як цей режим повинен перетворювати вашу диктовку..."
         },
         "appRules": {
-          "label": "Activate when using",
-          "description": "Auto-select this mode on your main hotkey when the frontmost app matches. Matches a bundle id or app name (case-insensitive, either direction).",
-          "placeholder": "Bundle id or app name (e.g. com.apple.Terminal)",
-          "add": "Add",
-          "remove": "Remove {{rule}}",
-          "pickRunning": "Pick from running apps",
-          "loadingApps": "Loading apps...",
-          "noApps": "No running apps found. Type a bundle id or name instead."
+          "label": "Активувати під час використання",
+          "description": "Автоматично вибирати цей режим на вашій основній гарячій клавіші, коли активний застосунок збігається. Збігається за ідентифікатором пакета або назвою застосунку (без урахування регістру, у будь-якому напрямку).",
+          "placeholder": "Ідентифікатор пакета або назва застосунку (напр. com.apple.Terminal)",
+          "add": "Додати",
+          "remove": "Видалити {{rule}}",
+          "pickRunning": "Вибрати із запущених застосунків",
+          "loadingApps": "Завантаження застосунків...",
+          "noApps": "Запущених застосунків не знайдено. Введіть ідентифікатор пакета або назву замість цього."
         },
-        "directHint": "Direct modes inject the raw transcript with no LLM, so there is nothing to configure or test.",
+        "directHint": "Прямі режими вставляють необроблену транскрипцію без LLM, тому налаштовувати чи тестувати нічого.",
         "test": {
-          "label": "Test",
-          "description": "Run this mode over a sample transcript without touching your cursor.",
-          "run": "Run test",
-          "running": "Running...",
+          "label": "Тест",
+          "description": "Запустіть цей режим на прикладі транскрипції, не торкаючись вашого курсора.",
+          "run": "Запустити тест",
+          "running": "Виконується...",
           "sampleText": {
-            "placeholder": "Type a sample transcript..."
+            "placeholder": "Введіть приклад транскрипції..."
           },
-          "latency": "Completed in {{ms}} ms",
-          "error": "Test failed: {{error}}"
+          "latency": "Завершено за {{ms}} мс",
+          "error": "Тест не вдався: {{error}}"
         },
         "update": {
-          "error": "Couldn't update mode: {{error}}"
+          "error": "Не вдалося оновити режим: {{error}}"
         },
         "delete": {
-          "button": "Delete mode",
-          "success": "Deleted \"{{name}}\"",
-          "error": "Couldn't delete mode: {{error}}",
-          "confirmTitle": "Delete \"{{name}}\"?",
-          "confirmDescription": "This removes the mode and its hotkey. This can't be undone.",
-          "cancel": "Cancel",
-          "confirm": "Delete"
+          "button": "Видалити режим",
+          "success": "«{{name}}» видалено",
+          "error": "Не вдалося видалити режим: {{error}}",
+          "confirmTitle": "Видалити «{{name}}»?",
+          "confirmDescription": "Це видалить режим і його гарячу клавішу. Цю дію не можна скасувати.",
+          "cancel": "Скасувати",
+          "confirm": "Видалити"
         }
       }
     }

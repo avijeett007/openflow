@@ -895,94 +895,94 @@
     },
     "aiModes": {
       "write": {
-        "title": "Write (built-in)",
-        "description": "The default cleanup mode. Your main dictation hotkey uses these settings unless an AI Mode below matches the app you are dictating into. Editing these controls edits the same cleanup settings as before."
+        "title": "Write (inbyggd)",
+        "description": "Standardläget för rensning. Din huvudsakliga snabbtangent för diktering använder dessa inställningar om inte ett AI-läge nedan matchar appen du dikterar i. Att redigera dessa kontroller ändrar samma rensningsinställningar som tidigare."
       },
       "addMode": {
-        "title": "AI Modes",
-        "intro": "Create named dictation profiles, each with its own optional hotkey and per-app auto-selection. Precedence: a mode hotkey wins, then a matching app rule, then the legacy per-app prompt, then the Write cleanup above.",
-        "blank": "Blank mode",
-        "created": "Added \"{{name}}\"",
-        "error": "Couldn't add mode: {{error}}"
+        "title": "AI-lägen",
+        "intro": "Skapa namngivna dikteringsprofiler, var och en med sin egen valfria snabbtangent och appspecifikt automatiskt val. Prioritetsordning: ett läges snabbtangent vinner, sedan en matchande appregel, sedan den äldre appspecifika prompten och sist rensningen för Write ovan.",
+        "blank": "Tomt läge",
+        "created": "”{{name}}” lades till",
+        "error": "Kunde inte lägga till läget: {{error}}"
       },
-      "emptyState": "No AI Modes yet. Add one from a template or start blank.",
+      "emptyState": "Inga AI-lägen ännu. Lägg till ett från en mall eller börja tomt.",
       "templates": {
         "command": {
-          "name": "Command",
-          "description": "Turn spoken requests into shell commands, typed (never run) at the cursor. Preset for terminal apps."
+          "name": "Kommando",
+          "description": "Omvandlar talade förfrågningar till skalkommandon som skrivs (men aldrig körs) vid markören. Förinställning för terminalappar."
         },
         "direct": {
-          "name": "Direct Dictation",
-          "description": "Inject the raw transcript with no cleanup or LLM."
+          "name": "Direktdiktering",
+          "description": "Infogar den råa transkriptionen utan rensning eller LLM."
         },
         "translate": {
-          "name": "Translate",
-          "description": "Translate dictation into another language before injecting. Edit the target language in the prompt."
+          "name": "Översätt",
+          "description": "Översätter dikteringen till ett annat språk innan den infogas. Redigera målspråket i prompten."
         }
       },
       "card": {
         "name": {
-          "label": "Mode name",
-          "placeholder": "Mode name"
+          "label": "Lägesnamn",
+          "placeholder": "Lägesnamn"
         },
         "enabled": {
-          "label": "Enabled"
+          "label": "Aktiverad"
         },
         "kind": {
-          "label": "Mode type",
-          "description": "Rewrite runs the transcript through an LLM with your prompt. Command turns speech into a shell command (typed, never executed). Direct injects the raw transcript with no LLM.",
-          "rewrite": "Rewrite",
-          "command": "Command",
-          "direct": "Direct"
+          "label": "Lägestyp",
+          "description": "Omskrivning kör transkriptionen genom en LLM med din prompt. Kommando omvandlar tal till ett skalkommando (skrivs, körs aldrig). Direkt infogar den råa transkriptionen utan LLM.",
+          "rewrite": "Omskrivning",
+          "command": "Kommando",
+          "direct": "Direkt"
         },
         "provider": {
-          "label": "Provider",
-          "description": "Which LLM provider this mode uses. Inherit uses your default cleanup provider.",
-          "inherit": "Inherit default cleanup provider"
+          "label": "Leverantör",
+          "description": "Vilken LLM-leverantör det här läget använder. Ärv använder din standardleverantör för rensning.",
+          "inherit": "Ärv standardleverantör för rensning"
         },
         "model": {
-          "label": "Model",
-          "description": "Model override. Leave blank to use the provider's configured cleanup model.",
-          "placeholder": "Inherit default"
+          "label": "Modell",
+          "description": "Åsidosättning av modell. Lämna tomt för att använda leverantörens konfigurerade rensningsmodell.",
+          "placeholder": "Ärv standard"
         },
         "prompt": {
           "label": "Prompt",
-          "description": "Your editable instructions. A fixed safety base prompt is always applied on top so the output contract can't break.",
-          "placeholder": "Describe how this mode should transform your dictation..."
+          "description": "Dina redigerbara instruktioner. En fast säkerhetsbasprompt tillämpas alltid ovanpå så att utdatakontraktet inte kan brytas.",
+          "placeholder": "Beskriv hur det här läget ska omvandla din diktering..."
         },
         "appRules": {
-          "label": "Activate when using",
-          "description": "Auto-select this mode on your main hotkey when the frontmost app matches. Matches a bundle id or app name (case-insensitive, either direction).",
-          "placeholder": "Bundle id or app name (e.g. com.apple.Terminal)",
-          "add": "Add",
-          "remove": "Remove {{rule}}",
-          "pickRunning": "Pick from running apps",
-          "loadingApps": "Loading apps...",
-          "noApps": "No running apps found. Type a bundle id or name instead."
+          "label": "Aktivera när du använder",
+          "description": "Väljer automatiskt det här läget på din huvudsakliga snabbtangent när den främsta appen matchar. Matchar ett bundle-id eller appnamn (skiftlägesokänsligt, i endera riktningen).",
+          "placeholder": "Bundle-id eller appnamn (t.ex. com.apple.Terminal)",
+          "add": "Lägg till",
+          "remove": "Ta bort {{rule}}",
+          "pickRunning": "Välj bland körande appar",
+          "loadingApps": "Läser in appar...",
+          "noApps": "Inga körande appar hittades. Skriv istället ett bundle-id eller namn."
         },
-        "directHint": "Direct modes inject the raw transcript with no LLM, so there is nothing to configure or test.",
+        "directHint": "Direkta lägen infogar den råa transkriptionen utan LLM, så det finns inget att konfigurera eller testa.",
         "test": {
           "label": "Test",
-          "description": "Run this mode over a sample transcript without touching your cursor.",
-          "run": "Run test",
-          "running": "Running...",
+          "description": "Kör det här läget på en exempeltranskription utan att röra din markör.",
+          "run": "Kör test",
+          "running": "Kör...",
           "sampleText": {
-            "placeholder": "Type a sample transcript..."
+            "placeholder": "Skriv en exempeltranskription..."
           },
-          "latency": "Completed in {{ms}} ms",
-          "error": "Test failed: {{error}}"
+          "latency": "Slutfördes på {{ms}} ms",
+          "error": "Testet misslyckades: {{error}}"
         },
         "update": {
-          "error": "Couldn't update mode: {{error}}"
+          "error": "Kunde inte uppdatera läget: {{error}}"
         },
         "delete": {
-          "button": "Delete mode",
-          "success": "Deleted \"{{name}}\"",
-          "error": "Couldn't delete mode: {{error}}",
-          "confirmTitle": "Delete \"{{name}}\"?",
-          "confirmDescription": "This removes the mode and its hotkey. This can't be undone.",
-          "cancel": "Cancel",
-          "confirm": "Delete"
+          "button": "Ta bort läge",
+          "success": "”{{name}}” togs bort",
+          "error": "Kunde inte ta bort läget: {{error}}",
+          "confirmTitle": "Ta bort ”{{name}}”?",
+          "confirmDescription": "Detta tar bort läget och dess snabbtangent. Det här går inte att ångra.",
+          "cancel": "Avbryt",
+          "confirm": "Ta bort"
         }
       }
     }

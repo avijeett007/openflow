@@ -895,94 +895,94 @@
     },
     "aiModes": {
       "write": {
-        "title": "Write (built-in)",
-        "description": "The default cleanup mode. Your main dictation hotkey uses these settings unless an AI Mode below matches the app you are dictating into. Editing these controls edits the same cleanup settings as before."
+        "title": "Viết (tích hợp sẵn)",
+        "description": "Chế độ dọn dẹp mặc định. Phím tắt đọc chính của bạn dùng các cài đặt này trừ khi một Chế độ AI bên dưới khớp với ứng dụng bạn đang đọc vào. Chỉnh sửa các mục này sẽ chỉnh sửa cùng cài đặt dọn dẹp như trước."
       },
       "addMode": {
-        "title": "AI Modes",
-        "intro": "Create named dictation profiles, each with its own optional hotkey and per-app auto-selection. Precedence: a mode hotkey wins, then a matching app rule, then the legacy per-app prompt, then the Write cleanup above.",
-        "blank": "Blank mode",
-        "created": "Added \"{{name}}\"",
-        "error": "Couldn't add mode: {{error}}"
+        "title": "Chế độ AI",
+        "intro": "Tạo các hồ sơ đọc có tên riêng, mỗi hồ sơ có phím tắt tùy chọn và tự động chọn theo từng ứng dụng. Thứ tự ưu tiên: phím tắt của chế độ được ưu tiên trước, sau đó đến quy tắc ứng dụng khớp, rồi đến prompt cũ theo từng ứng dụng, cuối cùng là chế độ dọn dẹp Viết ở trên.",
+        "blank": "Chế độ trống",
+        "created": "Đã thêm \"{{name}}\"",
+        "error": "Không thể thêm chế độ: {{error}}"
       },
-      "emptyState": "No AI Modes yet. Add one from a template or start blank.",
+      "emptyState": "Chưa có Chế độ AI nào. Thêm một chế độ từ mẫu hoặc bắt đầu từ chế độ trống.",
       "templates": {
         "command": {
-          "name": "Command",
-          "description": "Turn spoken requests into shell commands, typed (never run) at the cursor. Preset for terminal apps."
+          "name": "Lệnh",
+          "description": "Biến yêu cầu bằng giọng nói thành lệnh shell, được gõ ra (không bao giờ chạy) tại vị trí con trỏ. Mẫu dựng sẵn cho các ứng dụng terminal."
         },
         "direct": {
-          "name": "Direct Dictation",
-          "description": "Inject the raw transcript with no cleanup or LLM."
+          "name": "Đọc trực tiếp",
+          "description": "Chèn bản chép lời gốc mà không dọn dẹp hay dùng LLM."
         },
         "translate": {
-          "name": "Translate",
-          "description": "Translate dictation into another language before injecting. Edit the target language in the prompt."
+          "name": "Dịch",
+          "description": "Dịch nội dung đọc sang ngôn ngữ khác trước khi chèn. Chỉnh ngôn ngữ đích trong prompt."
         }
       },
       "card": {
         "name": {
-          "label": "Mode name",
-          "placeholder": "Mode name"
+          "label": "Tên chế độ",
+          "placeholder": "Tên chế độ"
         },
         "enabled": {
-          "label": "Enabled"
+          "label": "Bật"
         },
         "kind": {
-          "label": "Mode type",
-          "description": "Rewrite runs the transcript through an LLM with your prompt. Command turns speech into a shell command (typed, never executed). Direct injects the raw transcript with no LLM.",
-          "rewrite": "Rewrite",
-          "command": "Command",
-          "direct": "Direct"
+          "label": "Loại chế độ",
+          "description": "Viết lại sẽ đưa bản chép lời qua LLM cùng prompt của bạn. Lệnh biến giọng nói thành lệnh shell (được gõ ra, không bao giờ chạy). Trực tiếp chèn bản chép lời gốc mà không dùng LLM.",
+          "rewrite": "Viết lại",
+          "command": "Lệnh",
+          "direct": "Trực tiếp"
         },
         "provider": {
-          "label": "Provider",
-          "description": "Which LLM provider this mode uses. Inherit uses your default cleanup provider.",
-          "inherit": "Inherit default cleanup provider"
+          "label": "Nhà cung cấp",
+          "description": "Nhà cung cấp LLM mà chế độ này sử dụng. Kế thừa sẽ dùng nhà cung cấp dọn dẹp mặc định của bạn.",
+          "inherit": "Kế thừa nhà cung cấp dọn dẹp mặc định"
         },
         "model": {
-          "label": "Model",
-          "description": "Model override. Leave blank to use the provider's configured cleanup model.",
-          "placeholder": "Inherit default"
+          "label": "Mô hình",
+          "description": "Ghi đè mô hình. Để trống để dùng mô hình dọn dẹp đã cấu hình của nhà cung cấp.",
+          "placeholder": "Kế thừa mặc định"
         },
         "prompt": {
           "label": "Prompt",
-          "description": "Your editable instructions. A fixed safety base prompt is always applied on top so the output contract can't break.",
-          "placeholder": "Describe how this mode should transform your dictation..."
+          "description": "Hướng dẫn có thể chỉnh sửa của bạn. Một prompt an toàn cố định luôn được áp dụng thêm để hợp đồng đầu ra không thể bị phá vỡ.",
+          "placeholder": "Mô tả cách chế độ này nên biến đổi nội dung đọc của bạn..."
         },
         "appRules": {
-          "label": "Activate when using",
-          "description": "Auto-select this mode on your main hotkey when the frontmost app matches. Matches a bundle id or app name (case-insensitive, either direction).",
-          "placeholder": "Bundle id or app name (e.g. com.apple.Terminal)",
-          "add": "Add",
-          "remove": "Remove {{rule}}",
-          "pickRunning": "Pick from running apps",
-          "loadingApps": "Loading apps...",
-          "noApps": "No running apps found. Type a bundle id or name instead."
+          "label": "Kích hoạt khi dùng",
+          "description": "Tự động chọn chế độ này trên phím tắt chính khi ứng dụng đang ở tiền cảnh khớp. Khớp với bundle id hoặc tên ứng dụng (không phân biệt hoa thường, theo cả hai chiều).",
+          "placeholder": "Bundle id hoặc tên ứng dụng (vd. com.apple.Terminal)",
+          "add": "Thêm",
+          "remove": "Xóa {{rule}}",
+          "pickRunning": "Chọn từ các ứng dụng đang chạy",
+          "loadingApps": "Đang tải ứng dụng...",
+          "noApps": "Không tìm thấy ứng dụng đang chạy. Hãy nhập bundle id hoặc tên."
         },
-        "directHint": "Direct modes inject the raw transcript with no LLM, so there is nothing to configure or test.",
+        "directHint": "Chế độ Trực tiếp chèn bản chép lời gốc mà không dùng LLM, nên không có gì để cấu hình hay kiểm tra.",
         "test": {
-          "label": "Test",
-          "description": "Run this mode over a sample transcript without touching your cursor.",
-          "run": "Run test",
-          "running": "Running...",
+          "label": "Kiểm tra",
+          "description": "Chạy chế độ này trên một bản chép lời mẫu mà không ảnh hưởng đến con trỏ của bạn.",
+          "run": "Chạy kiểm tra",
+          "running": "Đang chạy...",
           "sampleText": {
-            "placeholder": "Type a sample transcript..."
+            "placeholder": "Nhập một bản chép lời mẫu..."
           },
-          "latency": "Completed in {{ms}} ms",
-          "error": "Test failed: {{error}}"
+          "latency": "Hoàn tất sau {{ms}} ms",
+          "error": "Kiểm tra thất bại: {{error}}"
         },
         "update": {
-          "error": "Couldn't update mode: {{error}}"
+          "error": "Không thể cập nhật chế độ: {{error}}"
         },
         "delete": {
-          "button": "Delete mode",
-          "success": "Deleted \"{{name}}\"",
-          "error": "Couldn't delete mode: {{error}}",
-          "confirmTitle": "Delete \"{{name}}\"?",
-          "confirmDescription": "This removes the mode and its hotkey. This can't be undone.",
-          "cancel": "Cancel",
-          "confirm": "Delete"
+          "button": "Xóa chế độ",
+          "success": "Đã xóa \"{{name}}\"",
+          "error": "Không thể xóa chế độ: {{error}}",
+          "confirmTitle": "Xóa \"{{name}}\"?",
+          "confirmDescription": "Thao tác này sẽ xóa chế độ và phím tắt của nó. Không thể hoàn tác.",
+          "cancel": "Hủy",
+          "confirm": "Xóa"
         }
       }
     }

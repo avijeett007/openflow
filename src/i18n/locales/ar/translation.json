@@ -895,94 +895,94 @@
     },
     "aiModes": {
       "write": {
-        "title": "Write (built-in)",
-        "description": "The default cleanup mode. Your main dictation hotkey uses these settings unless an AI Mode below matches the app you are dictating into. Editing these controls edits the same cleanup settings as before."
+        "title": "الكتابة (مدمج)",
+        "description": "وضع التنظيف الافتراضي. يستخدم مفتاح الاختصار الرئيسي للإملاء هذه الإعدادات ما لم يتطابق أحد أوضاع الذكاء الاصطناعي أدناه مع التطبيق الذي تُملي فيه. تعديل هذه الخيارات يُعدّل إعدادات التنظيف نفسها كما كانت من قبل."
       },
       "addMode": {
-        "title": "AI Modes",
-        "intro": "Create named dictation profiles, each with its own optional hotkey and per-app auto-selection. Precedence: a mode hotkey wins, then a matching app rule, then the legacy per-app prompt, then the Write cleanup above.",
-        "blank": "Blank mode",
-        "created": "Added \"{{name}}\"",
-        "error": "Couldn't add mode: {{error}}"
+        "title": "أوضاع الذكاء الاصطناعي",
+        "intro": "أنشئ ملفات إملاء مسمّاة، لكل منها مفتاح اختصار اختياري خاص بها وتحديد تلقائي لكل تطبيق. الأولوية: يفوز مفتاح اختصار الوضع أولًا، ثم قاعدة تطبيق مطابقة، ثم المطالبة القديمة الخاصة بالتطبيق، ثم تنظيف الكتابة أعلاه.",
+        "blank": "وضع فارغ",
+        "created": "تمت إضافة \"{{name}}\"",
+        "error": "تعذّر إضافة الوضع: {{error}}"
       },
-      "emptyState": "No AI Modes yet. Add one from a template or start blank.",
+      "emptyState": "لا توجد أوضاع ذكاء اصطناعي بعد. أضف واحدًا من قالب أو ابدأ فارغًا.",
       "templates": {
         "command": {
-          "name": "Command",
-          "description": "Turn spoken requests into shell commands, typed (never run) at the cursor. Preset for terminal apps."
+          "name": "أمر",
+          "description": "حوّل الطلبات المنطوقة إلى أوامر شل تُكتب (ولا تُشغَّل أبدًا) عند المؤشر. مُعدّ مسبقًا لتطبيقات الطرفية."
         },
         "direct": {
-          "name": "Direct Dictation",
-          "description": "Inject the raw transcript with no cleanup or LLM."
+          "name": "إملاء مباشر",
+          "description": "أدرج النص المفرغ الخام دون تنظيف أو LLM."
         },
         "translate": {
-          "name": "Translate",
-          "description": "Translate dictation into another language before injecting. Edit the target language in the prompt."
+          "name": "ترجمة",
+          "description": "ترجم الإملاء إلى لغة أخرى قبل إدراجه. عدّل اللغة الهدف في المطالبة."
         }
       },
       "card": {
         "name": {
-          "label": "Mode name",
-          "placeholder": "Mode name"
+          "label": "اسم الوضع",
+          "placeholder": "اسم الوضع"
         },
         "enabled": {
-          "label": "Enabled"
+          "label": "مفعّل"
         },
         "kind": {
-          "label": "Mode type",
-          "description": "Rewrite runs the transcript through an LLM with your prompt. Command turns speech into a shell command (typed, never executed). Direct injects the raw transcript with no LLM.",
-          "rewrite": "Rewrite",
-          "command": "Command",
-          "direct": "Direct"
+          "label": "نوع الوضع",
+          "description": "إعادة الصياغة تُمرر النص المفرغ عبر LLM باستخدام مطالبتك. الأمر يحوّل الكلام إلى أمر شل (يُكتب ولا يُنفَّذ أبدًا). المباشر يُدرج النص المفرغ الخام دون LLM.",
+          "rewrite": "إعادة الصياغة",
+          "command": "أمر",
+          "direct": "مباشر"
         },
         "provider": {
-          "label": "Provider",
-          "description": "Which LLM provider this mode uses. Inherit uses your default cleanup provider.",
-          "inherit": "Inherit default cleanup provider"
+          "label": "المزود",
+          "description": "مزود LLM الذي يستخدمه هذا الوضع. يستخدم خيار الوراثة مزود التنظيف الافتراضي الخاص بك.",
+          "inherit": "وراثة مزود التنظيف الافتراضي"
         },
         "model": {
-          "label": "Model",
-          "description": "Model override. Leave blank to use the provider's configured cleanup model.",
-          "placeholder": "Inherit default"
+          "label": "النموذج",
+          "description": "تجاوز النموذج. اتركه فارغًا لاستخدام نموذج التنظيف المهيأ للمزود.",
+          "placeholder": "وراثة الافتراضي"
         },
         "prompt": {
-          "label": "Prompt",
-          "description": "Your editable instructions. A fixed safety base prompt is always applied on top so the output contract can't break.",
-          "placeholder": "Describe how this mode should transform your dictation..."
+          "label": "المطالبة",
+          "description": "تعليماتك القابلة للتعديل. تُطبَّق دائمًا مطالبة أساسية ثابتة للسلامة فوقها بحيث لا يمكن كسر عقد الإخراج.",
+          "placeholder": "صف كيف ينبغي لهذا الوضع أن يحوّل إملاءك..."
         },
         "appRules": {
-          "label": "Activate when using",
-          "description": "Auto-select this mode on your main hotkey when the frontmost app matches. Matches a bundle id or app name (case-insensitive, either direction).",
-          "placeholder": "Bundle id or app name (e.g. com.apple.Terminal)",
-          "add": "Add",
-          "remove": "Remove {{rule}}",
-          "pickRunning": "Pick from running apps",
-          "loadingApps": "Loading apps...",
-          "noApps": "No running apps found. Type a bundle id or name instead."
+          "label": "التفعيل عند استخدام",
+          "description": "يحدد هذا الوضع تلقائيًا على مفتاح اختصارك الرئيسي عندما يتطابق التطبيق الأمامي. يطابق معرّف الحزمة أو اسم التطبيق (بغض النظر عن حالة الأحرف، بأي اتجاه).",
+          "placeholder": "معرّف الحزمة أو اسم التطبيق (مثال: com.apple.Terminal)",
+          "add": "إضافة",
+          "remove": "إزالة {{rule}}",
+          "pickRunning": "اختر من التطبيقات قيد التشغيل",
+          "loadingApps": "جارٍ تحميل التطبيقات...",
+          "noApps": "لم يُعثر على تطبيقات قيد التشغيل. اكتب معرّف حزمة أو اسمًا بدلاً من ذلك."
         },
-        "directHint": "Direct modes inject the raw transcript with no LLM, so there is nothing to configure or test.",
+        "directHint": "الأوضاع المباشرة تُدرج النص المفرغ الخام دون LLM، لذا لا يوجد ما يمكن تهيئته أو اختباره.",
         "test": {
-          "label": "Test",
-          "description": "Run this mode over a sample transcript without touching your cursor.",
-          "run": "Run test",
-          "running": "Running...",
+          "label": "اختبار",
+          "description": "شغّل هذا الوضع على نص تجريبي دون المساس بمؤشرك.",
+          "run": "تشغيل الاختبار",
+          "running": "جارٍ التشغيل...",
           "sampleText": {
-            "placeholder": "Type a sample transcript..."
+            "placeholder": "اكتب نصًا تجريبيًا..."
           },
-          "latency": "Completed in {{ms}} ms",
-          "error": "Test failed: {{error}}"
+          "latency": "اكتمل خلال {{ms}} مللي ثانية",
+          "error": "فشل الاختبار: {{error}}"
         },
         "update": {
-          "error": "Couldn't update mode: {{error}}"
+          "error": "تعذّر تحديث الوضع: {{error}}"
         },
         "delete": {
-          "button": "Delete mode",
-          "success": "Deleted \"{{name}}\"",
-          "error": "Couldn't delete mode: {{error}}",
-          "confirmTitle": "Delete \"{{name}}\"?",
-          "confirmDescription": "This removes the mode and its hotkey. This can't be undone.",
-          "cancel": "Cancel",
-          "confirm": "Delete"
+          "button": "حذف الوضع",
+          "success": "تم حذف \"{{name}}\"",
+          "error": "تعذّر حذف الوضع: {{error}}",
+          "confirmTitle": "حذف \"{{name}}\"؟",
+          "confirmDescription": "يؤدي هذا إلى إزالة الوضع ومفتاح اختصاره. لا يمكن التراجع عن هذا.",
+          "cancel": "إلغاء",
+          "confirm": "حذف"
         }
       }
     }

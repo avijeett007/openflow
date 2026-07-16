@@ -895,94 +895,94 @@
     },
     "aiModes": {
       "write": {
-        "title": "Write (built-in)",
-        "description": "The default cleanup mode. Your main dictation hotkey uses these settings unless an AI Mode below matches the app you are dictating into. Editing these controls edits the same cleanup settings as before."
+        "title": "Escribir (integrado)",
+        "description": "El modo de limpieza predeterminado. Tu atajo principal de dictado usa esta configuración a menos que un Modo de IA de abajo coincida con la app en la que estás dictando. Editar estos controles edita la misma configuración de limpieza que antes."
       },
       "addMode": {
-        "title": "AI Modes",
-        "intro": "Create named dictation profiles, each with its own optional hotkey and per-app auto-selection. Precedence: a mode hotkey wins, then a matching app rule, then the legacy per-app prompt, then the Write cleanup above.",
-        "blank": "Blank mode",
-        "created": "Added \"{{name}}\"",
-        "error": "Couldn't add mode: {{error}}"
+        "title": "Modos de IA",
+        "intro": "Crea perfiles de dictado con nombre, cada uno con su propio atajo opcional y selección automática según la app. Prioridad: primero gana el atajo de un modo, luego una regla de app coincidente, luego el prompt heredado por app, luego la limpieza de Escribir de arriba.",
+        "blank": "Modo en blanco",
+        "created": "«{{name}}» añadido",
+        "error": "No se pudo añadir el modo: {{error}}"
       },
-      "emptyState": "No AI Modes yet. Add one from a template or start blank.",
+      "emptyState": "Aún no hay Modos de IA. Añade uno desde una plantilla o empieza en blanco.",
       "templates": {
         "command": {
-          "name": "Command",
-          "description": "Turn spoken requests into shell commands, typed (never run) at the cursor. Preset for terminal apps."
+          "name": "Comando",
+          "description": "Convierte solicitudes habladas en comandos de shell, escritos (nunca ejecutados) en el cursor. Preconfigurado para apps de terminal."
         },
         "direct": {
-          "name": "Direct Dictation",
-          "description": "Inject the raw transcript with no cleanup or LLM."
+          "name": "Dictado directo",
+          "description": "Inserta la transcripción sin procesar, sin limpieza ni LLM."
         },
         "translate": {
-          "name": "Translate",
-          "description": "Translate dictation into another language before injecting. Edit the target language in the prompt."
+          "name": "Traducir",
+          "description": "Traduce el dictado a otro idioma antes de insertarlo. Edita el idioma de destino en el prompt."
         }
       },
       "card": {
         "name": {
-          "label": "Mode name",
-          "placeholder": "Mode name"
+          "label": "Nombre del modo",
+          "placeholder": "Nombre del modo"
         },
         "enabled": {
-          "label": "Enabled"
+          "label": "Habilitado"
         },
         "kind": {
-          "label": "Mode type",
-          "description": "Rewrite runs the transcript through an LLM with your prompt. Command turns speech into a shell command (typed, never executed). Direct injects the raw transcript with no LLM.",
-          "rewrite": "Rewrite",
-          "command": "Command",
-          "direct": "Direct"
+          "label": "Tipo de modo",
+          "description": "Reescribir pasa la transcripción por un LLM con tu prompt. Comando convierte el habla en un comando de shell (escrito, nunca ejecutado). Directo inserta la transcripción sin procesar, sin LLM.",
+          "rewrite": "Reescribir",
+          "command": "Comando",
+          "direct": "Directo"
         },
         "provider": {
-          "label": "Provider",
-          "description": "Which LLM provider this mode uses. Inherit uses your default cleanup provider.",
-          "inherit": "Inherit default cleanup provider"
+          "label": "Proveedor",
+          "description": "Qué proveedor de LLM usa este modo. «Heredar» usa tu proveedor de limpieza predeterminado.",
+          "inherit": "Heredar el proveedor de limpieza predeterminado"
         },
         "model": {
-          "label": "Model",
-          "description": "Model override. Leave blank to use the provider's configured cleanup model.",
-          "placeholder": "Inherit default"
+          "label": "Modelo",
+          "description": "Sobrescritura del modelo. Déjalo en blanco para usar el modelo de limpieza configurado del proveedor.",
+          "placeholder": "Heredar el predeterminado"
         },
         "prompt": {
           "label": "Prompt",
-          "description": "Your editable instructions. A fixed safety base prompt is always applied on top so the output contract can't break.",
-          "placeholder": "Describe how this mode should transform your dictation..."
+          "description": "Tus instrucciones editables. Siempre se aplica además un prompt base de seguridad fijo, para que el contrato de salida no pueda romperse.",
+          "placeholder": "Describe cómo debe transformar este modo tu dictado..."
         },
         "appRules": {
-          "label": "Activate when using",
-          "description": "Auto-select this mode on your main hotkey when the frontmost app matches. Matches a bundle id or app name (case-insensitive, either direction).",
-          "placeholder": "Bundle id or app name (e.g. com.apple.Terminal)",
-          "add": "Add",
-          "remove": "Remove {{rule}}",
-          "pickRunning": "Pick from running apps",
-          "loadingApps": "Loading apps...",
-          "noApps": "No running apps found. Type a bundle id or name instead."
+          "label": "Activar al usar",
+          "description": "Selecciona automáticamente este modo en tu atajo principal cuando coincide la app en primer plano. Coincide con un id de bundle o nombre de app (sin distinguir mayúsculas y minúsculas, en cualquier dirección).",
+          "placeholder": "Id de bundle o nombre de app (p. ej. com.apple.Terminal)",
+          "add": "Añadir",
+          "remove": "Eliminar {{rule}}",
+          "pickRunning": "Elegir entre las apps en ejecución",
+          "loadingApps": "Cargando apps...",
+          "noApps": "No se encontraron apps en ejecución. Escribe un id de bundle o un nombre en su lugar."
         },
-        "directHint": "Direct modes inject the raw transcript with no LLM, so there is nothing to configure or test.",
+        "directHint": "Los modos directos insertan la transcripción sin procesar sin LLM, así que no hay nada que configurar ni probar.",
         "test": {
-          "label": "Test",
-          "description": "Run this mode over a sample transcript without touching your cursor.",
-          "run": "Run test",
-          "running": "Running...",
+          "label": "Prueba",
+          "description": "Prueba este modo con una transcripción de muestra sin tocar tu cursor.",
+          "run": "Ejecutar prueba",
+          "running": "Ejecutando...",
           "sampleText": {
-            "placeholder": "Type a sample transcript..."
+            "placeholder": "Escribe una transcripción de muestra..."
           },
-          "latency": "Completed in {{ms}} ms",
-          "error": "Test failed: {{error}}"
+          "latency": "Completado en {{ms}} ms",
+          "error": "La prueba falló: {{error}}"
         },
         "update": {
-          "error": "Couldn't update mode: {{error}}"
+          "error": "No se pudo actualizar el modo: {{error}}"
         },
         "delete": {
-          "button": "Delete mode",
-          "success": "Deleted \"{{name}}\"",
-          "error": "Couldn't delete mode: {{error}}",
-          "confirmTitle": "Delete \"{{name}}\"?",
-          "confirmDescription": "This removes the mode and its hotkey. This can't be undone.",
-          "cancel": "Cancel",
-          "confirm": "Delete"
+          "button": "Eliminar modo",
+          "success": "«{{name}}» eliminado",
+          "error": "No se pudo eliminar el modo: {{error}}",
+          "confirmTitle": "¿Eliminar «{{name}}»?",
+          "confirmDescription": "Esto elimina el modo y su atajo. Esta acción no se puede deshacer.",
+          "cancel": "Cancelar",
+          "confirm": "Eliminar"
         }
       }
     }

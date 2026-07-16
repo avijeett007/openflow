@@ -895,94 +895,94 @@
     },
     "aiModes": {
       "write": {
-        "title": "Write (built-in)",
-        "description": "The default cleanup mode. Your main dictation hotkey uses these settings unless an AI Mode below matches the app you are dictating into. Editing these controls edits the same cleanup settings as before."
+        "title": "쓰기 (기본 제공)",
+        "description": "기본 후처리 모드입니다. 아래 AI 모드가 받아쓰는 중인 앱과 일치하지 않는 한, 기본 받아쓰기 단축키는 이 설정을 사용합니다. 여기서 설정을 편집하면 이전과 동일한 후처리 설정이 변경됩니다."
       },
       "addMode": {
-        "title": "AI Modes",
-        "intro": "Create named dictation profiles, each with its own optional hotkey and per-app auto-selection. Precedence: a mode hotkey wins, then a matching app rule, then the legacy per-app prompt, then the Write cleanup above.",
-        "blank": "Blank mode",
-        "created": "Added \"{{name}}\"",
-        "error": "Couldn't add mode: {{error}}"
+        "title": "AI 모드",
+        "intro": "이름이 지정된 받아쓰기 프로필을 만드세요. 각 프로필에는 선택적 단축키와 앱별 자동 선택 기능이 있습니다. 우선순위: 모드 단축키가 우선하고, 그다음 일치하는 앱 규칙, 그다음 기존 앱별 프롬프트, 마지막으로 위의 쓰기 후처리가 적용됩니다.",
+        "blank": "빈 모드",
+        "created": "\"{{name}}\" 추가됨",
+        "error": "모드를 추가할 수 없습니다: {{error}}"
       },
-      "emptyState": "No AI Modes yet. Add one from a template or start blank.",
+      "emptyState": "아직 AI 모드가 없습니다. 템플릿에서 추가하거나 빈 상태로 시작하세요.",
       "templates": {
         "command": {
-          "name": "Command",
-          "description": "Turn spoken requests into shell commands, typed (never run) at the cursor. Preset for terminal apps."
+          "name": "명령",
+          "description": "말한 요청을 셸 명령으로 변환하여 커서 위치에 입력합니다(실행되지 않음). 터미널 앱을 위한 사전 설정입니다."
         },
         "direct": {
-          "name": "Direct Dictation",
-          "description": "Inject the raw transcript with no cleanup or LLM."
+          "name": "직접 받아쓰기",
+          "description": "후처리나 LLM 없이 원본 텍스트를 그대로 삽입합니다."
         },
         "translate": {
-          "name": "Translate",
-          "description": "Translate dictation into another language before injecting. Edit the target language in the prompt."
+          "name": "번역",
+          "description": "받아쓴 내용을 삽입하기 전에 다른 언어로 번역합니다. 프롬프트에서 대상 언어를 편집하세요."
         }
       },
       "card": {
         "name": {
-          "label": "Mode name",
-          "placeholder": "Mode name"
+          "label": "모드 이름",
+          "placeholder": "모드 이름"
         },
         "enabled": {
-          "label": "Enabled"
+          "label": "사용"
         },
         "kind": {
-          "label": "Mode type",
-          "description": "Rewrite runs the transcript through an LLM with your prompt. Command turns speech into a shell command (typed, never executed). Direct injects the raw transcript with no LLM.",
-          "rewrite": "Rewrite",
-          "command": "Command",
-          "direct": "Direct"
+          "label": "모드 유형",
+          "description": "재작성은 프롬프트를 사용해 텍스트를 LLM에 통과시킵니다. 명령은 음성을 셸 명령으로 변환합니다(입력만 되고 실행되지 않음). 직접은 LLM 없이 원본 텍스트를 그대로 삽입합니다.",
+          "rewrite": "재작성",
+          "command": "명령",
+          "direct": "직접"
         },
         "provider": {
-          "label": "Provider",
-          "description": "Which LLM provider this mode uses. Inherit uses your default cleanup provider.",
-          "inherit": "Inherit default cleanup provider"
+          "label": "제공자",
+          "description": "이 모드가 사용하는 LLM 제공자입니다. 상속을 선택하면 기본 후처리 제공자를 사용합니다.",
+          "inherit": "기본 후처리 제공자 상속"
         },
         "model": {
-          "label": "Model",
-          "description": "Model override. Leave blank to use the provider's configured cleanup model.",
-          "placeholder": "Inherit default"
+          "label": "모델",
+          "description": "모델 재정의입니다. 비워두면 제공자에 설정된 후처리 모델을 사용합니다.",
+          "placeholder": "기본값 상속"
         },
         "prompt": {
-          "label": "Prompt",
-          "description": "Your editable instructions. A fixed safety base prompt is always applied on top so the output contract can't break.",
-          "placeholder": "Describe how this mode should transform your dictation..."
+          "label": "프롬프트",
+          "description": "직접 편집할 수 있는 지침입니다. 출력 형식이 깨지지 않도록 고정된 안전 기본 프롬프트가 항상 함께 적용됩니다.",
+          "placeholder": "이 모드가 받아쓴 내용을 어떻게 변환할지 설명하세요..."
         },
         "appRules": {
-          "label": "Activate when using",
-          "description": "Auto-select this mode on your main hotkey when the frontmost app matches. Matches a bundle id or app name (case-insensitive, either direction).",
-          "placeholder": "Bundle id or app name (e.g. com.apple.Terminal)",
-          "add": "Add",
-          "remove": "Remove {{rule}}",
-          "pickRunning": "Pick from running apps",
-          "loadingApps": "Loading apps...",
-          "noApps": "No running apps found. Type a bundle id or name instead."
+          "label": "다음 사용 시 활성화",
+          "description": "최상단 앱이 일치하면 기본 단축키에서 이 모드를 자동으로 선택합니다. 번들 ID 또는 앱 이름과 일치합니다(대소문자 구분 없음, 양방향 일치).",
+          "placeholder": "번들 ID 또는 앱 이름 (예: com.apple.Terminal)",
+          "add": "추가",
+          "remove": "{{rule}} 제거",
+          "pickRunning": "실행 중인 앱에서 선택",
+          "loadingApps": "앱 불러오는 중...",
+          "noApps": "실행 중인 앱을 찾을 수 없습니다. 대신 번들 ID나 이름을 입력하세요."
         },
-        "directHint": "Direct modes inject the raw transcript with no LLM, so there is nothing to configure or test.",
+        "directHint": "직접 모드는 LLM 없이 원본 텍스트를 그대로 삽입하므로 설정하거나 테스트할 항목이 없습니다.",
         "test": {
-          "label": "Test",
-          "description": "Run this mode over a sample transcript without touching your cursor.",
-          "run": "Run test",
-          "running": "Running...",
+          "label": "테스트",
+          "description": "커서를 건드리지 않고 샘플 텍스트로 이 모드를 실행합니다.",
+          "run": "테스트 실행",
+          "running": "실행 중...",
           "sampleText": {
-            "placeholder": "Type a sample transcript..."
+            "placeholder": "샘플 텍스트를 입력하세요..."
           },
-          "latency": "Completed in {{ms}} ms",
-          "error": "Test failed: {{error}}"
+          "latency": "{{ms}}ms 만에 완료됨",
+          "error": "테스트 실패: {{error}}"
         },
         "update": {
-          "error": "Couldn't update mode: {{error}}"
+          "error": "모드를 업데이트할 수 없습니다: {{error}}"
         },
         "delete": {
-          "button": "Delete mode",
-          "success": "Deleted \"{{name}}\"",
-          "error": "Couldn't delete mode: {{error}}",
-          "confirmTitle": "Delete \"{{name}}\"?",
-          "confirmDescription": "This removes the mode and its hotkey. This can't be undone.",
-          "cancel": "Cancel",
-          "confirm": "Delete"
+          "button": "모드 삭제",
+          "success": "\"{{name}}\" 삭제됨",
+          "error": "모드를 삭제할 수 없습니다: {{error}}",
+          "confirmTitle": "\"{{name}}\"을(를) 삭제할까요?",
+          "confirmDescription": "이 모드와 단축키가 삭제됩니다. 이 작업은 되돌릴 수 없습니다.",
+          "cancel": "취소",
+          "confirm": "삭제"
         }
       }
     }

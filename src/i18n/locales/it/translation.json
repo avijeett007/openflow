@@ -895,94 +895,94 @@
     },
     "aiModes": {
       "write": {
-        "title": "Write (built-in)",
-        "description": "The default cleanup mode. Your main dictation hotkey uses these settings unless an AI Mode below matches the app you are dictating into. Editing these controls edits the same cleanup settings as before."
+        "title": "Scrittura (integrata)",
+        "description": "La modalità di Post-Elaborazione predefinita. La scorciatoia di dettato principale usa queste impostazioni a meno che una Modalità IA qui sotto non corrisponda all'app in cui stai dettando. Modificare questi controlli modifica le stesse impostazioni di Post-Elaborazione di prima."
       },
       "addMode": {
-        "title": "AI Modes",
-        "intro": "Create named dictation profiles, each with its own optional hotkey and per-app auto-selection. Precedence: a mode hotkey wins, then a matching app rule, then the legacy per-app prompt, then the Write cleanup above.",
-        "blank": "Blank mode",
-        "created": "Added \"{{name}}\"",
-        "error": "Couldn't add mode: {{error}}"
+        "title": "Modalità IA",
+        "intro": "Crea profili di dettato con nome, ciascuno con la propria scorciatoia opzionale e selezione automatica per app. Priorità: vince la scorciatoia della modalità, poi una regola app corrispondente, poi il vecchio prompt per app, poi la Post-Elaborazione di Scrittura qui sopra.",
+        "blank": "Modalità vuota",
+        "created": "\"{{name}}\" creata",
+        "error": "Impossibile aggiungere la modalità: {{error}}"
       },
-      "emptyState": "No AI Modes yet. Add one from a template or start blank.",
+      "emptyState": "Nessuna modalità IA ancora. Aggiungine una da un modello o parti da zero.",
       "templates": {
         "command": {
-          "name": "Command",
-          "description": "Turn spoken requests into shell commands, typed (never run) at the cursor. Preset for terminal apps."
+          "name": "Comando",
+          "description": "Trasforma le richieste pronunciate in comandi shell, digitati (mai eseguiti) al cursore. Preimpostazione per le app terminale."
         },
         "direct": {
-          "name": "Direct Dictation",
-          "description": "Inject the raw transcript with no cleanup or LLM."
+          "name": "Dettato diretto",
+          "description": "Inserisce la trascrizione grezza senza Post-Elaborazione né LLM."
         },
         "translate": {
-          "name": "Translate",
-          "description": "Translate dictation into another language before injecting. Edit the target language in the prompt."
+          "name": "Traduci",
+          "description": "Traduce il dettato in un'altra lingua prima di inserirlo. Modifica la lingua di destinazione nel prompt."
         }
       },
       "card": {
         "name": {
-          "label": "Mode name",
-          "placeholder": "Mode name"
+          "label": "Nome modalità",
+          "placeholder": "Nome modalità"
         },
         "enabled": {
-          "label": "Enabled"
+          "label": "Abilitato"
         },
         "kind": {
-          "label": "Mode type",
-          "description": "Rewrite runs the transcript through an LLM with your prompt. Command turns speech into a shell command (typed, never executed). Direct injects the raw transcript with no LLM.",
-          "rewrite": "Rewrite",
-          "command": "Command",
-          "direct": "Direct"
+          "label": "Tipo di modalità",
+          "description": "Riscrittura fa passare la trascrizione attraverso un LLM con il tuo prompt. Comando trasforma il parlato in un comando shell (digitato, mai eseguito). Diretto inserisce la trascrizione grezza senza LLM.",
+          "rewrite": "Riscrittura",
+          "command": "Comando",
+          "direct": "Diretto"
         },
         "provider": {
           "label": "Provider",
-          "description": "Which LLM provider this mode uses. Inherit uses your default cleanup provider.",
-          "inherit": "Inherit default cleanup provider"
+          "description": "Quale provider LLM usa questa modalità. Eredita usa il tuo provider di Post-Elaborazione predefinito.",
+          "inherit": "Eredita il provider di Post-Elaborazione predefinito"
         },
         "model": {
-          "label": "Model",
-          "description": "Model override. Leave blank to use the provider's configured cleanup model.",
-          "placeholder": "Inherit default"
+          "label": "Modello",
+          "description": "Sovrascrittura del modello. Lascia vuoto per usare il modello di Post-Elaborazione configurato del provider.",
+          "placeholder": "Eredita predefinito"
         },
         "prompt": {
           "label": "Prompt",
-          "description": "Your editable instructions. A fixed safety base prompt is always applied on top so the output contract can't break.",
-          "placeholder": "Describe how this mode should transform your dictation..."
+          "description": "Le tue istruzioni modificabili. Un prompt di sicurezza fisso viene sempre applicato sopra, così il contratto di output non può rompersi.",
+          "placeholder": "Descrivi come questa modalità deve trasformare il tuo dettato..."
         },
         "appRules": {
-          "label": "Activate when using",
-          "description": "Auto-select this mode on your main hotkey when the frontmost app matches. Matches a bundle id or app name (case-insensitive, either direction).",
-          "placeholder": "Bundle id or app name (e.g. com.apple.Terminal)",
-          "add": "Add",
-          "remove": "Remove {{rule}}",
-          "pickRunning": "Pick from running apps",
-          "loadingApps": "Loading apps...",
-          "noApps": "No running apps found. Type a bundle id or name instead."
+          "label": "Attiva quando usi",
+          "description": "Seleziona automaticamente questa modalità sulla tua scorciatoia principale quando l'app in primo piano corrisponde. Corrisponde a un bundle id o a un nome app (senza distinzione tra maiuscole e minuscole, in entrambe le direzioni).",
+          "placeholder": "Bundle id o nome app (es. com.apple.Terminal)",
+          "add": "Aggiungi",
+          "remove": "Rimuovi {{rule}}",
+          "pickRunning": "Scegli tra le app in esecuzione",
+          "loadingApps": "Caricamento app...",
+          "noApps": "Nessuna app in esecuzione trovata. Digita invece un bundle id o un nome."
         },
-        "directHint": "Direct modes inject the raw transcript with no LLM, so there is nothing to configure or test.",
+        "directHint": "Le modalità Diretto inseriscono la trascrizione grezza senza LLM, quindi non c'è nulla da configurare o testare.",
         "test": {
           "label": "Test",
-          "description": "Run this mode over a sample transcript without touching your cursor.",
-          "run": "Run test",
-          "running": "Running...",
+          "description": "Esegui questa modalità su una trascrizione di esempio senza toccare il cursore.",
+          "run": "Esegui test",
+          "running": "In esecuzione...",
           "sampleText": {
-            "placeholder": "Type a sample transcript..."
+            "placeholder": "Digita una trascrizione di esempio..."
           },
-          "latency": "Completed in {{ms}} ms",
-          "error": "Test failed: {{error}}"
+          "latency": "Completato in {{ms}} ms",
+          "error": "Test fallito: {{error}}"
         },
         "update": {
-          "error": "Couldn't update mode: {{error}}"
+          "error": "Impossibile aggiornare la modalità: {{error}}"
         },
         "delete": {
-          "button": "Delete mode",
-          "success": "Deleted \"{{name}}\"",
-          "error": "Couldn't delete mode: {{error}}",
-          "confirmTitle": "Delete \"{{name}}\"?",
-          "confirmDescription": "This removes the mode and its hotkey. This can't be undone.",
-          "cancel": "Cancel",
-          "confirm": "Delete"
+          "button": "Elimina modalità",
+          "success": "\"{{name}}\" eliminata",
+          "error": "Impossibile eliminare la modalità: {{error}}",
+          "confirmTitle": "Eliminare \"{{name}}\"?",
+          "confirmDescription": "Questo rimuove la modalità e la sua scorciatoia. L'operazione non può essere annullata.",
+          "cancel": "Annulla",
+          "confirm": "Elimina"
         }
       }
     }

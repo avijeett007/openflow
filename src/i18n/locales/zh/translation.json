@@ -895,94 +895,94 @@
     },
     "aiModes": {
       "write": {
-        "title": "Write (built-in)",
-        "description": "The default cleanup mode. Your main dictation hotkey uses these settings unless an AI Mode below matches the app you are dictating into. Editing these controls edits the same cleanup settings as before."
+        "title": "写作（内置）",
+        "description": "默认的清理模式。除非下方的某个 AI 模式与你正在口述的应用匹配，否则你的主口述快捷键将使用这些设置。编辑这些选项即编辑与之前相同的清理设置。"
       },
       "addMode": {
-        "title": "AI Modes",
-        "intro": "Create named dictation profiles, each with its own optional hotkey and per-app auto-selection. Precedence: a mode hotkey wins, then a matching app rule, then the legacy per-app prompt, then the Write cleanup above.",
-        "blank": "Blank mode",
-        "created": "Added \"{{name}}\"",
-        "error": "Couldn't add mode: {{error}}"
+        "title": "AI 模式",
+        "intro": "创建具名的口述配置，每个配置都可拥有各自的可选快捷键和按应用自动选择规则。优先级：模式快捷键优先，其次是匹配的应用规则，然后是旧版按应用提示词，最后是上方的写作清理。",
+        "blank": "空白模式",
+        "created": "已添加“{{name}}”",
+        "error": "无法添加模式：{{error}}"
       },
-      "emptyState": "No AI Modes yet. Add one from a template or start blank.",
+      "emptyState": "还没有 AI 模式。从模板添加一个，或从空白开始。",
       "templates": {
         "command": {
-          "name": "Command",
-          "description": "Turn spoken requests into shell commands, typed (never run) at the cursor. Preset for terminal apps."
+          "name": "命令",
+          "description": "将口述请求转换为 Shell 命令，在光标处输入（但绝不执行）。适用于终端类应用的预设。"
         },
         "direct": {
-          "name": "Direct Dictation",
-          "description": "Inject the raw transcript with no cleanup or LLM."
+          "name": "直接口述",
+          "description": "插入原始转录文本，不进行清理或使用 LLM。"
         },
         "translate": {
-          "name": "Translate",
-          "description": "Translate dictation into another language before injecting. Edit the target language in the prompt."
+          "name": "翻译",
+          "description": "在插入前将口述内容翻译成另一种语言。可在提示词中修改目标语言。"
         }
       },
       "card": {
         "name": {
-          "label": "Mode name",
-          "placeholder": "Mode name"
+          "label": "模式名称",
+          "placeholder": "模式名称"
         },
         "enabled": {
-          "label": "Enabled"
+          "label": "启用"
         },
         "kind": {
-          "label": "Mode type",
-          "description": "Rewrite runs the transcript through an LLM with your prompt. Command turns speech into a shell command (typed, never executed). Direct injects the raw transcript with no LLM.",
-          "rewrite": "Rewrite",
-          "command": "Command",
-          "direct": "Direct"
+          "label": "模式类型",
+          "description": "“改写”会用你的提示词让转录文本经过 LLM 处理。“命令”将语音转换为 Shell 命令（仅输入，绝不执行）。“直接”会插入原始转录文本，不使用 LLM。",
+          "rewrite": "改写",
+          "command": "命令",
+          "direct": "直接"
         },
         "provider": {
-          "label": "Provider",
-          "description": "Which LLM provider this mode uses. Inherit uses your default cleanup provider.",
-          "inherit": "Inherit default cleanup provider"
+          "label": "提供商",
+          "description": "此模式使用的 LLM 提供商。“继承”会使用你的默认清理提供商。",
+          "inherit": "继承默认清理提供商"
         },
         "model": {
-          "label": "Model",
-          "description": "Model override. Leave blank to use the provider's configured cleanup model.",
-          "placeholder": "Inherit default"
+          "label": "模型",
+          "description": "模型覆盖设置。留空则使用该提供商已配置的清理模型。",
+          "placeholder": "继承默认值"
         },
         "prompt": {
-          "label": "Prompt",
-          "description": "Your editable instructions. A fixed safety base prompt is always applied on top so the output contract can't break.",
-          "placeholder": "Describe how this mode should transform your dictation..."
+          "label": "提示词",
+          "description": "你可编辑的指令。系统始终会在其上叠加一个固定的安全基础提示词，以确保输出约定不会被破坏。",
+          "placeholder": "描述此模式应如何转换你的口述内容……"
         },
         "appRules": {
-          "label": "Activate when using",
-          "description": "Auto-select this mode on your main hotkey when the frontmost app matches. Matches a bundle id or app name (case-insensitive, either direction).",
-          "placeholder": "Bundle id or app name (e.g. com.apple.Terminal)",
-          "add": "Add",
-          "remove": "Remove {{rule}}",
-          "pickRunning": "Pick from running apps",
-          "loadingApps": "Loading apps...",
-          "noApps": "No running apps found. Type a bundle id or name instead."
+          "label": "在使用以下应用时启用",
+          "description": "当最前台应用匹配时，在你的主快捷键上自动选择此模式。匹配 Bundle ID 或应用名称（不区分大小写，双向匹配）。",
+          "placeholder": "Bundle ID 或应用名称（例如 com.apple.Terminal）",
+          "add": "添加",
+          "remove": "移除 {{rule}}",
+          "pickRunning": "从运行中的应用选择",
+          "loadingApps": "正在加载应用……",
+          "noApps": "未找到正在运行的应用。请改为输入 Bundle ID 或名称。"
         },
-        "directHint": "Direct modes inject the raw transcript with no LLM, so there is nothing to configure or test.",
+        "directHint": "直接模式会插入原始转录文本，不使用 LLM，因此无需配置或测试。",
         "test": {
-          "label": "Test",
-          "description": "Run this mode over a sample transcript without touching your cursor.",
-          "run": "Run test",
-          "running": "Running...",
+          "label": "测试",
+          "description": "在不影响光标的情况下，用示例转录文本运行此模式。",
+          "run": "运行测试",
+          "running": "运行中……",
           "sampleText": {
-            "placeholder": "Type a sample transcript..."
+            "placeholder": "输入示例转录文本……"
           },
-          "latency": "Completed in {{ms}} ms",
-          "error": "Test failed: {{error}}"
+          "latency": "已在 {{ms}} 毫秒内完成",
+          "error": "测试失败：{{error}}"
         },
         "update": {
-          "error": "Couldn't update mode: {{error}}"
+          "error": "无法更新模式：{{error}}"
         },
         "delete": {
-          "button": "Delete mode",
-          "success": "Deleted \"{{name}}\"",
-          "error": "Couldn't delete mode: {{error}}",
-          "confirmTitle": "Delete \"{{name}}\"?",
-          "confirmDescription": "This removes the mode and its hotkey. This can't be undone.",
-          "cancel": "Cancel",
-          "confirm": "Delete"
+          "button": "删除模式",
+          "success": "已删除“{{name}}”",
+          "error": "无法删除模式：{{error}}",
+          "confirmTitle": "删除“{{name}}”？",
+          "confirmDescription": "这将移除此模式及其快捷键。此操作无法撤销。",
+          "cancel": "取消",
+          "confirm": "删除"
         }
       }
     }
