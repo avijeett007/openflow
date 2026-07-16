@@ -101,7 +101,10 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.postProcessing",
     icon: Sparkles,
     component: PostProcessingSettings,
-    enabled: (settings) => settings?.post_process_enabled ?? false,
+    // AI Modes (Phase B) is now a first-class dictation feature: the mode list
+    // must be reachable to add/edit modes even when the built-in Write cleanup is
+    // off. (Advanced-mode only — this section is not in BASIC_SECTIONS.)
+    enabled: () => true,
     group: "dictation",
   },
   dictionary: {

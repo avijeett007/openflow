@@ -892,6 +892,99 @@
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
       "captureHotkeyTitle": "Raccourci de capture"
+    },
+    "aiModes": {
+      "write": {
+        "title": "Write (built-in)",
+        "description": "The default cleanup mode. Your main dictation hotkey uses these settings unless an AI Mode below matches the app you are dictating into. Editing these controls edits the same cleanup settings as before."
+      },
+      "addMode": {
+        "title": "AI Modes",
+        "intro": "Create named dictation profiles, each with its own optional hotkey and per-app auto-selection. Precedence: a mode hotkey wins, then a matching app rule, then the legacy per-app prompt, then the Write cleanup above.",
+        "blank": "Blank mode",
+        "created": "Added \"{{name}}\"",
+        "error": "Couldn't add mode: {{error}}"
+      },
+      "emptyState": "No AI Modes yet. Add one from a template or start blank.",
+      "templates": {
+        "command": {
+          "name": "Command",
+          "description": "Turn spoken requests into shell commands, typed (never run) at the cursor. Preset for terminal apps."
+        },
+        "direct": {
+          "name": "Direct Dictation",
+          "description": "Inject the raw transcript with no cleanup or LLM."
+        },
+        "translate": {
+          "name": "Translate",
+          "description": "Translate dictation into another language before injecting. Edit the target language in the prompt."
+        }
+      },
+      "card": {
+        "name": {
+          "label": "Mode name",
+          "placeholder": "Mode name"
+        },
+        "enabled": {
+          "label": "Enabled"
+        },
+        "kind": {
+          "label": "Mode type",
+          "description": "Rewrite runs the transcript through an LLM with your prompt. Command turns speech into a shell command (typed, never executed). Direct injects the raw transcript with no LLM.",
+          "rewrite": "Rewrite",
+          "command": "Command",
+          "direct": "Direct"
+        },
+        "provider": {
+          "label": "Provider",
+          "description": "Which LLM provider this mode uses. Inherit uses your default cleanup provider.",
+          "inherit": "Inherit default cleanup provider"
+        },
+        "model": {
+          "label": "Model",
+          "description": "Model override. Leave blank to use the provider's configured cleanup model.",
+          "placeholder": "Inherit default"
+        },
+        "prompt": {
+          "label": "Prompt",
+          "description": "Your editable instructions. A fixed safety base prompt is always applied on top so the output contract can't break.",
+          "placeholder": "Describe how this mode should transform your dictation..."
+        },
+        "appRules": {
+          "label": "Activate when using",
+          "description": "Auto-select this mode on your main hotkey when the frontmost app matches. Matches a bundle id or app name (case-insensitive, either direction).",
+          "placeholder": "Bundle id or app name (e.g. com.apple.Terminal)",
+          "add": "Add",
+          "remove": "Remove {{rule}}",
+          "pickRunning": "Pick from running apps",
+          "loadingApps": "Loading apps...",
+          "noApps": "No running apps found. Type a bundle id or name instead."
+        },
+        "directHint": "Direct modes inject the raw transcript with no LLM, so there is nothing to configure or test.",
+        "test": {
+          "label": "Test",
+          "description": "Run this mode over a sample transcript without touching your cursor.",
+          "run": "Run test",
+          "running": "Running...",
+          "sampleText": {
+            "placeholder": "Type a sample transcript..."
+          },
+          "latency": "Completed in {{ms}} ms",
+          "error": "Test failed: {{error}}"
+        },
+        "update": {
+          "error": "Couldn't update mode: {{error}}"
+        },
+        "delete": {
+          "button": "Delete mode",
+          "success": "Deleted \"{{name}}\"",
+          "error": "Couldn't delete mode: {{error}}",
+          "confirmTitle": "Delete \"{{name}}\"?",
+          "confirmDescription": "This removes the mode and its hotkey. This can't be undone.",
+          "cancel": "Cancel",
+          "confirm": "Delete"
+        }
+      }
     }
   },
   "footer": {

@@ -261,6 +261,71 @@ pub struct AgentDefinition {
     pub prompt_via: PromptDelivery,
 }
 
+/// What an AI Mode does with the raw transcript before it reaches the cursor.
+///
+/// - `Rewrite` (default): route the transcript through a cleanup-style LLM using
+///   the mode's editable prompt as the tone/instruction body (on top of a fixed,
+///   hidden base prompt). This generalizes the existing post-process cleanup.
+/// - `Command`: ask the LLM to translate the spoken request into a single bare
+///   shell command via structured output, then TYPE it at the cursor. It is
+///   NEVER executed and auto-submit is force-disabled for the injection.
+/// - `Direct`: inject the raw transcript verbatim, skipping the LLM entirely.
+///
+/// Defaults to `Rewrite` so any partial/older stored mode deserializes as a
+/// plain rewrite mode.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AiModeKind {
+    Rewrite,
+    Command,
+    Direct,
+}
+
+impl Default for AiModeKind {
+    fn default() -> Self {
+        AiModeKind::Rewrite
+    }
+}
+
+/// A user-defined **AI Mode**: a named dictation profile with its own optional
+/// global hotkey and optional per-app auto-selection rules. Modes generalize the
+/// built-in cleanup ("Write") path — see [`AiModeKind`]. Every field beyond
+/// `id`/`name`/`binding_id` is `#[serde(default)]` so an old settings store (no
+/// `ai_modes` key, or partial entries) always deserializes cleanly; with
+/// `ai_modes` empty the app behaves byte-for-byte as before this field existed.
+#[derive(Serialize, Deserialize, Clone, Debug, Type)]
+pub struct AiMode {
+    /// Stable slug, e.g. "translate"; unique. Matches `^[a-z0-9_-]{1,48}$`.
+    pub id: String,
+    /// Display name shown in the UI.
+    pub name: String,
+    /// What this mode does to the transcript. Defaults to `Rewrite`.
+    #[serde(default)]
+    pub kind: AiModeKind,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// ALWAYS `"mode:<id>"` — the join key into `AppSettings.bindings`.
+    pub binding_id: String,
+    /// The editable prompt *body* (tone/instructions). Appended to a fixed hidden
+    /// base prompt at call time; empty for `Direct`.
+    #[serde(default)]
+    pub prompt: String,
+    /// Optional provider override. `None`/empty → inherit the active cleanup
+    /// provider (`active_post_process_provider`).
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    /// Optional model override. `None`/empty → inherit the provider's configured
+    /// cleanup model (`post_process_models[provider_id]`).
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Bundle-id or app-name substrings for per-app auto-selection on the MAIN
+    /// hotkey. Empty → this mode is never auto-selected (hotkey-only). Matching is
+    /// case-insensitive substring both directions against the frontmost app's
+    /// bundle id AND localized name (same semantics as `per_app_prompts`).
+    #[serde(default)]
+    pub app_rules: Vec<String>,
+}
+
 /// A user dictionary entry: a canonical spelling plus optional "sounds like"
 /// aliases (misheard/alternate forms) that are rewritten to the canonical word.
 /// Supersedes the flat `custom_words` list (legacy entries migrate to one entry
@@ -774,6 +839,15 @@ pub struct AppSettings {
     /// agents configured is byte-for-byte identical to before this field existed.
     #[serde(default)]
     pub agents: Vec<AgentDefinition>,
+
+    // ---- AI Modes (per-mode voice hotkeys + per-app auto-selection) ----
+    /// User-defined AI Modes. Empty by default. Purely additive — an old store
+    /// with no `ai_modes` key deserializes to an empty list, so behavior with no
+    /// modes configured is byte-for-byte identical to before this field existed.
+    /// The built-in cleanup ("Write") path is NOT stored here; it remains the
+    /// existing `post_process_*` settings and is only *presented* as a mode.
+    #[serde(default)]
+    pub ai_modes: Vec<AiMode>,
 
     // ---- OpenFlow Meetings (M1) ----
     /// Master switch for the meetings feature (capture + on-device transcription).
@@ -1348,6 +1422,7 @@ pub fn get_default_settings() -> AppSettings {
         wake_word_silence_timeout_ms: default_wake_word_silence_timeout_ms(),
         hands_free_voice_feedback: default_hands_free_voice_feedback(),
         agents: Vec::new(),
+        ai_modes: Vec::new(),
         meetings_enabled: true,
         meeting_auto_detect: true,
         meeting_app_allowlist: default_meeting_app_allowlist(),
@@ -1932,6 +2007,48 @@ mod tests {
         assert!(agent.project_path.is_empty());
         assert_eq!(agent.output_sinks, vec![AgentOutputSink::Panel]);
         assert_eq!(agent.prompt_via, PromptDelivery::Stdin);
+    }
+
+    #[test]
+    fn legacy_store_without_ai_modes_deserializes_to_empty() {
+        // A settings store persisted BEFORE `ai_modes` existed carries no such
+        // key. It MUST deserialize cleanly (the store wipes to defaults on any
+        // parse failure) with `ai_modes == []`, so the pipeline is byte-for-byte
+        // unchanged when no modes are configured.
+        let raw = serde_json::json!({
+            "bindings": {
+                "transcribe": {
+                    "id": "transcribe",
+                    "name": "Transcribe",
+                    "description": "Converts your speech into text.",
+                    "default_binding": "option+space",
+                    "current_binding": "cmd+shift+d"
+                }
+            },
+            "push_to_talk": false,
+            "audio_feedback": true
+        });
+        let settings: AppSettings =
+            serde_json::from_value(raw).expect("legacy store should deserialize");
+        assert!(settings.ai_modes.is_empty());
+    }
+
+    #[test]
+    fn ai_mode_partial_entry_defaults_cleanly() {
+        // A minimal AiMode (only id/name/binding_id) must deserialize with every
+        // optional field defaulted — kind=Rewrite, enabled=true, no overrides.
+        let raw = serde_json::json!({
+            "id": "translate",
+            "name": "Translate",
+            "binding_id": "mode:translate"
+        });
+        let mode: AiMode = serde_json::from_value(raw).unwrap();
+        assert_eq!(mode.kind, AiModeKind::Rewrite);
+        assert!(mode.enabled);
+        assert!(mode.prompt.is_empty());
+        assert!(mode.provider_id.is_none());
+        assert!(mode.model.is_none());
+        assert!(mode.app_rules.is_empty());
     }
 
     #[test]

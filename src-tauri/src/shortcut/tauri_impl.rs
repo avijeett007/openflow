@@ -45,9 +45,10 @@ pub fn init_shortcuts(app: &AppHandle) {
         }
     }
 
-    // Flow OS: also register enabled agent hotkeys (they live in user settings,
-    // not the default binding set enumerated above).
+    // Flow OS: also register enabled agent + AI-mode hotkeys (they live in user
+    // settings, not the default binding set enumerated above).
     super::register_agent_shortcuts(app, settings::KeyboardImplementation::Tauri);
+    super::register_mode_shortcuts(app, settings::KeyboardImplementation::Tauri);
 }
 
 /// Validate a shortcut string for the Tauri global-shortcut implementation.

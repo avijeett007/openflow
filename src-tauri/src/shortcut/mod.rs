@@ -495,8 +495,9 @@ fn register_all_shortcuts_for_implementation(
         settings::write_settings(app, current_settings);
     }
 
-    // Also register user-defined agent hotkeys (not part of the default set).
+    // Also register user-defined agent + AI-mode hotkeys (not part of the default set).
     register_agent_shortcuts(app, implementation);
+    register_mode_shortcuts(app, implementation);
 
     reset_bindings
 }
@@ -531,6 +532,37 @@ pub(crate) fn register_agent_shortcuts(app: &AppHandle, implementation: Keyboard
             warn!(
                 "Failed to register agent shortcut '{}' for {:?}: {}",
                 agent.binding_id, implementation, e
+            );
+        }
+    }
+}
+
+/// Register every enabled AI Mode's hotkey for the given implementation. Mirrors
+/// [`register_agent_shortcuts`]: mode bindings live in user settings
+/// (`settings.ai_modes` + their seeded `mode:<id>` entries in `settings.bindings`),
+/// NOT in the default-binding set, so the startup/impl-switch loops miss them.
+/// Skips disabled modes and any whose seeded binding has an empty (unbound)
+/// hotkey. Duplicate registration is rejected by the facade, so a re-run is safe.
+pub(crate) fn register_mode_shortcuts(app: &AppHandle, implementation: KeyboardImplementation) {
+    let settings = get_settings(app);
+    for mode in &settings.ai_modes {
+        if !mode.enabled {
+            continue;
+        }
+        let Some(binding) = settings.bindings.get(&mode.binding_id).cloned() else {
+            continue;
+        };
+        if binding.current_binding.trim().is_empty() {
+            continue;
+        }
+        let result = match implementation {
+            KeyboardImplementation::Tauri => tauri_impl::register_shortcut(app, binding),
+            KeyboardImplementation::HandyKeys => handy_keys::register_shortcut(app, binding),
+        };
+        if let Err(e) = result {
+            warn!(
+                "Failed to register mode shortcut '{}' for {:?}: {}",
+                mode.binding_id, implementation, e
             );
         }
     }
