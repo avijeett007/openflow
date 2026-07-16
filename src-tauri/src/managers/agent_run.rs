@@ -281,19 +281,14 @@ impl AgentRunManager {
         let mut cmd = Command::new(&binary);
         cmd.args(&argv)
             .current_dir(&cwd)
-            .env("PATH", baseline_path(std::env::var("PATH").ok().as_deref()))
-            .env(
-                "SHELL",
-                std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()),
-            )
             .env("NO_COLOR", "1")
             .env("FORCE_COLOR", "0")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if let Ok(home) = std::env::var("HOME") {
-            cmd.env("HOME", home);
-        }
+        // Shared baseline env (PATH + SHELL + HOME) — identical to the Test
+        // button so detection, testing, and running all agree.
+        apply_baseline_env(&mut cmd);
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,
@@ -592,33 +587,214 @@ fn tokenize(s: &str) -> Vec<String> {
     tokens
 }
 
-/// Baseline PATH: the caller's PATH plus the standard macOS bin dirs + Homebrew,
-/// so a GUI-spawned detached process (which can inherit a stripped PATH) can
-/// still resolve tools the agent shells out to. Mirrors Agent OS's `agentEnv`.
-pub fn baseline_path(existing: Option<&str>) -> String {
-    let baseline = [
-        "/usr/local/bin",
-        "/opt/homebrew/bin",
-        "/opt/homebrew/sbin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin",
-    ];
-    let mut parts: Vec<String> = Vec::new();
+/// The static (installation-independent) tool directories a GUI-launched app's
+/// stripped launchd PATH is missing. On Apple Silicon Homebrew lives under
+/// `/opt/homebrew`; on Intel under `/usr/local`. Both are listed so one binary
+/// works on either arch.
+const STATIC_BASELINE_DIRS: &[&str] = &[
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/local/sbin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+];
+
+/// De-duplicate a list of paths, preserving first-seen order.
+fn dedupe(items: Vec<String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
-    for p in existing
+    let mut out = Vec::with_capacity(items.len());
+    for p in items {
+        if seen.insert(p.clone()) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// Enumerate `$HOME/.nvm/versions/node/*/bin` directories, **newest version
+/// first** (semver-descending). nvm installs each Node version under its own
+/// tree, and global npm binaries (like `claude`) land in that version's `bin`;
+/// a GUI app never inherits the shell's active-version PATH, so we add them all.
+pub fn nvm_node_bin_dirs(home: &str) -> Vec<String> {
+    let versions_dir = Path::new(home).join(".nvm/versions/node");
+    let mut entries: Vec<(Vec<u64>, String)> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&versions_dir) {
+        for ent in rd.flatten() {
+            let path = ent.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = ent.file_name().to_string_lossy().to_string();
+            let key = parse_semver_key(&name);
+            let bin = path.join("bin");
+            entries.push((key, bin.to_string_lossy().to_string()));
+        }
+    }
+    // Newest first.
+    entries.sort_by(|a, b| b.0.cmp(&a.0));
+    entries.into_iter().map(|(_, dir)| dir).collect()
+}
+
+/// Parse a `vMAJOR.MINOR.PATCH` (or `MAJOR.MINOR.PATCH`) directory name into a
+/// numeric key for descending sort. Unparseable components sort as 0.
+fn parse_semver_key(name: &str) -> Vec<u64> {
+    name.trim_start_matches('v')
+        .split('.')
+        .map(|c| c.parse::<u64>().unwrap_or(0))
+        .collect()
+}
+
+/// The ordered baseline tool directories to search **in addition to** the
+/// process PATH: home-relative install dirs (native installers, bun, cargo,
+/// volta, deno, nvm) followed by the static system/Homebrew dirs. Pure +
+/// testable — filesystem-derived `nvm` dirs are injected by the caller.
+pub fn baseline_bin_dirs(home: Option<&str>, nvm_node_bin_dirs: &[String]) -> Vec<String> {
+    let mut dirs: Vec<String> = Vec::new();
+    if let Some(home) = home.filter(|h| !h.is_empty()) {
+        // Common per-user install locations that a stripped launchd PATH omits.
+        for sub in [
+            ".local/bin",       // native installers (incl. Claude Code native)
+            ".claude/local",    // Claude Code local install
+            ".bun/bin",         // Bun global bins
+            ".cargo/bin",       // Rust/cargo
+            ".volta/bin",       // Volta-managed node tools
+            ".deno/bin",        // Deno
+            ".nvm/current/bin", // nvm "current" symlink, when present
+            ".npm-global/bin",  // custom npm prefix
+        ] {
+            dirs.push(format!("{home}/{sub}"));
+        }
+        // Every installed nvm node version, newest first.
+        dirs.extend(nvm_node_bin_dirs.iter().cloned());
+    }
+    dirs.extend(STATIC_BASELINE_DIRS.iter().map(|s| s.to_string()));
+    dedupe(dirs)
+}
+
+/// The full ordered directory list `detect_agent_binary` scans: the process
+/// PATH first (an explicitly-configured tool wins) then the baseline dirs. Pure
+/// + testable; the nvm dirs are injected so no filesystem access is needed here.
+pub fn detect_search_dirs(
+    process_path: Option<&str>,
+    home: Option<&str>,
+    nvm_node_bin_dirs: &[String],
+) -> Vec<String> {
+    let mut dirs: Vec<String> = process_path
         .unwrap_or("")
         .split(':')
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        .chain(baseline.iter().map(|s| s.to_string()))
-    {
-        if seen.insert(p.clone()) {
-            parts.push(p);
-        }
+        .collect();
+    dirs.extend(baseline_bin_dirs(home, nvm_node_bin_dirs));
+    dedupe(dirs)
+}
+
+/// Baseline PATH: the caller's PATH plus the baseline tool dirs (Homebrew,
+/// `~/.local/bin`, node version managers, cargo, …), so a GUI-spawned process
+/// (which inherits a stripped launchd PATH) can still resolve the CLI and any
+/// tools it shells out to. Mirrors Agent OS's `agentEnv`. Shared by detect, the
+/// Test button, and the run pipeline so all three see the same PATH.
+pub fn baseline_path(existing: Option<&str>) -> String {
+    let home = std::env::var("HOME").ok();
+    let nvm = home.as_deref().map(nvm_node_bin_dirs).unwrap_or_default();
+    detect_search_dirs(existing, home.as_deref(), &nvm).join(":")
+}
+
+/// Whether `path` is an existing regular file with an execute bit (unix) / an
+/// existing file (other platforms).
+pub fn is_executable_file(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
     }
-    parts.join(":")
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+/// The user's login shell if `$SHELL` is an absolute path to a known shell,
+/// else zsh (the macOS default). Used for the login-shell detect fallback and
+/// as the `SHELL` env passed to spawned agents.
+pub fn login_shell() -> String {
+    match std::env::var("SHELL") {
+        Ok(s) if is_known_shell(&s) => s,
+        _ => "/bin/zsh".to_string(),
+    }
+}
+
+/// Whether `path` is an absolute path to a recognized interactive shell.
+fn is_known_shell(path: &str) -> bool {
+    path.starts_with('/')
+        && matches!(
+            Path::new(path).file_name().and_then(|n| n.to_str()),
+            Some("zsh" | "bash" | "fish" | "sh" | "dash" | "ksh")
+        )
+}
+
+/// Parse the stdout of `command -v <name>`: the first non-empty, trimmed line.
+/// (`command -v` prints the resolved path for an external command.) Pure +
+/// testable; absoluteness/executability is validated by the caller.
+pub fn parse_command_v_output(stdout: &str) -> Option<String> {
+    stdout
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(|l| l.to_string())
+}
+
+/// Login-shell fallback for detection: run `<login-shell> -lc 'command -v
+/// <name>'` so the user's real profile PATH (rbenv/asdf/fnm/custom exports) is
+/// consulted, exactly like their Terminal. Bounded to 5s; returns the resolved
+/// absolute path only if it is an existing executable.
+pub async fn login_shell_which(name: &str) -> Option<String> {
+    let shell = login_shell();
+    let script = format!("command -v {name}");
+    let fut = Command::new(&shell)
+        .arg("-lc")
+        .arg(&script)
+        .env("PATH", baseline_path(std::env::var("PATH").ok().as_deref()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(5), fut)
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let resolved = parse_command_v_output(&text)?;
+    // Only trust an absolute path to a real executable (skip aliases/builtins).
+    if resolved.starts_with('/') && is_executable_file(Path::new(&resolved)) {
+        Some(resolved)
+    } else {
+        None
+    }
+}
+
+/// Apply the shared baseline spawn environment (augmented PATH, login SHELL,
+/// HOME) to a command. Used by BOTH the run pipeline and the Test button so a
+/// GUI-launched app (stripped launchd PATH) resolves the same binaries in both
+/// places, and a Node/shell shim the CLI wraps inherits a usable PATH.
+pub fn apply_baseline_env(cmd: &mut Command) {
+    cmd.env("PATH", baseline_path(std::env::var("PATH").ok().as_deref()));
+    cmd.env("SHELL", login_shell());
+    if let Ok(home) = std::env::var("HOME") {
+        cmd.env("HOME", home);
+    }
 }
 
 /// Construct the run file path: `<dir>/<YYYYMMDD-HHMMSS>-<agentId>.md`. Pure +
@@ -768,6 +944,123 @@ mod tests {
         let path = baseline_path(None);
         assert!(path.contains("/usr/local/bin"));
         assert!(path.contains("/opt/homebrew/bin"));
+    }
+
+    #[test]
+    fn baseline_bin_dirs_includes_home_and_static_dirs() {
+        let dirs = baseline_bin_dirs(Some("/Users/me"), &[]);
+        // Home-relative install dirs a stripped launchd PATH omits.
+        assert!(dirs.contains(&"/Users/me/.local/bin".to_string()));
+        assert!(dirs.contains(&"/Users/me/.bun/bin".to_string()));
+        assert!(dirs.contains(&"/Users/me/.cargo/bin".to_string()));
+        assert!(dirs.contains(&"/Users/me/.volta/bin".to_string()));
+        assert!(dirs.contains(&"/Users/me/.nvm/current/bin".to_string()));
+        // Both arch Homebrew prefixes + system dirs.
+        assert!(dirs.contains(&"/opt/homebrew/bin".to_string()));
+        assert!(dirs.contains(&"/usr/local/bin".to_string()));
+        assert!(dirs.contains(&"/usr/bin".to_string()));
+    }
+
+    #[test]
+    fn baseline_bin_dirs_without_home_has_only_static() {
+        let dirs = baseline_bin_dirs(None, &[]);
+        assert!(dirs.iter().all(|d| !d.contains(".local")));
+        assert!(dirs.contains(&"/opt/homebrew/bin".to_string()));
+    }
+
+    #[test]
+    fn baseline_bin_dirs_appends_injected_nvm_dirs_newest_first() {
+        let nvm = vec![
+            "/Users/me/.nvm/versions/node/v22.2.0/bin".to_string(),
+            "/Users/me/.nvm/versions/node/v18.0.0/bin".to_string(),
+        ];
+        let dirs = baseline_bin_dirs(Some("/Users/me"), &nvm);
+        let i22 = dirs.iter().position(|d| d.contains("v22.2.0")).unwrap();
+        let i18 = dirs.iter().position(|d| d.contains("v18.0.0")).unwrap();
+        assert!(i22 < i18, "newest node version must come first");
+    }
+
+    #[test]
+    fn parse_semver_key_orders_versions_numerically() {
+        // 9 < 10 numerically (lexical sort would get this wrong).
+        assert!(parse_semver_key("v10.0.0") > parse_semver_key("v9.9.9"));
+        assert_eq!(parse_semver_key("v20.11.1"), vec![20, 11, 1]);
+        assert_eq!(parse_semver_key("18.0.0"), vec![18, 0, 0]);
+    }
+
+    #[test]
+    fn detect_search_dirs_puts_process_path_first_and_dedupes() {
+        // /usr/local/bin is in BOTH the process PATH and the baseline set.
+        let dirs = detect_search_dirs(
+            Some("/usr/local/bin:/custom/tool/bin"),
+            Some("/Users/me"),
+            &[],
+        );
+        assert_eq!(dirs[0], "/usr/local/bin");
+        assert_eq!(dirs[1], "/custom/tool/bin");
+        assert_eq!(dirs.iter().filter(|d| *d == "/usr/local/bin").count(), 1);
+        // Baseline home dir still present after the process PATH.
+        assert!(dirs.contains(&"/Users/me/.local/bin".to_string()));
+    }
+
+    /// Reproduction of the dev-vs-installed PATH split (BLOCKERS §10b bug #1):
+    /// under the stripped launchd PATH a GUI app inherits, a process-PATH-only
+    /// search (the OLD detect behavior) misses a CLI installed in `~/.local/bin`
+    /// or a node-version-manager dir, but the new baseline-augmented search
+    /// finds it.
+    #[test]
+    fn detect_search_dirs_finds_home_installed_cli_under_stripped_path() {
+        // The PATH a Finder/Dock-launched app actually gets on macOS.
+        let stripped = "/usr/bin:/bin:/usr/sbin:/sbin";
+        let home = "/Users/me";
+        let nvm = vec!["/Users/me/.nvm/versions/node/v22.2.0/bin".to_string()];
+
+        // OLD logic: only the process PATH was searched.
+        let old_dirs: Vec<String> = stripped.split(':').map(String::from).collect();
+        assert!(!old_dirs.contains(&"/Users/me/.local/bin".to_string()));
+        assert!(!old_dirs.contains(&"/Users/me/.nvm/versions/node/v22.2.0/bin".to_string()));
+
+        // NEW logic: baseline dirs are appended, so the home install is reachable.
+        let new_dirs = detect_search_dirs(Some(stripped), Some(home), &nvm);
+        assert!(new_dirs.contains(&"/Users/me/.local/bin".to_string()));
+        assert!(new_dirs.contains(&"/Users/me/.nvm/versions/node/v22.2.0/bin".to_string()));
+        assert!(new_dirs.contains(&"/opt/homebrew/bin".to_string()));
+    }
+
+    #[test]
+    fn parse_command_v_output_returns_resolved_path() {
+        assert_eq!(
+            parse_command_v_output("/opt/homebrew/bin/claude\n"),
+            Some("/opt/homebrew/bin/claude".to_string())
+        );
+        // Skips leading blank lines a login profile may emit.
+        assert_eq!(
+            parse_command_v_output("\n\n  /Users/me/.local/bin/codex  \n"),
+            Some("/Users/me/.local/bin/codex".to_string())
+        );
+        assert_eq!(parse_command_v_output(""), None);
+        assert_eq!(parse_command_v_output("   \n"), None);
+    }
+
+    #[test]
+    fn is_known_shell_accepts_absolute_known_shells_only() {
+        assert!(is_known_shell("/bin/zsh"));
+        assert!(is_known_shell("/opt/homebrew/bin/bash"));
+        assert!(is_known_shell("/usr/bin/fish"));
+        assert!(!is_known_shell("zsh")); // not absolute
+        assert!(!is_known_shell("/usr/bin/python3")); // not a shell
+        assert!(!is_known_shell(""));
+    }
+
+    #[test]
+    fn is_executable_file_detects_exec_bit() {
+        // /bin/sh is a known executable on macOS/Linux CI.
+        assert!(is_executable_file(Path::new("/bin/sh")));
+        assert!(!is_executable_file(Path::new(
+            "/definitely/not/a/real/path/xyz"
+        )));
+        // A directory is not an executable file.
+        assert!(!is_executable_file(Path::new("/usr")));
     }
 
     #[test]

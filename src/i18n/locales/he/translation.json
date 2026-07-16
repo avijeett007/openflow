@@ -614,7 +614,13 @@
             "testing": "בודק…",
             "testError": "הבדיקה נכשלה: {{error}}",
             "testOk": "הקובץ הבינארי עובד: {{output}}",
-            "testFailed": "הקובץ הבינארי לא רץ כראוי: {{output}}"
+            "testFailed": "הקובץ הבינארי לא רץ כראוי: {{output}}",
+            "browse": "עיון…",
+            "browseError": "לא ניתן היה לפתוח את בורר הקבצים: {{error}}",
+            "notFound": "לא נמצא — הזן את הנתיב ידנית או לחץ על עיון.",
+            "hint": {
+              "codexVendorMissing": "הקובץ הבינארי המקורי של Codex חסר בהתקנה. התקן אותו מחדש באמצעות `npm i -g @openai/codex` או `brew reinstall codex`."
+            }
           },
           "projectPath": {
             "label": "תיקיית פרויקט",

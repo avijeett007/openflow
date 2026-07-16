@@ -614,7 +614,13 @@
             "testing": "Probando…",
             "testError": "La prueba falló: {{error}}",
             "testOk": "El binario funciona: {{output}}",
-            "testFailed": "El binario no se ejecutó correctamente: {{output}}"
+            "testFailed": "El binario no se ejecutó correctamente: {{output}}",
+            "browse": "Examinar…",
+            "browseError": "No se pudo abrir el selector de archivos: {{error}}",
+            "notFound": "No encontrado — introduce la ruta manualmente o haz clic en Examinar.",
+            "hint": {
+              "codexVendorMissing": "Falta el binario nativo de Codex en su instalación. Reinstálalo con `npm i -g @openai/codex` o `brew reinstall codex`."
+            }
           },
           "projectPath": {
             "label": "Carpeta del proyecto",

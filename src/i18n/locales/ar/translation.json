@@ -593,7 +593,13 @@
             "testing": "جارٍ الاختبار…",
             "testError": "فشل الاختبار: {{error}}",
             "testOk": "الملف الثنائي يعمل: {{output}}",
-            "testFailed": "لم يعمل الملف الثنائي بشكل سليم: {{output}}"
+            "testFailed": "لم يعمل الملف الثنائي بشكل سليم: {{output}}",
+            "browse": "استعراض…",
+            "browseError": "تعذّر فتح منتقي الملفات: {{error}}",
+            "notFound": "غير موجود — أدخل المسار يدويًا أو انقر على استعراض.",
+            "hint": {
+              "codexVendorMissing": "الملف التنفيذي الأصلي لـ Codex مفقود من التثبيت. أعد تثبيته باستخدام `npm i -g @openai/codex` أو `brew reinstall codex`."
+            }
           },
           "projectPath": {
             "label": "مجلد المشروع",

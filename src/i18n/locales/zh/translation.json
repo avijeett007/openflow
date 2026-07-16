@@ -614,7 +614,13 @@
             "testing": "测试中…",
             "testError": "测试失败：{{error}}",
             "testOk": "可执行文件正常：{{output}}",
-            "testFailed": "可执行文件未正常运行：{{output}}"
+            "testFailed": "可执行文件未正常运行：{{output}}",
+            "browse": "浏览…",
+            "browseError": "无法打开文件选择器：{{error}}",
+            "notFound": "未找到 — 请手动输入路径或点击“浏览”。",
+            "hint": {
+              "codexVendorMissing": "安装中缺少 Codex 的原生二进制文件。请使用 `npm i -g @openai/codex` 或 `brew reinstall codex` 重新安装。"
+            }
           },
           "projectPath": {
             "label": "项目文件夹",

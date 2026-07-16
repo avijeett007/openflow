@@ -22,6 +22,41 @@ use crate::settings::{
 pub struct AgentBinaryTest {
     pub ok: bool,
     pub output: String,
+    /// A machine-readable hint the frontend maps to an actionable, localized
+    /// message (e.g. a broken Codex install). `None` for ordinary output.
+    pub hint: Option<AgentBinaryHint>,
+}
+
+/// Classified, actionable failure modes surfaced by `test_agent_binary`. The
+/// frontend renders a localized fix for each instead of a raw spawn stack.
+#[derive(Debug, Clone, Copy, Serialize, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentBinaryHint {
+    /// Codex's Node launcher can't find its vendored native binary — the
+    /// per-platform optional dependency (`@openai/codex-<os>-<arch>`) is
+    /// missing/partial. Fix: reinstall Codex.
+    CodexVendorMissing,
+}
+
+/// Classify a Test run's combined output for a known, actionable failure. The
+/// `@openai/codex` npm package is a thin Node launcher; the real native binary
+/// ships in a separate per-platform optional-dependency package. On a partial
+/// install (npm skips optional deps offline / with `--omit=optional`, or a
+/// Homebrew node hiccup) the launcher fails to resolve it — surfacing either a
+/// raw `spawn <…>/vendor/<triple>/…/codex ENOENT` (older launcher) or a
+/// `Missing optional dependency @openai/codex-<os>-<arch>` error (newer one).
+/// Both mean the same thing and are NOT fixable from our spawn env.
+pub fn classify_binary_output(output: &str) -> Option<AgentBinaryHint> {
+    let lower = output.to_ascii_lowercase();
+    let enoent_on_vendored_codex =
+        lower.contains("enoent") && lower.contains("codex") && lower.contains("vendor");
+    let missing_optional_codex =
+        lower.contains("missing optional dependency") && lower.contains("codex");
+    if enoent_on_vendored_codex || missing_optional_codex {
+        Some(AgentBinaryHint::CodexVendorMissing)
+    } else {
+        None
+    }
 }
 
 /// The prefilled config for a CLI agent type — one source of truth shared with
@@ -48,25 +83,46 @@ pub fn get_cli_agent_defaults(cli_type: AgentCliType) -> CliAgentDefaults {
     }
 }
 
-/// Resolve a CLI agent's binary path by looking up its canonical name on PATH
-/// (`which`-style). Returns the absolute path, or an error if not found. The
-/// PATH searched is the baseline-augmented one (Homebrew etc.), matching how the
-/// run will actually be spawned.
+/// Resolve a CLI agent's binary path (`which`-style). Searches, in order: the
+/// process PATH, then an explicit baseline of tool dirs (Homebrew on either
+/// arch, `~/.local/bin`, bun/cargo/volta/deno, every nvm node version) that a
+/// GUI-launched app's stripped launchd PATH omits — this is why detection found
+/// nothing on the user's installed app while `which` worked in Terminal. As a
+/// final fallback it consults the user's login shell (`<shell> -lc 'command -v
+/// <name>'`) so custom profile PATHs (rbenv/asdf/fnm) resolve exactly as in
+/// their Terminal. Returns the absolute path, or an error if not found.
 #[tauri::command]
 #[specta::specta]
-pub fn detect_agent_binary(cli_type: AgentCliType) -> Result<String, String> {
+pub async fn detect_agent_binary(cli_type: AgentCliType) -> Result<String, String> {
+    use crate::managers::agent_run;
+
     let name = default_cli_binary_name(cli_type).ok_or_else(|| {
         "This agent type has no default binary; set the path manually".to_string()
     })?;
 
-    let path = crate::managers::agent_run::baseline_path(std::env::var("PATH").ok().as_deref());
-    for dir in path.split(':').filter(|s| !s.is_empty()) {
+    let home = std::env::var("HOME").ok();
+    let nvm = home
+        .as_deref()
+        .map(agent_run::nvm_node_bin_dirs)
+        .unwrap_or_default();
+    let dirs =
+        agent_run::detect_search_dirs(std::env::var("PATH").ok().as_deref(), home.as_deref(), &nvm);
+    for dir in &dirs {
         let candidate = Path::new(dir).join(name);
-        if candidate.is_file() {
+        if agent_run::is_executable_file(&candidate) {
             return Ok(candidate.to_string_lossy().to_string());
         }
     }
-    Err(format!("'{name}' not found on PATH"))
+
+    // Nothing in the known dirs — ask the user's login shell, which sources
+    // their profile and so sees any custom PATH exports.
+    if let Some(path) = agent_run::login_shell_which(name).await {
+        return Ok(path);
+    }
+
+    Err(format!(
+        "'{name}' not found on PATH or in the standard tool directories"
+    ))
 }
 
 /// Run `<binary> --version` (best-effort) and report success + captured output.
@@ -77,24 +133,33 @@ pub async fn test_agent_binary(binary_path: String) -> Result<AgentBinaryTest, S
     if binary_path.trim().is_empty() {
         return Err("Binary path is empty".to_string());
     }
-    let path = crate::managers::agent_run::baseline_path(std::env::var("PATH").ok().as_deref());
-    let output = Command::new(&binary_path)
-        .arg("--version")
-        .env("PATH", path)
+    let mut cmd = Command::new(&binary_path);
+    cmd.arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Same baseline env the run pipeline uses, so a Node/shell shim the CLI
+    // wraps (e.g. `codex`) resolves its internals identically to a real run.
+    crate::managers::agent_run::apply_baseline_env(&mut cmd);
+    let output = cmd
         .output()
         .await
         .map_err(|e| format!("Failed to run '{binary_path} --version': {e}"))?;
 
-    let mut text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // Classify from the combined streams — a shim prints its resolution failure
+    // to stderr while still exiting non-zero.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let hint = classify_binary_output(&format!("{stdout}\n{stderr}"));
+
+    let mut text = stdout.trim().to_string();
     if text.is_empty() {
-        text = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        text = stderr.trim().to_string();
     }
     Ok(AgentBinaryTest {
         ok: output.status.success(),
         output: text,
+        hint,
     })
 }
 
@@ -126,4 +191,37 @@ pub fn clear_finished_agent_runs(app: AppHandle) -> Result<(), String> {
         mgr.clear_finished();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_older_launcher_raw_enoent() {
+        // The exact shape from BLOCKERS §10b bug #2 (older codex launcher).
+        let out = "Error: spawn /opt/homebrew/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex ENOENT";
+        assert_eq!(
+            classify_binary_output(out),
+            Some(AgentBinaryHint::CodexVendorMissing)
+        );
+    }
+
+    #[test]
+    fn classifies_newer_launcher_missing_optional_dep() {
+        // The newer launcher's own error (reproduced by removing the platform pkg).
+        let out = "Error: Missing optional dependency @openai/codex-darwin-arm64. Reinstall Codex: npm install -g @openai/codex@latest";
+        assert_eq!(
+            classify_binary_output(out),
+            Some(AgentBinaryHint::CodexVendorMissing)
+        );
+    }
+
+    #[test]
+    fn does_not_misclassify_normal_version_output() {
+        assert_eq!(classify_binary_output("codex-cli 0.144.5"), None);
+        assert_eq!(classify_binary_output("claude 2.1.108"), None);
+        // An unrelated ENOENT (not codex/vendor) is not our actionable case.
+        assert_eq!(classify_binary_output("Error: spawn foo ENOENT"), None);
+    }
 }

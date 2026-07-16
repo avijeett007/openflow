@@ -1457,7 +1457,12 @@ streamTextEvent: "stream-text-event"
 /**
  * Result of `test_agent_binary`: whether the binary ran and its version output.
  */
-export type AgentBinaryTest = { ok: boolean; output: string }
+export type AgentBinaryTest = { ok: boolean; output: string; hint: AgentBinaryHint | null }
+/**
+ * Classified, actionable failure modes surfaced by `test_agent_binary`. The
+ * frontend renders a localized fix for each instead of a raw spawn stack.
+ */
+export type AgentBinaryHint = "codex_vendor_missing"
 /**
  * Which local coding-agent CLI a `Cli` agent drives. Selects the prefilled
  * invocation template (see `default_command_template_for`). `Custom` is a

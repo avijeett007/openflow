@@ -614,7 +614,13 @@
             "testing": "Test en cours…",
             "testError": "Échec du test : {{error}}",
             "testOk": "Le binaire fonctionne : {{output}}",
-            "testFailed": "Le binaire ne s'est pas exécuté correctement : {{output}}"
+            "testFailed": "Le binaire ne s'est pas exécuté correctement : {{output}}",
+            "browse": "Parcourir…",
+            "browseError": "Impossible d'ouvrir le sélecteur de fichiers : {{error}}",
+            "notFound": "Introuvable — saisissez le chemin manuellement ou cliquez sur Parcourir.",
+            "hint": {
+              "codexVendorMissing": "Le binaire natif de Codex est absent de son installation. Réinstallez-le avec `npm i -g @openai/codex` ou `brew reinstall codex`."
+            }
           },
           "projectPath": {
             "label": "Dossier de projet",

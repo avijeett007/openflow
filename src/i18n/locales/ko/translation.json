@@ -614,7 +614,13 @@
             "testing": "테스트 중…",
             "testError": "테스트 실패: {{error}}",
             "testOk": "바이너리가 작동합니다: {{output}}",
-            "testFailed": "바이너리가 정상적으로 실행되지 않았습니다: {{output}}"
+            "testFailed": "바이너리가 정상적으로 실행되지 않았습니다: {{output}}",
+            "browse": "찾아보기…",
+            "browseError": "파일 선택기를 열 수 없습니다: {{error}}",
+            "notFound": "찾을 수 없음 — 경로를 직접 입력하거나 찾아보기를 클릭하세요.",
+            "hint": {
+              "codexVendorMissing": "Codex의 네이티브 바이너리가 설치에서 누락되었습니다. `npm i -g @openai/codex` 또는 `brew reinstall codex`로 다시 설치하세요."
+            }
           },
           "projectPath": {
             "label": "프로젝트 폴더",
