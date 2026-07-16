@@ -895,6 +895,8 @@
     "installing": "Đang cài đặt...",
     "preparing": "Đang chuẩn bị...",
     "checkForUpdates": "Kiểm tra cập nhật",
+    "updateNotificationTitle": "Đã có bản cập nhật OpenFlow",
+    "updateNotificationBody": "OpenFlow {{version}} đã có — mở ứng dụng để cập nhật.",
     "portableUpdateTitle": "Cần cập nhật thủ công",
     "portableUpdateMessage": "Bản cài đặt di động không thể cập nhật tự động. Để cập nhật: tải trình cài đặt NSIS mới nhất từ GitHub Releases, cài đặt vào cùng thư mục, sau đó sao chép thư mục Data/ (cài đặt, mô hình, bản ghi) từ phiên bản cũ sang phiên bản mới.",
     "portableUpdateButton": "Mở GitHub Releases"

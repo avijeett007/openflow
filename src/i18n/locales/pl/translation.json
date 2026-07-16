@@ -895,6 +895,8 @@
     "installing": "Instalowanie...",
     "preparing": "Przygotowywanie...",
     "checkForUpdates": "Sprawdź aktualizacje",
+    "updateNotificationTitle": "Dostępna aktualizacja OpenFlow",
+    "updateNotificationBody": "OpenFlow {{version}} jest dostępny — otwórz aplikację, aby zaktualizować.",
     "portableUpdateTitle": "Wymagana ręczna aktualizacja",
     "portableUpdateMessage": "Instalacji przenośnych nie można aktualizować automatycznie. Aby zaktualizować: pobierz najnowszy instalator NSIS z GitHub Releases, zainstaluj go w tym samym folderze, a następnie skopiuj swój folder Data/ (ustawienia, modele, nagrania) ze starej wersji do nowej.",
     "portableUpdateButton": "Otwórz GitHub Releases"

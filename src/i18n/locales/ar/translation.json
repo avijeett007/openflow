@@ -895,6 +895,8 @@
     "installing": "...جاري التثبيت",
     "preparing": "...جاري التحضير",
     "checkForUpdates": "التحقق من وجود تحديثات",
+    "updateNotificationTitle": "يتوفر تحديث لـ OpenFlow",
+    "updateNotificationBody": "الإصدار OpenFlow {{version}} متاح — افتح التطبيق للتحديث.",
     "portableUpdateTitle": "التحديث اليدوي مطلوب",
     "portableUpdateMessage": "لا يمكن تحديث التثبيتات المحمولة تلقائيًا. للتحديث: نزّل أحدث مثبّت NSIS من GitHub Releases، وثبّته في المجلد نفسه، ثم انسخ مجلد Data/ (الإعدادات والنماذج والتسجيلات) من الإصدار القديم إلى الجديد.",
     "portableUpdateButton": "فتح GitHub Releases"

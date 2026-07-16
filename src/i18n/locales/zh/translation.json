@@ -895,6 +895,8 @@
     "installing": "安装中...",
     "preparing": "准备中...",
     "checkForUpdates": "检查更新",
+    "updateNotificationTitle": "OpenFlow 有可用更新",
+    "updateNotificationBody": "OpenFlow {{version}} 已可用 — 打开应用以更新。",
     "portableUpdateTitle": "需要手动更新",
     "portableUpdateMessage": "便携版无法自动更新。更新方法：从 GitHub Releases 下载最新的 NSIS 安装程序，安装到同一文件夹，然后将旧版本的 Data/ 文件夹（设置、模型、录音）复制到新版本。",
     "portableUpdateButton": "打开 GitHub Releases"

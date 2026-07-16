@@ -895,6 +895,8 @@
     "installing": "Installation...",
     "preparing": "Préparation...",
     "checkForUpdates": "Rechercher des mises à jour",
+    "updateNotificationTitle": "Mise à jour d'OpenFlow disponible",
+    "updateNotificationBody": "OpenFlow {{version}} est disponible — ouvrez l'application pour mettre à jour.",
     "portableUpdateTitle": "Mise à jour manuelle requise",
     "portableUpdateMessage": "Les installations portables ne peuvent pas être mises à jour automatiquement. Pour mettre à jour : téléchargez le dernier installateur NSIS depuis GitHub Releases, installez-le dans le même dossier, puis copiez votre dossier Data/ (paramètres, modèles, enregistrements) de l’ancienne version vers la nouvelle.",
     "portableUpdateButton": "Ouvrir GitHub Releases"

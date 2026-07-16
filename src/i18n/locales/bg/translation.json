@@ -895,6 +895,8 @@
     "installing": "Инсталиране...",
     "preparing": "Подготовка...",
     "checkForUpdates": "Проверка за актуализации",
+    "updateNotificationTitle": "Налична е актуализация на OpenFlow",
+    "updateNotificationBody": "OpenFlow {{version}} е наличен — отворете приложението, за да актуализирате.",
     "portableUpdateTitle": "Необходима е ръчна актуализация",
     "portableUpdateMessage": "Преносимите инсталации не могат да бъдат актуализирани автоматично. За актуализация: изтеглете най-новия NSIS инсталатор от GitHub Releases, инсталирайте го в същата папка, след което копирайте папката Data/ (настройки, модели, записи) от старата версия в новата.",
     "portableUpdateButton": "Отвори GitHub Releases"

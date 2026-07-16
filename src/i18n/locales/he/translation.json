@@ -895,6 +895,8 @@
     "installing": "מתקין...",
     "preparing": "מכין...",
     "checkForUpdates": "בדוק עדכונים",
+    "updateNotificationTitle": "עדכון של OpenFlow זמין",
+    "updateNotificationBody": "‏OpenFlow {{version}} זמין — פתחו את האפליקציה כדי לעדכן.",
     "portableUpdateTitle": "נדרש עדכון ידני",
     "portableUpdateMessage": "התקנות ניידות אינן מתעדכנות אוטומטית. כדי לעדכן, הורד את מתקין ה-NSIS האחרון מ-GitHub Releases, התקן לאותה תיקייה, ואז העתק את תיקיית Data/ (הגדרות, מודלים, הקלטות) מהגרסה הישנה לחדשה.",
     "portableUpdateButton": "פתח את GitHub Releases"
