@@ -21,7 +21,22 @@
 
 pub mod capture;
 pub mod detector;
+/// M2 diarization models: download + on-disk resolution (macOS-only, since a
+/// diarizable recording only exists on the capture path).
+#[cfg(target_os = "macos")]
+pub mod diar_models;
+/// M2 speaker diarization: pure fusion/scoring/degrade logic (all platforms) +
+/// the macOS sherpa-onnx native engine.
+pub mod diarize;
 pub mod segmenter;
+
+/// Bit flags on `meeting_segments.flags`.
+///
+/// `PRIVATE` marks a mic-channel segment produced while an OpenFlow
+/// dictation/agent/mode capture was in-flight — the user talking *to OpenFlow*,
+/// not to the meeting (DESIGN-meetings.md concurrent-dictation refinement). The
+/// UI dims/optionally hides these; they are never diarized (mic channel = "You").
+pub const SEGMENT_FLAG_PRIVATE: i64 = 1;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;

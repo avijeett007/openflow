@@ -14,7 +14,10 @@ mod input;
 mod keychain;
 mod llm_client;
 mod managers;
-mod meeting;
+// `pub` so the standalone M2 diarization ground-truth harness
+// (examples/diarize_ground_truth.rs) can exercise the *real*, unit-tested
+// `meeting::diarize` fusion/scoring code rather than a copy.
+pub mod meeting;
 mod overlay;
 pub mod portable;
 mod settings;
@@ -734,6 +737,13 @@ pub fn run(cli_args: CliArgs) {
             commands::meetings::delete_meeting,
             commands::meetings::set_meetings_enabled,
             commands::meetings::set_meeting_auto_detect,
+            commands::meetings::rename_meeting_speaker,
+            commands::meetings::get_meeting_speakers,
+            commands::meetings::get_diarization_status,
+            commands::meetings::set_meetings_diarization,
+            commands::meetings::set_meetings_diarization_provisional,
+            commands::meetings::get_diarization_models_status,
+            commands::meetings::download_diarization_models,
             helpers::clamshell::is_laptop,
         ])
         .events(collect_events![
@@ -746,6 +756,7 @@ pub fn run(cli_args: CliArgs) {
             managers::meeting::MeetingState,
             managers::meeting::MeetingSegmentEvent,
             managers::meeting::MeetingLevels,
+            managers::meeting::MeetingSpeakersUpdated,
         ]);
 
     #[cfg(debug_assertions)] // <- Only export on non-release builds

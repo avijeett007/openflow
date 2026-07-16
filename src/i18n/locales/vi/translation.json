@@ -918,7 +918,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Phím tắt ghi"
+      "captureHotkeyTitle": "Phím tắt ghi",
+      "diarization": {
+        "title": "Phân tách người nói",
+        "enable": "Gắn nhãn người nói trên thiết bị",
+        "enableHint": "Tách và gắn nhãn ai đang nói ở đầu bên kia cuộc gọi, hoàn toàn trên thiết bị. Micrô của bạn luôn là \"Bạn\".",
+        "provisional": "Nhãn tạm thời trực tiếp",
+        "provisionalHint": "Gắn nhãn lại người nói khoảng mỗi 30 giây trong cuộc gọi. Mặc định tắt — trên máy Mac Intel không theo kịp, nên nhãn được áp dụng một lần khi cuộc họp kết thúc.",
+        "modelsTitle": "Mô hình phân tách",
+        "modelsInstalled": "Đã cài đặt và sẵn sàng.",
+        "modelsSize": "Khoảng {{size}} MB, tải một lần.",
+        "modelsReady": "Sẵn sàng",
+        "download": "Tải xuống",
+        "downloadError": "Không thể tải mô hình: {{error}}",
+        "speakerN": "Người nói {{n}}",
+        "rename": "Đổi tên người nói",
+        "save": "Lưu",
+        "renameError": "Không thể đổi tên người nói: {{error}}",
+        "hidePrivate": "Ẩn những gì tôi đã nói với OpenFlow",
+        "youPrivate": "Bạn → OpenFlow",
+        "chip": {
+          "off": "Không nhãn",
+          "on": "Nhãn người nói",
+          "provisional": "Tạm thời",
+          "finalPass": "Xử lý cuối khi kết thúc",
+          "finalizing": "Đang hoàn tất người nói…",
+          "done": "Đã gắn nhãn người nói"
+        }
+      }
     },
     "aiModes": {
       "write": {

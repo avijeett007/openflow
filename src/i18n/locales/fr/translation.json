@@ -918,7 +918,34 @@
         "no_audio": "The meeting app isn't producing audio yet — capturing your microphone only.",
         "error": "System audio couldn't be captured — capturing your microphone only."
       },
-      "captureHotkeyTitle": "Raccourci de capture"
+      "captureHotkeyTitle": "Raccourci de capture",
+      "diarization": {
+        "title": "Diarisation des locuteurs",
+        "enable": "Étiqueter les locuteurs sur l'appareil",
+        "enableHint": "Sépare et étiquette qui parle de l'autre côté de l'appel, entièrement sur l'appareil. Votre micro est toujours « Vous ».",
+        "provisional": "Étiquettes provisoires en direct",
+        "provisionalHint": "Réétiquette les locuteurs environ toutes les 30 secondes pendant l'appel. Désactivé par défaut : sur les Mac Intel, cela ne suit pas, donc les étiquettes sont appliquées en une passe à la fin de la réunion.",
+        "modelsTitle": "Modèles de diarisation",
+        "modelsInstalled": "Installés et prêts.",
+        "modelsSize": "Environ {{size}} Mo, téléchargés une fois.",
+        "modelsReady": "Prêt",
+        "download": "Télécharger",
+        "downloadError": "Impossible de télécharger les modèles : {{error}}",
+        "speakerN": "Locuteur {{n}}",
+        "rename": "Renommer le locuteur",
+        "save": "Enregistrer",
+        "renameError": "Impossible de renommer le locuteur : {{error}}",
+        "hidePrivate": "Masquer ce que j'ai dit à OpenFlow",
+        "youPrivate": "Vous → OpenFlow",
+        "chip": {
+          "off": "Sans étiquette",
+          "on": "Étiquettes de locuteur",
+          "provisional": "Provisoire",
+          "finalPass": "Passe finale à la fin",
+          "finalizing": "Finalisation des locuteurs…",
+          "done": "Locuteurs étiquetés"
+        }
+      }
     },
     "aiModes": {
       "write": {
