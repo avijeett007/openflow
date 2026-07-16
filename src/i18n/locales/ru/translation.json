@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Общие",
-    "models": "Модели",
+    "models": "Загрузки моделей",
+    "modelSetup": "Настройка речи",
     "advanced": "Продвинутые",
-    "postProcessing": "Постобработка",
+    "postProcessing": "Режимы ИИ",
     "dictionary": "Словарь",
     "agents": "Агенты",
     "history": "История",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Показать все настройки и расширенные функции",
     "missionControl": "Центр управления",
     "meetings": "Meetings",
-    "resizeHandle": "Изменить размер боковой панели"
+    "resizeHandle": "Изменить размер боковой панели",
+    "groups": {
+      "dictation": "Диктовка",
+      "speechEngine": "Речевой движок",
+      "agents": "Агенты",
+      "meetings": "Встречи",
+      "system": "Система"
+    }
   },
   "onboarding": {
     "subtitle": "Для начала выберите модель транскрипции",

@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Generale",
-    "models": "Modelli",
+    "models": "Download dei modelli",
+    "modelSetup": "Configurazione vocale",
     "advanced": "Avanzate",
-    "postProcessing": "Post-Elaborazione",
+    "postProcessing": "Modalità IA",
     "dictionary": "Dizionario",
     "agents": "Agenti",
     "history": "Cronologia",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Mostra tutte le impostazioni e le funzionalità avanzate",
     "missionControl": "Centro di Controllo",
     "meetings": "Meetings",
-    "resizeHandle": "Ridimensiona la barra laterale"
+    "resizeHandle": "Ridimensiona la barra laterale",
+    "groups": {
+      "dictation": "Dettatura",
+      "speechEngine": "Motore vocale",
+      "agents": "Agenti",
+      "meetings": "Riunioni",
+      "system": "Sistema"
+    }
   },
   "onboarding": {
     "subtitle": "Per cominciare, scegli un modello di riconoscimento vocale",

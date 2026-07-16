@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Общи",
-    "models": "Модели",
+    "models": "Изтегляния на модели",
+    "modelSetup": "Настройка на речта",
     "advanced": "Разширени",
-    "postProcessing": "Постобработка",
+    "postProcessing": "AI режими",
     "dictionary": "Речник",
     "agents": "Агенти",
     "history": "История",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Показване на всички настройки и разширени функции",
     "missionControl": "Контролен център",
     "meetings": "Meetings",
-    "resizeHandle": "Преоразмеряване на страничната лента"
+    "resizeHandle": "Преоразмеряване на страничната лента",
+    "groups": {
+      "dictation": "Диктовка",
+      "speechEngine": "Речеви двигател",
+      "agents": "Агенти",
+      "meetings": "Срещи",
+      "system": "Система"
+    }
   },
   "onboarding": {
     "subtitle": "За да започнете, изберете модел за транскрипция",

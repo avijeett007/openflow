@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Général",
-    "models": "Modèles",
+    "models": "Téléchargements de modèles",
+    "modelSetup": "Configuration vocale",
     "advanced": "Avancé",
-    "postProcessing": "Post-traitement",
+    "postProcessing": "Modes IA",
     "dictionary": "Dictionnaire",
     "agents": "Agents",
     "history": "Historique",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Afficher tous les paramètres et les fonctionnalités avancées",
     "missionControl": "Centre de Contrôle",
     "meetings": "Meetings",
-    "resizeHandle": "Redimensionner la barre latérale"
+    "resizeHandle": "Redimensionner la barre latérale",
+    "groups": {
+      "dictation": "Dictée",
+      "speechEngine": "Moteur vocal",
+      "agents": "Agents",
+      "meetings": "Réunions",
+      "system": "Système"
+    }
   },
   "onboarding": {
     "subtitle": "Pour commencer, choisissez un modèle de transcription",

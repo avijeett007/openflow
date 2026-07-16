@@ -10,11 +10,11 @@
   },
   "sidebar": {
     "general": "General",
-    "models": "Models",
-    "modelSetup": "Model Setup",
+    "models": "Model Downloads",
+    "modelSetup": "Speech Setup",
     "handsFree": "Hands-free",
     "advanced": "Advanced",
-    "postProcessing": "Post Process",
+    "postProcessing": "AI Modes",
     "dictionary": "Dictionary",
     "agents": "Agents",
     "history": "History",
@@ -26,7 +26,14 @@
     "advancedModeTooltip": "Show all settings and advanced features",
     "missionControl": "Mission Control",
     "meetings": "Meetings",
-    "resizeHandle": "Resize sidebar"
+    "resizeHandle": "Resize sidebar",
+    "groups": {
+      "dictation": "Dictation",
+      "speechEngine": "Speech Engine",
+      "agents": "Agents",
+      "meetings": "Meetings",
+      "system": "System"
+    }
   },
   "onboarding": {
     "subtitle": "To get started, choose a transcription model",

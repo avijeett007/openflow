@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "一般",
-    "models": "模型",
+    "models": "模型下載",
+    "modelSetup": "語音設定",
     "advanced": "進階",
-    "postProcessing": "後處理",
+    "postProcessing": "AI 模式",
     "dictionary": "字典",
     "agents": "代理人",
     "history": "歷史紀錄",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "顯示所有設定與進階功能",
     "missionControl": "任務控制",
     "meetings": "Meetings",
-    "resizeHandle": "調整側邊欄寬度"
+    "resizeHandle": "調整側邊欄寬度",
+    "groups": {
+      "dictation": "聽寫",
+      "speechEngine": "語音引擎",
+      "agents": "代理人",
+      "meetings": "會議",
+      "system": "系統"
+    }
   },
   "onboarding": {
     "subtitle": "首先，請選擇一種模型",

@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "General",
-    "models": "Modelos",
+    "models": "Descargas de modelos",
+    "modelSetup": "Configuración de voz",
     "advanced": "Avanzado",
-    "postProcessing": "Post Proceso",
+    "postProcessing": "Modos de IA",
     "dictionary": "Diccionario",
     "agents": "Agentes",
     "history": "Historial",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Mostrar todos los ajustes y las funciones avanzadas",
     "missionControl": "Centro de Control",
     "meetings": "Meetings",
-    "resizeHandle": "Cambiar el tamaño de la barra lateral"
+    "resizeHandle": "Cambiar el tamaño de la barra lateral",
+    "groups": {
+      "dictation": "Dictado",
+      "speechEngine": "Motor de voz",
+      "agents": "Agentes",
+      "meetings": "Reuniones",
+      "system": "Sistema"
+    }
   },
   "onboarding": {
     "subtitle": "Para comenzar, elige un modelo de transcripción",

@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "일반",
-    "models": "모델",
+    "models": "모델 다운로드",
+    "modelSetup": "음성 설정",
     "advanced": "고급",
-    "postProcessing": "후처리",
+    "postProcessing": "AI 모드",
     "dictionary": "사전",
     "agents": "에이전트",
     "history": "히스토리",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "모든 설정 및 고급 기능 표시",
     "missionControl": "미션 컨트롤",
     "meetings": "Meetings",
-    "resizeHandle": "사이드바 크기 조절"
+    "resizeHandle": "사이드바 크기 조절",
+    "groups": {
+      "dictation": "받아쓰기",
+      "speechEngine": "음성 엔진",
+      "agents": "에이전트",
+      "meetings": "회의",
+      "system": "시스템"
+    }
   },
   "onboarding": {
     "subtitle": "시작하려면 음성 인식 모델을 선택하세요",

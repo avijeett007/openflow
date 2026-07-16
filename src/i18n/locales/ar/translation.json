@@ -11,19 +11,27 @@
   "sidebar": {
     "general": "عام",
     "advanced": "متقدم",
-    "postProcessing": "معالجة لاحقة",
+    "postProcessing": "أوضاع الذكاء الاصطناعي",
     "dictionary": "القاموس",
     "agents": "الوكلاء",
     "history": "السجل",
     "debug": "تصحيح الأخطاء",
     "about": "حول",
-    "models": "النماذج",
+    "models": "تنزيلات النماذج",
+    "modelSetup": "إعداد الكلام",
     "agentRuns": "عمليات تشغيل الوكلاء",
     "advancedMode": "الوضع المتقدم",
     "advancedModeTooltip": "إظهار جميع الإعدادات والميزات المتقدمة",
     "missionControl": "مركز التحكم",
     "meetings": "Meetings",
-    "resizeHandle": "تغيير حجم الشريط الجانبي"
+    "resizeHandle": "تغيير حجم الشريط الجانبي",
+    "groups": {
+      "dictation": "الإملاء",
+      "speechEngine": "محرك الكلام",
+      "agents": "الوكلاء",
+      "meetings": "الاجتماعات",
+      "system": "النظام"
+    }
   },
   "onboarding": {
     "subtitle": "للبدء، اختر نموذج التفريغ الصوتي",

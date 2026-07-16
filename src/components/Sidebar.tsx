@@ -47,103 +47,156 @@ interface IconProps {
   [key: string]: any;
 }
 
+// Visual grouping for the nav (Phase A sidebar reorg). A section without a
+// `group` renders ungrouped, in place, with no header (used for
+// `missionControl` — pinned first — and `about` — kept ungrouped at the very
+// end; see GROUP_LABEL_KEYS / the render loop below for how headers appear).
+type SectionGroup =
+  | "dictation"
+  | "speechEngine"
+  | "agents"
+  | "meetings"
+  | "system";
+
 interface SectionConfig {
   labelKey: string;
   icon: React.ComponentType<IconProps>;
   component: React.ComponentType;
   enabled: (settings: any) => boolean;
+  group?: SectionGroup;
 }
 
+// i18n keys for the quiet uppercase group headers rendered above each group's
+// first VISIBLE section (a group whose sections are all hidden — e.g. every
+// Agents section in Basic mode — never renders its header; see the
+// `showGroupHeader` computation in the render loop).
+const GROUP_LABEL_KEYS: Record<SectionGroup, string> = {
+  dictation: "sidebar.groups.dictation",
+  speechEngine: "sidebar.groups.speechEngine",
+  agents: "sidebar.groups.agents",
+  meetings: "sidebar.groups.meetings",
+  system: "sidebar.groups.system",
+};
+
+// Order here IS the nav's render order (Object.entries preserves insertion
+// order for string keys) — grouped entries must stay contiguous within their
+// group. See DESIGN-ai-modes.md Phase A for the contract this implements.
 export const SECTIONS_CONFIG = {
   missionControl: {
     labelKey: "sidebar.missionControl",
     icon: Radar,
     component: MissionControlSettings,
     enabled: () => true,
+    group: undefined,
   },
+  // --- Dictation ---
   general: {
     labelKey: "sidebar.general",
     icon: Home,
     component: GeneralSettings,
     enabled: () => true,
-  },
-  models: {
-    labelKey: "sidebar.models",
-    icon: Cpu,
-    component: ModelsSettings,
-    enabled: () => true,
-  },
-  modelSetup: {
-    labelKey: "sidebar.modelSetup",
-    icon: SlidersHorizontal,
-    component: ModelSetupSettings,
-    enabled: () => true,
-  },
-  handsFree: {
-    labelKey: "sidebar.handsFree",
-    icon: Ear,
-    component: HandsFreeSettings,
-    enabled: () => true,
-  },
-  advanced: {
-    labelKey: "sidebar.advanced",
-    icon: Cog,
-    component: AdvancedSettings,
-    enabled: () => true,
-  },
-  history: {
-    labelKey: "sidebar.history",
-    icon: History,
-    component: HistorySettings,
-    enabled: () => true,
-  },
-  dashboard: {
-    labelKey: "sidebar.dashboard",
-    icon: BarChart3,
-    component: DashboardSettings,
-    enabled: () => true,
-  },
-  dictionary: {
-    labelKey: "sidebar.dictionary",
-    icon: BookA,
-    component: DictionarySettings,
-    enabled: () => true,
-  },
-  agents: {
-    labelKey: "sidebar.agents",
-    icon: Bot,
-    component: AgentsSettings,
-    enabled: () => true,
-  },
-  agentRuns: {
-    labelKey: "sidebar.agentRuns",
-    icon: Activity,
-    component: AgentRunsSettings,
-    enabled: () => true,
-  },
-  meetings: {
-    labelKey: "sidebar.meetings",
-    icon: Video,
-    component: MeetingsSettings,
-    enabled: () => true,
+    group: "dictation",
   },
   postprocessing: {
     labelKey: "sidebar.postProcessing",
     icon: Sparkles,
     component: PostProcessingSettings,
     enabled: (settings) => settings?.post_process_enabled ?? false,
+    group: "dictation",
+  },
+  dictionary: {
+    labelKey: "sidebar.dictionary",
+    icon: BookA,
+    component: DictionarySettings,
+    enabled: () => true,
+    group: "dictation",
+  },
+  history: {
+    labelKey: "sidebar.history",
+    icon: History,
+    component: HistorySettings,
+    enabled: () => true,
+    group: "dictation",
+  },
+  dashboard: {
+    labelKey: "sidebar.dashboard",
+    icon: BarChart3,
+    component: DashboardSettings,
+    enabled: () => true,
+    group: "dictation",
+  },
+  // --- Speech engine ---
+  modelSetup: {
+    labelKey: "sidebar.modelSetup",
+    icon: SlidersHorizontal,
+    component: ModelSetupSettings,
+    enabled: () => true,
+    group: "speechEngine",
+  },
+  models: {
+    labelKey: "sidebar.models",
+    icon: Cpu,
+    component: ModelsSettings,
+    enabled: () => true,
+    group: "speechEngine",
+  },
+  // --- Agents ---
+  agents: {
+    labelKey: "sidebar.agents",
+    icon: Bot,
+    component: AgentsSettings,
+    enabled: () => true,
+    group: "agents",
+  },
+  agentRuns: {
+    labelKey: "sidebar.agentRuns",
+    icon: Activity,
+    component: AgentRunsSettings,
+    enabled: () => true,
+    group: "agents",
+  },
+  // --- Meetings ---
+  meetings: {
+    labelKey: "sidebar.meetings",
+    icon: Video,
+    component: MeetingsSettings,
+    enabled: () => true,
+    group: "meetings",
+  },
+  // --- System ---
+  handsFree: {
+    labelKey: "sidebar.handsFree",
+    icon: Ear,
+    component: HandsFreeSettings,
+    enabled: () => true,
+    group: "system",
+  },
+  advanced: {
+    labelKey: "sidebar.advanced",
+    icon: Cog,
+    component: AdvancedSettings,
+    enabled: () => true,
+    group: "system",
   },
   debug: {
     labelKey: "sidebar.debug",
     icon: FlaskConical,
     component: DebugSettings,
     enabled: (settings) => settings?.debug_mode ?? false,
+    group: "system",
   },
+  // `about` is intentionally ungrouped (no `group` key) even though the
+  // design contract lists it under System — see the render loop for why: in
+  // Basic mode every other System section is hidden, and a "System" header
+  // sitting above a single About row read as heavier than the content
+  // warranted. Ungrouped-at-the-end reads calmer and still sits directly
+  // beneath the System group in Advanced mode.
   about: {
     labelKey: "sidebar.about",
     icon: Info,
     component: AboutSettings,
     enabled: () => true,
+    group: undefined,
   },
 } as const satisfies Record<string, SectionConfig>;
 
@@ -356,36 +409,53 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Scrollable section list — only this region scrolls */}
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col w-full items-center gap-1 pt-2 border-t border-mid-gray/20">
-        {availableSections.map((section) => {
+        {availableSections.map((section, index) => {
           const Icon = section.icon;
           const isActive = activeSection === section.id;
           const isExperimental = EXPERIMENTAL_SECTIONS.includes(section.id);
+          // A group header renders once, right before the first VISIBLE
+          // section of that group — i.e. only when this section's group
+          // differs from the previous VISIBLE section's group. Since
+          // `availableSections` is already filtered to visible sections, a
+          // group with zero visible sections simply never triggers this (its
+          // header is skipped entirely, e.g. most groups in Basic mode).
+          const previousGroup = availableSections[index - 1]?.group;
+          const showGroupHeader =
+            section.group !== undefined && section.group !== previousGroup;
 
           return (
-            <div
-              key={section.id}
-              className={`flex gap-2 items-center p-2 w-full rounded-lg cursor-pointer transition-colors ${
-                isActive
-                  ? "bg-logo-primary/80 text-white"
-                  : "hover:bg-mid-gray/20 hover:opacity-100 opacity-85"
-              }`}
-              onClick={() => onSectionChange(section.id)}
-            >
-              <Icon width={24} height={24} className="shrink-0" />
-              <div className="flex flex-col min-w-0">
-                <p
-                  className="text-sm font-medium truncate"
-                  title={t(section.labelKey)}
-                >
-                  {t(section.labelKey)}
-                </p>
-                {isExperimental && (
-                  <span className="text-[9px] leading-tight font-semibold uppercase tracking-wide text-logo-primary">
-                    {t("common.experimental")}
+            <React.Fragment key={section.id}>
+              {showGroupHeader && (
+                <div className="w-full px-2 pt-4 pb-1 select-none">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-mid-gray/70">
+                    {t(GROUP_LABEL_KEYS[section.group as SectionGroup])}
                   </span>
-                )}
+                </div>
+              )}
+              <div
+                className={`flex gap-2 items-center p-2 w-full rounded-lg cursor-pointer transition-colors ${
+                  isActive
+                    ? "bg-logo-primary/80 text-white"
+                    : "hover:bg-mid-gray/20 hover:opacity-100 opacity-85"
+                }`}
+                onClick={() => onSectionChange(section.id)}
+              >
+                <Icon width={24} height={24} className="shrink-0" />
+                <div className="flex flex-col min-w-0">
+                  <p
+                    className="text-sm font-medium truncate"
+                    title={t(section.labelKey)}
+                  >
+                    {t(section.labelKey)}
+                  </p>
+                  {isExperimental && (
+                    <span className="text-[9px] leading-tight font-semibold uppercase tracking-wide text-logo-primary">
+                      {t("common.experimental")}
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
+            </React.Fragment>
           );
         })}
       </div>

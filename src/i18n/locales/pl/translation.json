@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Ogólne",
-    "models": "Modele",
+    "models": "Pobieranie modeli",
+    "modelSetup": "Konfiguracja mowy",
     "advanced": "Zaawansowane",
-    "postProcessing": "Postproces",
+    "postProcessing": "Tryby AI",
     "dictionary": "Słownik",
     "agents": "Agenci",
     "history": "Historia",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Pokaż wszystkie ustawienia i zaawansowane funkcje",
     "missionControl": "Centrum sterowania",
     "meetings": "Meetings",
-    "resizeHandle": "Zmień rozmiar paska bocznego"
+    "resizeHandle": "Zmień rozmiar paska bocznego",
+    "groups": {
+      "dictation": "Dyktowanie",
+      "speechEngine": "Silnik mowy",
+      "agents": "Agenci",
+      "meetings": "Spotkania",
+      "system": "System"
+    }
   },
   "onboarding": {
     "subtitle": "Aby rozpocząć, wybierz model transkrypcji",

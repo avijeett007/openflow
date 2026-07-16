@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Obecné",
-    "models": "Modely",
+    "models": "Stahování modelů",
+    "modelSetup": "Nastavení řeči",
     "advanced": "Pokročilé",
-    "postProcessing": "Následné zpracování",
+    "postProcessing": "Režimy AI",
     "dictionary": "Slovník",
     "agents": "Agenti",
     "history": "Historie",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Zobrazit všechna nastavení a pokročilé funkce",
     "missionControl": "Řídicí centrum",
     "meetings": "Meetings",
-    "resizeHandle": "Změnit velikost postranního panelu"
+    "resizeHandle": "Změnit velikost postranního panelu",
+    "groups": {
+      "dictation": "Diktát",
+      "speechEngine": "Řečový modul",
+      "agents": "Agenti",
+      "meetings": "Schůzky",
+      "system": "Systém"
+    }
   },
   "onboarding": {
     "subtitle": "Pro začátek vyberte model pro přepis",

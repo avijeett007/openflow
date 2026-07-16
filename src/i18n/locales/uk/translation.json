@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Загальні",
-    "models": "Моделі",
+    "models": "Завантаження моделей",
+    "modelSetup": "Налаштування мовлення",
     "advanced": "Розширені",
-    "postProcessing": "Постобробка",
+    "postProcessing": "Режими ШІ",
     "dictionary": "Словник",
     "agents": "Агенти",
     "history": "Історія",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Показати всі налаштування та розширені функції",
     "missionControl": "Центр керування",
     "meetings": "Meetings",
-    "resizeHandle": "Змінити розмір бічної панелі"
+    "resizeHandle": "Змінити розмір бічної панелі",
+    "groups": {
+      "dictation": "Диктування",
+      "speechEngine": "Мовний рушій",
+      "agents": "Агенти",
+      "meetings": "Зустрічі",
+      "system": "Система"
+    }
   },
   "onboarding": {
     "subtitle": "Для початку оберіть модель транскрипції",

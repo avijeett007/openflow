@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Genel",
-    "models": "Modeller",
+    "models": "Model İndirmeleri",
+    "modelSetup": "Konuşma Kurulumu",
     "advanced": "Gelişmiş",
-    "postProcessing": "Son İşlem",
+    "postProcessing": "AI Modları",
     "dictionary": "Sözlük",
     "agents": "Ajanlar",
     "history": "Geçmiş",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Tüm ayarları ve gelişmiş özellikleri göster",
     "missionControl": "Görev Kontrol",
     "meetings": "Meetings",
-    "resizeHandle": "Kenar çubuğunu yeniden boyutlandır"
+    "resizeHandle": "Kenar çubuğunu yeniden boyutlandır",
+    "groups": {
+      "dictation": "Dikte",
+      "speechEngine": "Konuşma Motoru",
+      "agents": "Ajanlar",
+      "meetings": "Toplantılar",
+      "system": "Sistem"
+    }
   },
   "onboarding": {
     "subtitle": "Başlamak için bir transkripsiyon modeli seçin",

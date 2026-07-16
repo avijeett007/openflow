@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "כללי",
-    "models": "מודלים",
+    "models": "הורדות מודלים",
+    "modelSetup": "הגדרת דיבור",
     "advanced": "מתקדם",
-    "postProcessing": "עיבוד משלים",
+    "postProcessing": "מצבי בינה מלאכותית",
     "dictionary": "מילון",
     "agents": "סוכנים",
     "history": "היסטוריה",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "הצג את כל ההגדרות והתכונות המתקדמות",
     "missionControl": "מרכז הבקרה",
     "meetings": "Meetings",
-    "resizeHandle": "שנה את גודל הסרגל הצדי"
+    "resizeHandle": "שנה את גודל הסרגל הצדי",
+    "groups": {
+      "dictation": "הכתבה",
+      "speechEngine": "מנוע דיבור",
+      "agents": "סוכנים",
+      "meetings": "פגישות",
+      "system": "מערכת"
+    }
   },
   "onboarding": {
     "subtitle": "כדי להתחיל, בחר מודל תמלול",

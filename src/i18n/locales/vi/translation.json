@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Chung",
-    "models": "Mô hình",
+    "models": "Tải xuống mô hình",
+    "modelSetup": "Thiết lập giọng nói",
     "advanced": "Nâng cao",
-    "postProcessing": "Xử lý sau",
+    "postProcessing": "Chế độ AI",
     "dictionary": "Từ điển",
     "agents": "Tác nhân",
     "history": "Lịch sử",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Hiển thị tất cả cài đặt và tính năng nâng cao",
     "missionControl": "Trung tâm điều khiển",
     "meetings": "Meetings",
-    "resizeHandle": "Thay đổi kích thước thanh bên"
+    "resizeHandle": "Thay đổi kích thước thanh bên",
+    "groups": {
+      "dictation": "Đọc chính tả",
+      "speechEngine": "Công cụ giọng nói",
+      "agents": "Tác nhân",
+      "meetings": "Cuộc họp",
+      "system": "Hệ thống"
+    }
   },
   "onboarding": {
     "subtitle": "Để bắt đầu, hãy chọn một mô hình chuyển đổi giọng nói",

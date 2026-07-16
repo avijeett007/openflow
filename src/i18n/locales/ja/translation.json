@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "一般",
-    "models": "モデル",
+    "models": "モデルのダウンロード",
+    "modelSetup": "音声セットアップ",
     "advanced": "詳細設定",
-    "postProcessing": "後処理",
+    "postProcessing": "AIモード",
     "dictionary": "辞書",
     "agents": "エージェント",
     "history": "履歴",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "すべての設定と詳細機能を表示",
     "missionControl": "ミッションコントロール",
     "meetings": "Meetings",
-    "resizeHandle": "サイドバーのサイズを変更"
+    "resizeHandle": "サイドバーのサイズを変更",
+    "groups": {
+      "dictation": "音声入力",
+      "speechEngine": "音声エンジン",
+      "agents": "エージェント",
+      "meetings": "ミーティング",
+      "system": "システム"
+    }
   },
   "onboarding": {
     "subtitle": "開始するには、文字起こしモデルを選択してください",

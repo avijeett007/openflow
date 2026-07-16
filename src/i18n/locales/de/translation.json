@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Allgemein",
-    "models": "Modelle",
+    "models": "Modell-Downloads",
+    "modelSetup": "Spracheinrichtung",
     "advanced": "Erweitert",
-    "postProcessing": "Nachbearbeitung",
+    "postProcessing": "KI-Modi",
     "dictionary": "Wörterbuch",
     "agents": "Agenten",
     "history": "Verlauf",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Alle Einstellungen und erweiterten Funktionen anzeigen",
     "missionControl": "Mission Control",
     "meetings": "Meetings",
-    "resizeHandle": "Seitenleiste in der Größe ändern"
+    "resizeHandle": "Seitenleiste in der Größe ändern",
+    "groups": {
+      "dictation": "Diktat",
+      "speechEngine": "Spracherkennung",
+      "agents": "Agenten",
+      "meetings": "Besprechungen",
+      "system": "System"
+    }
   },
   "onboarding": {
     "subtitle": "Wähle ein Transkriptionsmodell, um loszulegen",

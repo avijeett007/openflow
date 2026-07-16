@@ -10,9 +10,10 @@
   },
   "sidebar": {
     "general": "Allmänt",
-    "models": "Modeller",
+    "models": "Modellhämtningar",
+    "modelSetup": "Röstinställning",
     "advanced": "Avancerat",
-    "postProcessing": "Efterbearbetning",
+    "postProcessing": "AI-lägen",
     "dictionary": "Ordlista",
     "agents": "Agenter",
     "history": "Historik",
@@ -23,7 +24,14 @@
     "advancedModeTooltip": "Visa alla inställningar och avancerade funktioner",
     "missionControl": "Kontrollcenter",
     "meetings": "Meetings",
-    "resizeHandle": "Ändra storlek på sidofältet"
+    "resizeHandle": "Ändra storlek på sidofältet",
+    "groups": {
+      "dictation": "Diktering",
+      "speechEngine": "Röstmotor",
+      "agents": "Agenter",
+      "meetings": "Möten",
+      "system": "System"
+    }
   },
   "onboarding": {
     "subtitle": "För att komma igång, välj en transkriptionsmodell",
