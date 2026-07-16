@@ -84,13 +84,16 @@ pub fn get_cli_agent_defaults(cli_type: AgentCliType) -> CliAgentDefaults {
 }
 
 /// Resolve a CLI agent's binary path (`which`-style). Searches, in order: the
-/// process PATH, then an explicit baseline of tool dirs (Homebrew on either
-/// arch, `~/.local/bin`, bun/cargo/volta/deno, every nvm node version) that a
-/// GUI-launched app's stripped launchd PATH omits — this is why detection found
-/// nothing on the user's installed app while `which` worked in Terminal. As a
-/// final fallback it consults the user's login shell (`<shell> -lc 'command -v
-/// <name>'`) so custom profile PATHs (rbenv/asdf/fnm) resolve exactly as in
-/// their Terminal. Returns the absolute path, or an error if not found.
+/// process PATH, then an explicit baseline of tool dirs that a GUI-launched
+/// app's stripped PATH omits — on macOS Homebrew on either arch, `~/.local/bin`,
+/// bun/cargo/volta/deno, every nvm node version (this is why detection found
+/// nothing on the user's installed app while `which` worked in Terminal); on
+/// Windows `%APPDATA%\npm`, `%LOCALAPPDATA%\Programs`, bun/volta/cargo/scoop
+/// and `%ProgramFiles%\nodejs`, probing PATHEXT-style candidate names
+/// (`claude.cmd` etc.). As a final fallback it consults the user's login shell
+/// (`<shell> -lc 'command -v <name>'`; `where.exe` on Windows) so custom
+/// profile PATHs (rbenv/asdf/fnm) resolve exactly as in their Terminal.
+/// Returns the absolute path, or an error if not found.
 #[tauri::command]
 #[specta::specta]
 pub async fn detect_agent_binary(cli_type: AgentCliType) -> Result<String, String> {
@@ -100,22 +103,35 @@ pub async fn detect_agent_binary(cli_type: AgentCliType) -> Result<String, Strin
         "This agent type has no default binary; set the path manually".to_string()
     })?;
 
-    let home = std::env::var("HOME").ok();
-    let nvm = home
-        .as_deref()
-        .map(agent_run::nvm_node_bin_dirs)
-        .unwrap_or_default();
-    let dirs =
-        agent_run::detect_search_dirs(std::env::var("PATH").ok().as_deref(), home.as_deref(), &nvm);
+    let windows = cfg!(windows);
+    let env_get = |k: &str| std::env::var(k).ok();
+    let nvm = if windows {
+        Vec::new()
+    } else {
+        std::env::var("HOME")
+            .ok()
+            .map(|h| agent_run::nvm_node_bin_dirs(&h))
+            .unwrap_or_default()
+    };
+    let dirs = agent_run::detect_search_dirs(
+        std::env::var("PATH").ok().as_deref(),
+        windows,
+        &env_get,
+        &nvm,
+    );
+    let file_names =
+        agent_run::candidate_file_names(name, windows, std::env::var("PATHEXT").ok().as_deref());
     for dir in &dirs {
-        let candidate = Path::new(dir).join(name);
-        if agent_run::is_executable_file(&candidate) {
-            return Ok(candidate.to_string_lossy().to_string());
+        for file_name in &file_names {
+            let candidate = Path::new(dir).join(file_name);
+            if agent_run::is_executable_file(&candidate) {
+                return Ok(candidate.to_string_lossy().to_string());
+            }
         }
     }
 
-    // Nothing in the known dirs — ask the user's login shell, which sources
-    // their profile and so sees any custom PATH exports.
+    // Nothing in the known dirs — ask the user's login shell (where.exe on
+    // Windows), which sees any custom PATH the user's profile exports.
     if let Some(path) = agent_run::login_shell_which(name).await {
         return Ok(path);
     }
@@ -133,8 +149,13 @@ pub async fn test_agent_binary(binary_path: String) -> Result<AgentBinaryTest, S
     if binary_path.trim().is_empty() {
         return Err("Binary path is empty".to_string());
     }
-    let mut cmd = Command::new(&binary_path);
-    cmd.arg("--version")
+    // On Windows a `.cmd`/`.bat` npm shim must be launched via `cmd.exe /C`
+    // (CreateProcess can't exec batch scripts) — the same plan the run
+    // pipeline uses, so Test and Run agree.
+    let plan = crate::managers::agent_run::spawn_plan(&binary_path, cfg!(windows));
+    let mut cmd = Command::new(&plan.program);
+    cmd.args(&plan.pre_args)
+        .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

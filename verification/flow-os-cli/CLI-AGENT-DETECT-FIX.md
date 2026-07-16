@@ -109,11 +109,70 @@ message rather than a raw spawn stack.
 `bun run build` — all pass. `src/bindings.ts` updated for the new
 `AgentBinaryTest.hint` / `AgentBinaryHint`. i18n added to all 20 locales.
 
-## Remaining for the user (Apple Silicon Mac)
+## Windows parity (follow-up commit)
+
+The user asked whether the fix works on Windows. Inspection said no — and one
+part of the original detect code was actively wrong there. All detect/test/run
+plumbing is now platform-parameterized:
+
+1. **PATH separator.** Detect/baseline split PATH with `split_path_list(raw,
+windows)` — a pure mirror of `std::env::split_paths` semantics (Windows:
+   `;`-separated, double-quoted segments protected and quotes stripped; unix:
+   `:`) — and join with `join_path_list` (`;` vs `:`). The pre-fix (and first
+   fix) hardcoded `':'`, which would mangle `C:\bin` at the drive-letter colon.
+   A host-parity test pins the mirror against `std::env::split_paths`.
+2. **Windows baseline dirs.** `baseline_bin_dirs(windows, env, nvm)` takes an
+   injected env lookup; on Windows it yields `%APPDATA%\npm` (npm's `.cmd`
+   shims — where `claude.cmd`/`codex.cmd` live), `%LOCALAPPDATA%\Programs`,
+   `%USERPROFILE%\{.bun\bin,.volta\bin,.cargo\bin,scoop\shims}`, and
+   `%ProgramFiles%\nodejs` — all from env vars, no hardcoded drives; missing
+   vars are skipped.
+3. **PATHEXT candidate names.** `candidate_file_names(name, windows, pathext)`
+   probes `name.exe`/`name.cmd`/`name.bat` (or the parsed `PATHEXT` list) per
+   dir on Windows; the bare name on unix. Pure and parameterized, so the
+   Windows behavior is unit-tested from macOS.
+4. **Shell fallback.** The login-shell fallback is cfg-gated: unix keeps
+   `<login-shell> -lc 'command -v <name>'`; Windows uses `where.exe <name>`
+   (5 s bound, first line, must be an absolute existing file). `SHELL` is only
+   set in the spawn env on unix.
+5. **`.cmd`/`.bat` spawning.** `spawn_plan(binary, windows)` (pure,
+   unit-tested) wraps batch scripts as `cmd.exe /C <script> <args…>` — raw
+   `CreateProcess` cannot exec them — and both `test_agent_binary` AND the
+   `AgentRunManager` spawn path use the same plan. `.exe` and unix binaries
+   spawn directly.
+
+### Pre-fix regression check (verdict)
+
+Read the git history: the original `detect_agent_binary` (introduced in
+`8fa079a`, unchanged through `0307688`, the commit before the first fix) used a
+manual `path.split(':')` over `baseline_path` plus a bare-name `is_file()`
+probe. **No `which` crate or other cross-platform resolver was ever used**
+(checked `Cargo.toml` history). So on Windows the pre-fix code was already
+non-functional (colon-split mangles drive letters; bare names miss `.cmd`
+shims), and the first fix did not regress it further — it was equally broken
+before and after. This follow-up makes Windows detection/testing/running
+actually capable for the first time.
+
+### Tested vs compile-only (honest)
+
+- **Unit-tested from macOS (37 tests green, 13 new):** `;` splitting incl.
+  drive letters + quoted entries, `:`/`;` joining, std-parity contract test,
+  PATHEXT parsing + default trio, Windows baseline dirs from injected env
+  (incl. missing-var skipping), `cmd.exe /C` wrap decisions (`.cmd`/`.bat`/
+  `.CMD` wrapped; `.exe`/extensionless/unix direct), plus all earlier unix
+  coverage.
+- **Compile-only (Windows CI on PR #22):** the `#[cfg(windows)]` bodies — the
+  `where.exe` invocation and the cfg-gated env application. No Windows
+  hardware here; live Windows behavior (real `%APPDATA%\npm` layout, an actual
+  `claude.cmd` run) still needs the user's Windows PC — BLOCKERS #1 stands.
+
+## Remaining for the user (Apple Silicon Mac + Windows PC)
 
 Final live verification ships in the next release: on the installed app, select
 Claude → Detect should now resolve it wherever it lives; for Codex, if Test still
 reports the vendor-missing hint, reinstall Codex per the message. The
 dev-vs-installed split itself cannot be reproduced on a `tauri dev` run — only a
 packaged, Finder-launched build gets the stripped launchd PATH — so the final
-confirmation is on the user's machine with the shipped build.
+confirmation is on the user's machine with the shipped build. On Windows, the
+whole CLI-agent flow (detect → test → run with `.cmd` shims) needs a first-ever
+live pass on the user's PC (BLOCKERS #1).
