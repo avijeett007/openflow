@@ -614,7 +614,13 @@
             "testing": "Testar…",
             "testError": "Testet misslyckades: {{error}}",
             "testOk": "Binärfilen fungerar: {{output}}",
-            "testFailed": "Binärfilen kördes inte korrekt: {{output}}"
+            "testFailed": "Binärfilen kördes inte korrekt: {{output}}",
+            "browse": "Bläddra…",
+            "browseError": "Det gick inte att öppna filväljaren: {{error}}",
+            "notFound": "Hittades inte — ange sökvägen manuellt eller klicka på Bläddra.",
+            "hint": {
+              "codexVendorMissing": "Codex inbyggda binärfil saknas i installationen. Installera om den med `npm i -g @openai/codex` eller `brew reinstall codex`."
+            }
           },
           "projectPath": {
             "label": "Projektmapp",

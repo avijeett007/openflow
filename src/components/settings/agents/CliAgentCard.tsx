@@ -5,6 +5,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import {
   ChevronDown,
   ChevronRight,
+  FileSearch,
   FlaskConical,
   FolderOpen,
   ScanSearch,
@@ -70,6 +71,9 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
     output: string;
   } | null>(null);
   const [binaryTestError, setBinaryTestError] = useState<string | null>(null);
+  // Inline "not found" notice shown after a failed auto-detect so the user
+  // isn't left with a silently-stale path (they can type one or Browse).
+  const [detectNotFound, setDetectNotFound] = useState(false);
 
   useEffect(() => setNameDraft(agent.name), [agent.name]);
   useEffect(
@@ -152,7 +156,9 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
     setPending((prev) => ({ ...prev, cli_type: true }));
     setBinaryTestResult(null);
     setBinaryTestError(null);
+    setDetectNotFound(false);
     try {
+      // Always refresh the template + delivery for the new type…
       const patch: Partial<AgentDefinition> = { cli_type: cliType };
 
       try {
@@ -167,9 +173,16 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
         );
       }
 
+      // …and re-run detection. On success adopt the new path; on failure CLEAR
+      // the stale one (it belonged to the previous type) and flag "not found"
+      // so the path field never silently points at the wrong binary.
       const detected = await commands.detectAgentBinary(cliType);
       if (detected.status === "ok") {
         patch.binary_path = detected.data;
+        setDetectNotFound(false);
+      } else {
+        patch.binary_path = "";
+        setDetectNotFound(cliType !== "custom");
       }
 
       await persist(patch, "cli_type");
@@ -183,20 +196,46 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
     setPending((prev) => ({ ...prev, detect: true }));
     setBinaryTestResult(null);
     setBinaryTestError(null);
+    setDetectNotFound(false);
     try {
       const detected = await commands.detectAgentBinary(cliType);
       if (detected.status === "error") {
-        toast.error(
-          t("settings.agents.card.cli.binaryPath.detectError", {
-            error: detected.error,
-          }),
-        );
+        // Clear any stale path and surface an inline, actionable notice.
+        setBinaryPathDraft("");
+        setDetectNotFound(true);
+        await persist({ binary_path: "" }, "binary_path");
         return;
       }
       setBinaryPathDraft(detected.data);
       await persist({ binary_path: detected.data }, "binary_path");
     } finally {
       setPending((prev) => ({ ...prev, detect: false }));
+    }
+  };
+
+  const handleBrowseBinary = async () => {
+    try {
+      // Start in the Homebrew bin dir when the field is empty; otherwise near
+      // the current path. The picker falls back gracefully if it doesn't exist.
+      const current = binaryPathDraft.trim();
+      const defaultPath =
+        current.length > 0
+          ? current.slice(0, current.lastIndexOf("/") + 1) || undefined
+          : "/opt/homebrew/bin";
+      const picked = await open({ directory: false, defaultPath });
+      if (typeof picked === "string" && picked.length > 0) {
+        setBinaryPathDraft(picked);
+        setDetectNotFound(false);
+        setBinaryTestResult(null);
+        setBinaryTestError(null);
+        await persist({ binary_path: picked }, "binary_path");
+      }
+    } catch (err) {
+      toast.error(
+        t("settings.agents.card.cli.binaryPath.browseError", {
+          error: String(err),
+        }),
+      );
     }
   };
 
@@ -210,6 +249,14 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
       const result = await commands.testAgentBinary(target);
       if (result.status === "error") {
         setBinaryTestError(result.error);
+        return;
+      }
+      // A classified, actionable failure (e.g. a broken Codex install) renders
+      // its own fix message instead of the raw spawn/stderr text.
+      if (result.data.hint === "codex_vendor_missing") {
+        setBinaryTestError(
+          t("settings.agents.card.cli.binaryPath.hint.codexVendorMissing"),
+        );
         return;
       }
       setBinaryTestResult(result.data);
@@ -332,7 +379,10 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
               variant="compact"
               value={binaryPathDraft}
               disabled={isPending("binary_path")}
-              onChange={(event) => setBinaryPathDraft(event.target.value)}
+              onChange={(event) => {
+                setBinaryPathDraft(event.target.value);
+                if (detectNotFound) setDetectNotFound(false);
+              }}
               onBlur={commitBinaryPath}
               placeholder={t("settings.agents.card.cli.binaryPath.placeholder")}
               className="flex-1 min-w-0"
@@ -355,6 +405,17 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
               type="button"
               variant="secondary"
               size="md"
+              onClick={handleBrowseBinary}
+              disabled={isPending("binary_path")}
+              className="inline-flex shrink-0 items-center gap-1.5"
+            >
+              <FileSearch className="h-4 w-4" />
+              {t("settings.agents.card.cli.binaryPath.browse")}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
               onClick={handleTestBinary}
               disabled={isPending("test") || !binaryPathDraft.trim()}
               className="inline-flex shrink-0 items-center gap-1.5"
@@ -366,6 +427,11 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
             </Button>
           </div>
 
+          {detectNotFound && (
+            <Alert variant="warning" contained>
+              {t("settings.agents.card.cli.binaryPath.notFound")}
+            </Alert>
+          )}
           {binaryTestError && (
             <Alert variant="error" contained>
               {t("settings.agents.card.cli.binaryPath.testError", {

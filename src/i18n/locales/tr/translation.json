@@ -614,7 +614,13 @@
             "testing": "Test ediliyor…",
             "testError": "Test başarısız oldu: {{error}}",
             "testOk": "İkili dosya çalışıyor: {{output}}",
-            "testFailed": "İkili dosya düzgün çalışmadı: {{output}}"
+            "testFailed": "İkili dosya düzgün çalışmadı: {{output}}",
+            "browse": "Gözat…",
+            "browseError": "Dosya seçici açılamadı: {{error}}",
+            "notFound": "Bulunamadı — yolu elle girin veya Gözat'a tıklayın.",
+            "hint": {
+              "codexVendorMissing": "Codex'in yerel ikili dosyası kurulumda eksik. `npm i -g @openai/codex` veya `brew reinstall codex` ile yeniden kurun."
+            }
           },
           "projectPath": {
             "label": "Proje klasörü",

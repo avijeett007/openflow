@@ -614,7 +614,13 @@
             "testing": "Testowanie…",
             "testError": "Test nie powiódł się: {{error}}",
             "testOk": "Plik binarny działa: {{output}}",
-            "testFailed": "Plik binarny nie uruchomił się poprawnie: {{output}}"
+            "testFailed": "Plik binarny nie uruchomił się poprawnie: {{output}}",
+            "browse": "Przeglądaj…",
+            "browseError": "Nie można otworzyć wyboru plików: {{error}}",
+            "notFound": "Nie znaleziono — wpisz ścieżkę ręcznie lub kliknij Przeglądaj.",
+            "hint": {
+              "codexVendorMissing": "W instalacji brakuje natywnego pliku binarnego Codex. Zainstaluj go ponownie za pomocą `npm i -g @openai/codex` lub `brew reinstall codex`."
+            }
           },
           "projectPath": {
             "label": "Folder projektu",

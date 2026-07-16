@@ -779,7 +779,13 @@
             "testing": "Testing…",
             "testError": "Test failed: {{error}}",
             "testOk": "Binary works: {{output}}",
-            "testFailed": "Binary did not run cleanly: {{output}}"
+            "testFailed": "Binary did not run cleanly: {{output}}",
+            "browse": "Browse…",
+            "browseError": "Couldn't open the file picker: {{error}}",
+            "notFound": "Not found — enter the path manually or click Browse.",
+            "hint": {
+              "codexVendorMissing": "Codex's native binary is missing from its install. Reinstall it with `npm i -g @openai/codex` or `brew reinstall codex`."
+            }
           },
           "projectPath": {
             "label": "Project folder",

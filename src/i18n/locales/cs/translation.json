@@ -614,7 +614,13 @@
             "testing": "Testování…",
             "testError": "Test se nezdařil: {{error}}",
             "testOk": "Binární soubor funguje: {{output}}",
-            "testFailed": "Binární soubor neproběhl správně: {{output}}"
+            "testFailed": "Binární soubor neproběhl správně: {{output}}",
+            "browse": "Procházet…",
+            "browseError": "Nepodařilo se otevřít výběr souborů: {{error}}",
+            "notFound": "Nenalezeno — zadejte cestu ručně nebo klikněte na Procházet.",
+            "hint": {
+              "codexVendorMissing": "Nativní binární soubor Codexu chybí v instalaci. Přeinstalujte jej pomocí `npm i -g @openai/codex` nebo `brew reinstall codex`."
+            }
           },
           "projectPath": {
             "label": "Složka projektu",

@@ -614,7 +614,13 @@
             "testing": "Đang kiểm tra…",
             "testError": "Kiểm tra thất bại: {{error}}",
             "testOk": "Tệp nhị phân hoạt động: {{output}}",
-            "testFailed": "Tệp nhị phân không chạy đúng cách: {{output}}"
+            "testFailed": "Tệp nhị phân không chạy đúng cách: {{output}}",
+            "browse": "Duyệt…",
+            "browseError": "Không thể mở trình chọn tệp: {{error}}",
+            "notFound": "Không tìm thấy — nhập đường dẫn thủ công hoặc nhấp Duyệt.",
+            "hint": {
+              "codexVendorMissing": "Tệp nhị phân gốc của Codex bị thiếu trong bản cài đặt. Cài đặt lại bằng `npm i -g @openai/codex` hoặc `brew reinstall codex`."
+            }
           },
           "projectPath": {
             "label": "Thư mục dự án",

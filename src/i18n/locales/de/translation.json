@@ -614,7 +614,13 @@
             "testing": "Wird getestet…",
             "testError": "Test fehlgeschlagen: {{error}}",
             "testOk": "Binärdatei funktioniert: {{output}}",
-            "testFailed": "Binärdatei lief nicht sauber: {{output}}"
+            "testFailed": "Binärdatei lief nicht sauber: {{output}}",
+            "browse": "Durchsuchen…",
+            "browseError": "Dateiauswahl konnte nicht geöffnet werden: {{error}}",
+            "notFound": "Nicht gefunden — Pfad manuell eingeben oder auf Durchsuchen klicken.",
+            "hint": {
+              "codexVendorMissing": "Die native Codex-Binärdatei fehlt in der Installation. Installiere sie mit `npm i -g @openai/codex` oder `brew reinstall codex` neu."
+            }
           },
           "projectPath": {
             "label": "Projektordner",

@@ -614,7 +614,13 @@
             "testing": "テスト中…",
             "testError": "テストに失敗しました: {{error}}",
             "testOk": "バイナリは動作します: {{output}}",
-            "testFailed": "バイナリが正常に実行されませんでした: {{output}}"
+            "testFailed": "バイナリが正常に実行されませんでした: {{output}}",
+            "browse": "参照…",
+            "browseError": "ファイル選択を開けませんでした: {{error}}",
+            "notFound": "見つかりません — パスを手動で入力するか、「参照」をクリックしてください。",
+            "hint": {
+              "codexVendorMissing": "Codex のネイティブバイナリがインストールに含まれていません。`npm i -g @openai/codex` または `brew reinstall codex` で再インストールしてください。"
+            }
           },
           "projectPath": {
             "label": "プロジェクトフォルダー",

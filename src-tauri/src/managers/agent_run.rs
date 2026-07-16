@@ -278,22 +278,21 @@ impl AgentRunManager {
     ) {
         let started = std::time::Instant::now();
 
-        let mut cmd = Command::new(&binary);
-        cmd.args(&argv)
+        // On Windows a `.cmd`/`.bat` npm shim must be launched via `cmd.exe /C`;
+        // everything else spawns directly (see `spawn_plan`).
+        let plan = spawn_plan(&binary, cfg!(windows));
+        let mut cmd = Command::new(&plan.program);
+        cmd.args(&plan.pre_args)
+            .args(&argv)
             .current_dir(&cwd)
-            .env("PATH", baseline_path(std::env::var("PATH").ok().as_deref()))
-            .env(
-                "SHELL",
-                std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()),
-            )
             .env("NO_COLOR", "1")
             .env("FORCE_COLOR", "0")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if let Ok(home) = std::env::var("HOME") {
-            cmd.env("HOME", home);
-        }
+        // Shared baseline env (PATH + SHELL + HOME) — identical to the Test
+        // button so detection, testing, and running all agree.
+        apply_baseline_env(&mut cmd);
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,
@@ -592,33 +591,385 @@ fn tokenize(s: &str) -> Vec<String> {
     tokens
 }
 
-/// Baseline PATH: the caller's PATH plus the standard macOS bin dirs + Homebrew,
-/// so a GUI-spawned detached process (which can inherit a stripped PATH) can
-/// still resolve tools the agent shells out to. Mirrors Agent OS's `agentEnv`.
-pub fn baseline_path(existing: Option<&str>) -> String {
-    let baseline = [
-        "/usr/local/bin",
-        "/opt/homebrew/bin",
-        "/opt/homebrew/sbin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin",
-    ];
-    let mut parts: Vec<String> = Vec::new();
+/// The static (installation-independent) unix tool directories a GUI-launched
+/// app's stripped launchd PATH is missing. On Apple Silicon Homebrew lives under
+/// `/opt/homebrew`; on Intel under `/usr/local`. Both are listed so one binary
+/// works on either arch.
+const STATIC_BASELINE_DIRS: &[&str] = &[
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/local/sbin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+];
+
+/// De-duplicate a list of paths, preserving first-seen order.
+fn dedupe(items: Vec<String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
-    for p in existing
-        .unwrap_or("")
-        .split(':')
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .chain(baseline.iter().map(|s| s.to_string()))
-    {
+    let mut out = Vec::with_capacity(items.len());
+    for p in items {
         if seen.insert(p.clone()) {
-            parts.push(p);
+            out.push(p);
         }
     }
-    parts.join(":")
+    out
+}
+
+/// Split a raw PATH-style value into directory entries, mirroring
+/// `std::env::split_paths` semantics per platform: Windows splits on `;` with
+/// double-quoted segments protected (quotes stripped); unix splits on `:`.
+/// A hardcoded `':'` split (the pre-fix behavior) would mangle Windows entries
+/// at the drive-letter colon (`C:\bin` → `C` + `\bin`). Empty entries are
+/// dropped. Parameterized on `windows` (not cfg-gated) so the Windows behavior
+/// is unit-testable from any host; production callers pass `cfg!(windows)`.
+/// A host-parity test pins this against `std::env::split_paths`.
+pub fn split_path_list(raw: &str, windows: bool) -> Vec<String> {
+    if windows {
+        let mut out = Vec::new();
+        let mut cur = String::new();
+        let mut in_quotes = false;
+        for c in raw.chars() {
+            match c {
+                '"' => in_quotes = !in_quotes,
+                ';' if !in_quotes => {
+                    if !cur.is_empty() {
+                        out.push(std::mem::take(&mut cur));
+                    }
+                }
+                _ => cur.push(c),
+            }
+        }
+        if !cur.is_empty() {
+            out.push(cur);
+        }
+        out
+    } else {
+        raw.split(':')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+}
+
+/// Join directory entries into a PATH-style value (`;` on Windows, `:` on
+/// unix). Inverse of `split_path_list`; parameterized for testability.
+pub fn join_path_list(dirs: &[String], windows: bool) -> String {
+    dirs.join(if windows { ";" } else { ":" })
+}
+
+/// Enumerate `$HOME/.nvm/versions/node/*/bin` directories, **newest version
+/// first** (semver-descending). nvm installs each Node version under its own
+/// tree, and global npm binaries (like `claude`) land in that version's `bin`;
+/// a GUI app never inherits the shell's active-version PATH, so we add them all.
+pub fn nvm_node_bin_dirs(home: &str) -> Vec<String> {
+    let versions_dir = Path::new(home).join(".nvm/versions/node");
+    let mut entries: Vec<(Vec<u64>, String)> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&versions_dir) {
+        for ent in rd.flatten() {
+            let path = ent.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = ent.file_name().to_string_lossy().to_string();
+            let key = parse_semver_key(&name);
+            let bin = path.join("bin");
+            entries.push((key, bin.to_string_lossy().to_string()));
+        }
+    }
+    // Newest first.
+    entries.sort_by(|a, b| b.0.cmp(&a.0));
+    entries.into_iter().map(|(_, dir)| dir).collect()
+}
+
+/// Parse a `vMAJOR.MINOR.PATCH` (or `MAJOR.MINOR.PATCH`) directory name into a
+/// numeric key for descending sort. Unparseable components sort as 0.
+fn parse_semver_key(name: &str) -> Vec<u64> {
+    name.trim_start_matches('v')
+        .split('.')
+        .map(|c| c.parse::<u64>().unwrap_or(0))
+        .collect()
+}
+
+/// The ordered baseline tool directories to search **in addition to** the
+/// process PATH. Unix: home-relative install dirs (native installers, bun,
+/// cargo, volta, deno, nvm) then the static system/Homebrew dirs. Windows: the
+/// npm global-shim dir (`%APPDATA%\npm`, where `claude.cmd`/`codex.cmd` live),
+/// per-user installers (`%LOCALAPPDATA%\Programs`), bun/volta/cargo/scoop under
+/// the user profile, and `%ProgramFiles%\nodejs` — all resolved from injected
+/// env vars, never hardcoded drives. Pure + testable: `env` is an injected
+/// lookup and the filesystem-derived `nvm` dirs come from the caller.
+pub fn baseline_bin_dirs(
+    windows: bool,
+    env: &impl Fn(&str) -> Option<String>,
+    nvm_node_bin_dirs: &[String],
+) -> Vec<String> {
+    let get = |k: &str| env(k).filter(|v| !v.is_empty());
+    let mut dirs: Vec<String> = Vec::new();
+    if windows {
+        if let Some(appdata) = get("APPDATA") {
+            // npm's global prefix — `.cmd` shims for claude/codex land here.
+            dirs.push(format!("{appdata}\\npm"));
+        }
+        if let Some(local) = get("LOCALAPPDATA") {
+            // Per-user app installers.
+            dirs.push(format!("{local}\\Programs"));
+        }
+        if let Some(profile) = get("USERPROFILE") {
+            for sub in [
+                ".bun\\bin",    // Bun global bins
+                ".volta\\bin",  // Volta-managed node tools
+                ".cargo\\bin",  // Rust/cargo
+                "scoop\\shims", // Scoop package manager
+            ] {
+                dirs.push(format!("{profile}\\{sub}"));
+            }
+        }
+        if let Some(pf) = get("ProgramFiles") {
+            dirs.push(format!("{pf}\\nodejs"));
+        }
+    } else {
+        if let Some(home) = get("HOME") {
+            // Common per-user install locations that a stripped launchd PATH omits.
+            for sub in [
+                ".local/bin",       // native installers (incl. Claude Code native)
+                ".claude/local",    // Claude Code local install
+                ".bun/bin",         // Bun global bins
+                ".cargo/bin",       // Rust/cargo
+                ".volta/bin",       // Volta-managed node tools
+                ".deno/bin",        // Deno
+                ".nvm/current/bin", // nvm "current" symlink, when present
+                ".npm-global/bin",  // custom npm prefix
+            ] {
+                dirs.push(format!("{home}/{sub}"));
+            }
+            // Every installed nvm node version, newest first.
+            dirs.extend(nvm_node_bin_dirs.iter().cloned());
+        }
+        dirs.extend(STATIC_BASELINE_DIRS.iter().map(|s| s.to_string()));
+    }
+    dedupe(dirs)
+}
+
+/// The full ordered directory list `detect_agent_binary` scans: the process
+/// PATH first (an explicitly-configured tool wins) then the baseline dirs. Pure
+/// + testable; `windows`, the env lookup, and the nvm dirs are injected so no
+/// platform or filesystem access is needed here.
+pub fn detect_search_dirs(
+    process_path: Option<&str>,
+    windows: bool,
+    env: &impl Fn(&str) -> Option<String>,
+    nvm_node_bin_dirs: &[String],
+) -> Vec<String> {
+    let mut dirs = split_path_list(process_path.unwrap_or(""), windows);
+    dirs.extend(baseline_bin_dirs(windows, env, nvm_node_bin_dirs));
+    dedupe(dirs)
+}
+
+/// Candidate file names to probe for `name` in each directory. Unix: the bare
+/// name (executables have no extension). Windows: one candidate per PATHEXT
+/// extension — parsed from the given `PATHEXT` value when set, else the
+/// `.exe`/`.cmd`/`.bat` default trio — because npm installs CLIs as `.cmd`
+/// shims and a bare extensionless file isn't executable there. Pure +
+/// parameterized so the Windows behavior is unit-testable from any host.
+pub fn candidate_file_names(name: &str, windows: bool, pathext: Option<&str>) -> Vec<String> {
+    if !windows {
+        return vec![name.to_string()];
+    }
+    let exts: Vec<String> = pathext
+        .map(|raw| {
+            raw.split(';')
+                .map(str::trim)
+                .filter(|e| e.len() > 1 && e.starts_with('.'))
+                .map(|e| e.to_ascii_lowercase())
+                .collect::<Vec<_>>()
+        })
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| vec![".exe".into(), ".cmd".into(), ".bat".into()]);
+    dedupe(exts.into_iter().map(|e| format!("{name}{e}")).collect())
+}
+
+/// Env lookup used by the impure wrappers.
+fn std_env(key: &str) -> Option<String> {
+    std::env::var(key).ok()
+}
+
+/// The nvm node bin dirs for the current user (unix only — nvm-windows lays
+/// out versions differently and registers itself on PATH system-wide).
+fn current_nvm_dirs() -> Vec<String> {
+    if cfg!(windows) {
+        Vec::new()
+    } else {
+        std::env::var("HOME")
+            .ok()
+            .map(|h| nvm_node_bin_dirs(&h))
+            .unwrap_or_default()
+    }
+}
+
+/// Baseline PATH: the caller's PATH plus the baseline tool dirs (Homebrew,
+/// `~/.local/bin`, node version managers, cargo — or their Windows
+/// equivalents), so a GUI-spawned process (which inherits a stripped launchd
+/// PATH on macOS) can still resolve the CLI and any tools it shells out to.
+/// Mirrors Agent OS's `agentEnv`. Shared by detect, the Test button, and the
+/// run pipeline so all three see the same PATH.
+pub fn baseline_path(existing: Option<&str>) -> String {
+    let dirs = detect_search_dirs(existing, cfg!(windows), &std_env, &current_nvm_dirs());
+    join_path_list(&dirs, cfg!(windows))
+}
+
+/// Whether `path` is an existing regular file with an execute bit (unix) / an
+/// existing file (other platforms).
+pub fn is_executable_file(path: &Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+/// The user's login shell if `$SHELL` is an absolute path to a known shell,
+/// else zsh (the macOS default). Used for the login-shell detect fallback and
+/// as the `SHELL` env passed to spawned agents.
+pub fn login_shell() -> String {
+    match std::env::var("SHELL") {
+        Ok(s) if is_known_shell(&s) => s,
+        _ => "/bin/zsh".to_string(),
+    }
+}
+
+/// Whether `path` is an absolute path to a recognized interactive shell.
+fn is_known_shell(path: &str) -> bool {
+    path.starts_with('/')
+        && matches!(
+            Path::new(path).file_name().and_then(|n| n.to_str()),
+            Some("zsh" | "bash" | "fish" | "sh" | "dash" | "ksh")
+        )
+}
+
+/// Parse the stdout of `command -v <name>`: the first non-empty, trimmed line.
+/// (`command -v` prints the resolved path for an external command.) Pure +
+/// testable; absoluteness/executability is validated by the caller.
+pub fn parse_command_v_output(stdout: &str) -> Option<String> {
+    stdout
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(|l| l.to_string())
+}
+
+/// Shell-lookup fallback for detection. Unix: run `<login-shell> -lc 'command
+/// -v <name>'` so the user's real profile PATH (rbenv/asdf/fnm/custom exports)
+/// is consulted, exactly like their Terminal. Windows: `where.exe <name>`
+/// (which searches PATH honoring PATHEXT). Bounded to 5s; returns the resolved
+/// path only if it is an existing executable.
+pub async fn login_shell_which(name: &str) -> Option<String> {
+    #[cfg(not(windows))]
+    let fut = {
+        let shell = login_shell();
+        let script = format!("command -v {name}");
+        let mut cmd = Command::new(shell);
+        cmd.arg("-lc").arg(script);
+        cmd.env("PATH", baseline_path(std::env::var("PATH").ok().as_deref()))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+    };
+    #[cfg(windows)]
+    let fut = {
+        let mut cmd = Command::new("where.exe");
+        cmd.arg(name);
+        cmd.env("PATH", baseline_path(std::env::var("PATH").ok().as_deref()))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+    };
+    let output = tokio::time::timeout(Duration::from_secs(5), fut)
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    // Both `command -v` and `where.exe` print the resolved path on the first
+    // line (where.exe may print several matches; the first wins).
+    let resolved = parse_command_v_output(&text)?;
+    // Only trust an absolute path to a real executable (skips shell
+    // aliases/builtins on unix; a stray relative match on Windows).
+    let absolute = if cfg!(windows) {
+        Path::new(&resolved).is_absolute()
+    } else {
+        resolved.starts_with('/')
+    };
+    if absolute && is_executable_file(Path::new(&resolved)) {
+        Some(resolved)
+    } else {
+        None
+    }
+}
+
+/// How to invoke a target binary: the program to exec plus any arguments that
+/// must precede the agent's own argv. On Windows, `.cmd`/`.bat` scripts (npm's
+/// global shims) cannot be executed by `CreateProcess` directly — they must be
+/// launched via `cmd.exe /C <script> <args…>`. Everything else (and everything
+/// on unix) spawns directly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpawnPlan {
+    pub program: String,
+    /// Arguments to pass BEFORE the caller's argv (e.g. `/C <script>`).
+    pub pre_args: Vec<String>,
+}
+
+/// Decide the spawn plan for `binary`. Pure + parameterized on `windows` so
+/// the Windows decision is unit-testable from any host; production callers
+/// pass `cfg!(windows)`.
+pub fn spawn_plan(binary: &str, windows: bool) -> SpawnPlan {
+    let is_batch_script = windows
+        && Path::new(binary)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"))
+            .unwrap_or(false);
+    if is_batch_script {
+        SpawnPlan {
+            program: "cmd.exe".to_string(),
+            pre_args: vec!["/C".to_string(), binary.to_string()],
+        }
+    } else {
+        SpawnPlan {
+            program: binary.to_string(),
+            pre_args: Vec::new(),
+        }
+    }
+}
+
+/// Apply the shared baseline spawn environment (augmented PATH, plus login
+/// SHELL and HOME on unix) to a command. Used by BOTH the run pipeline and the
+/// Test button so a GUI-launched app (stripped launchd PATH) resolves the same
+/// binaries in both places, and a Node/shell shim the CLI wraps inherits a
+/// usable PATH.
+pub fn apply_baseline_env(cmd: &mut Command) {
+    cmd.env("PATH", baseline_path(std::env::var("PATH").ok().as_deref()));
+    #[cfg(not(windows))]
+    cmd.env("SHELL", login_shell());
+    if let Ok(home) = std::env::var("HOME") {
+        cmd.env("HOME", home);
+    }
 }
 
 /// Construct the run file path: `<dir>/<YYYYMMDD-HHMMSS>-<agentId>.md`. Pure +
@@ -768,6 +1119,323 @@ mod tests {
         let path = baseline_path(None);
         assert!(path.contains("/usr/local/bin"));
         assert!(path.contains("/opt/homebrew/bin"));
+    }
+
+    /// Test env lookup: HOME=/Users/me only (unix shape).
+    fn unix_env(key: &str) -> Option<String> {
+        match key {
+            "HOME" => Some("/Users/me".to_string()),
+            _ => None,
+        }
+    }
+
+    /// Test env lookup: the standard Windows variables, injected (item: the
+    /// Windows baseline must come from env vars, never hardcoded drives).
+    fn win_env(key: &str) -> Option<String> {
+        match key {
+            "APPDATA" => Some(r"C:\Users\me\AppData\Roaming".to_string()),
+            "LOCALAPPDATA" => Some(r"C:\Users\me\AppData\Local".to_string()),
+            "USERPROFILE" => Some(r"C:\Users\me".to_string()),
+            "ProgramFiles" => Some(r"C:\Program Files".to_string()),
+            _ => None,
+        }
+    }
+
+    fn no_env(_key: &str) -> Option<String> {
+        None
+    }
+
+    #[test]
+    fn baseline_bin_dirs_includes_home_and_static_dirs() {
+        let dirs = baseline_bin_dirs(false, &unix_env, &[]);
+        // Home-relative install dirs a stripped launchd PATH omits.
+        assert!(dirs.contains(&"/Users/me/.local/bin".to_string()));
+        assert!(dirs.contains(&"/Users/me/.bun/bin".to_string()));
+        assert!(dirs.contains(&"/Users/me/.cargo/bin".to_string()));
+        assert!(dirs.contains(&"/Users/me/.volta/bin".to_string()));
+        assert!(dirs.contains(&"/Users/me/.nvm/current/bin".to_string()));
+        // Both arch Homebrew prefixes + system dirs.
+        assert!(dirs.contains(&"/opt/homebrew/bin".to_string()));
+        assert!(dirs.contains(&"/usr/local/bin".to_string()));
+        assert!(dirs.contains(&"/usr/bin".to_string()));
+    }
+
+    #[test]
+    fn baseline_bin_dirs_without_home_has_only_static() {
+        let dirs = baseline_bin_dirs(false, &no_env, &[]);
+        assert!(dirs.iter().all(|d| !d.contains(".local")));
+        assert!(dirs.contains(&"/opt/homebrew/bin".to_string()));
+    }
+
+    #[test]
+    fn baseline_bin_dirs_appends_injected_nvm_dirs_newest_first() {
+        let nvm = vec![
+            "/Users/me/.nvm/versions/node/v22.2.0/bin".to_string(),
+            "/Users/me/.nvm/versions/node/v18.0.0/bin".to_string(),
+        ];
+        let dirs = baseline_bin_dirs(false, &unix_env, &nvm);
+        let i22 = dirs.iter().position(|d| d.contains("v22.2.0")).unwrap();
+        let i18 = dirs.iter().position(|d| d.contains("v18.0.0")).unwrap();
+        assert!(i22 < i18, "newest node version must come first");
+    }
+
+    #[test]
+    fn baseline_bin_dirs_windows_resolves_from_env_vars() {
+        let dirs = baseline_bin_dirs(true, &win_env, &[]);
+        // npm global shims — where claude.cmd/codex.cmd live.
+        assert!(dirs.contains(&r"C:\Users\me\AppData\Roaming\npm".to_string()));
+        // Per-user installers.
+        assert!(dirs.contains(&r"C:\Users\me\AppData\Local\Programs".to_string()));
+        // Profile-relative tool dirs.
+        assert!(dirs.contains(&r"C:\Users\me\.bun\bin".to_string()));
+        assert!(dirs.contains(&r"C:\Users\me\.volta\bin".to_string()));
+        assert!(dirs.contains(&r"C:\Users\me\.cargo\bin".to_string()));
+        assert!(dirs.contains(&r"C:\Users\me\scoop\shims".to_string()));
+        assert!(dirs.contains(&r"C:\Program Files\nodejs".to_string()));
+        // No unix dirs leak into the Windows baseline.
+        assert!(dirs.iter().all(|d| !d.starts_with('/')));
+    }
+
+    #[test]
+    fn baseline_bin_dirs_windows_skips_missing_env_vars() {
+        // Only USERPROFILE present — APPDATA/LOCALAPPDATA/ProgramFiles entries
+        // must be absent rather than "\npm"-style garbage.
+        let env = |k: &str| match k {
+            "USERPROFILE" => Some(r"C:\Users\me".to_string()),
+            _ => None,
+        };
+        let dirs = baseline_bin_dirs(true, &env, &[]);
+        assert!(dirs.iter().all(|d| d.starts_with(r"C:\Users\me")));
+        assert!(dirs.contains(&r"C:\Users\me\scoop\shims".to_string()));
+    }
+
+    #[test]
+    fn split_path_list_unix_splits_on_colon_and_drops_empties() {
+        assert_eq!(
+            split_path_list("/usr/bin::/bin:", false),
+            vec!["/usr/bin".to_string(), "/bin".to_string()]
+        );
+    }
+
+    #[test]
+    fn split_path_list_windows_splits_on_semicolon_keeping_drive_letters() {
+        // The pre-fix ':' split would mangle these at the drive-letter colon.
+        assert_eq!(
+            split_path_list(r"C:\Windows\system32;C:\Program Files\nodejs;", true),
+            vec![
+                r"C:\Windows\system32".to_string(),
+                r"C:\Program Files\nodejs".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn split_path_list_windows_honors_double_quotes() {
+        // A quoted entry may contain ';' (std::env::split_paths semantics —
+        // quotes protect the separator and are stripped from the entry).
+        assert_eq!(
+            split_path_list(r#""C:\odd;dir";C:\bin"#, true),
+            vec![r"C:\odd;dir".to_string(), r"C:\bin".to_string()]
+        );
+    }
+
+    #[test]
+    fn split_path_list_matches_std_split_paths_on_host() {
+        // Contract test: our parameterized splitter agrees with the std
+        // implementation for the host platform's separator.
+        let raw = if cfg!(windows) {
+            r"C:\a;C:\b c;C:\d"
+        } else {
+            "/a:/b c:/d"
+        };
+        let ours = split_path_list(raw, cfg!(windows));
+        let std_split: Vec<String> = std::env::split_paths(raw)
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(ours, std_split);
+    }
+
+    #[test]
+    fn join_path_list_uses_platform_separator() {
+        let dirs = vec!["/a".to_string(), "/b".to_string()];
+        assert_eq!(join_path_list(&dirs, false), "/a:/b");
+        let wdirs = vec![r"C:\a".to_string(), r"C:\b".to_string()];
+        assert_eq!(join_path_list(&wdirs, true), r"C:\a;C:\b");
+    }
+
+    #[test]
+    fn candidate_file_names_unix_is_bare_name() {
+        assert_eq!(
+            candidate_file_names("claude", false, None),
+            vec!["claude".to_string()]
+        );
+        // PATHEXT is ignored on unix even if somehow set.
+        assert_eq!(
+            candidate_file_names("claude", false, Some(".EXE;.CMD")),
+            vec!["claude".to_string()]
+        );
+    }
+
+    #[test]
+    fn candidate_file_names_windows_defaults_to_exe_cmd_bat() {
+        assert_eq!(
+            candidate_file_names("claude", true, None),
+            vec![
+                "claude.exe".to_string(),
+                "claude.cmd".to_string(),
+                "claude.bat".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn candidate_file_names_windows_parses_pathext() {
+        assert_eq!(
+            candidate_file_names("codex", true, Some(".COM;.EXE;.BAT;.CMD")),
+            vec![
+                "codex.com".to_string(),
+                "codex.exe".to_string(),
+                "codex.bat".to_string(),
+                "codex.cmd".to_string(),
+            ]
+        );
+        // Blank/garbage PATHEXT falls back to the default trio.
+        assert_eq!(
+            candidate_file_names("codex", true, Some("  ;x")),
+            vec![
+                "codex.exe".to_string(),
+                "codex.cmd".to_string(),
+                "codex.bat".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn spawn_plan_wraps_windows_batch_scripts_via_cmd() {
+        // npm's global shims are .cmd — CreateProcess can't exec them raw.
+        let plan = spawn_plan(r"C:\Users\me\AppData\Roaming\npm\claude.cmd", true);
+        assert_eq!(plan.program, "cmd.exe");
+        assert_eq!(
+            plan.pre_args,
+            vec![
+                "/C".to_string(),
+                r"C:\Users\me\AppData\Roaming\npm\claude.cmd".to_string(),
+            ]
+        );
+        // Extension match is case-insensitive; .bat too.
+        assert_eq!(spawn_plan(r"C:\t\x.CMD", true).program, "cmd.exe");
+        assert_eq!(spawn_plan(r"C:\t\x.bat", true).program, "cmd.exe");
+    }
+
+    #[test]
+    fn spawn_plan_spawns_exe_and_unix_binaries_directly() {
+        let exe = spawn_plan(r"C:\Program Files\nodejs\codex.exe", true);
+        assert_eq!(exe.program, r"C:\Program Files\nodejs\codex.exe");
+        assert!(exe.pre_args.is_empty());
+        // Extensionless (Windows) — direct.
+        assert_eq!(spawn_plan(r"C:\t\codex", true).pre_args.len(), 0);
+        // Unix: even a ".cmd"-suffixed path is spawned directly.
+        let unix = spawn_plan("/usr/local/bin/claude.cmd", false);
+        assert_eq!(unix.program, "/usr/local/bin/claude.cmd");
+        assert!(unix.pre_args.is_empty());
+    }
+
+    #[test]
+    fn parse_semver_key_orders_versions_numerically() {
+        // 9 < 10 numerically (lexical sort would get this wrong).
+        assert!(parse_semver_key("v10.0.0") > parse_semver_key("v9.9.9"));
+        assert_eq!(parse_semver_key("v20.11.1"), vec![20, 11, 1]);
+        assert_eq!(parse_semver_key("18.0.0"), vec![18, 0, 0]);
+    }
+
+    #[test]
+    fn detect_search_dirs_puts_process_path_first_and_dedupes() {
+        // /usr/local/bin is in BOTH the process PATH and the baseline set.
+        let dirs = detect_search_dirs(
+            Some("/usr/local/bin:/custom/tool/bin"),
+            false,
+            &unix_env,
+            &[],
+        );
+        assert_eq!(dirs[0], "/usr/local/bin");
+        assert_eq!(dirs[1], "/custom/tool/bin");
+        assert_eq!(dirs.iter().filter(|d| *d == "/usr/local/bin").count(), 1);
+        // Baseline home dir still present after the process PATH.
+        assert!(dirs.contains(&"/Users/me/.local/bin".to_string()));
+    }
+
+    #[test]
+    fn detect_search_dirs_windows_splits_semicolons_and_appends_baseline() {
+        // A Windows PATH with drive letters must not be split at ':'.
+        let dirs = detect_search_dirs(Some(r"C:\Windows\system32;C:\Windows"), true, &win_env, &[]);
+        assert_eq!(dirs[0], r"C:\Windows\system32");
+        assert_eq!(dirs[1], r"C:\Windows");
+        assert!(dirs.contains(&r"C:\Users\me\AppData\Roaming\npm".to_string()));
+    }
+
+    /// Reproduction of the dev-vs-installed PATH split (BLOCKERS §10b bug #1):
+    /// under the stripped launchd PATH a GUI app inherits, a process-PATH-only
+    /// search (the OLD detect behavior) misses a CLI installed in `~/.local/bin`
+    /// or a node-version-manager dir, but the new baseline-augmented search
+    /// finds it.
+    #[test]
+    fn detect_search_dirs_finds_home_installed_cli_under_stripped_path() {
+        // The PATH a Finder/Dock-launched app actually gets on macOS.
+        let stripped = "/usr/bin:/bin:/usr/sbin:/sbin";
+        let home = "/Users/me";
+        let nvm = vec!["/Users/me/.nvm/versions/node/v22.2.0/bin".to_string()];
+
+        // OLD logic: only the process PATH was searched.
+        let old_dirs: Vec<String> = stripped.split(':').map(String::from).collect();
+        assert!(!old_dirs.contains(&"/Users/me/.local/bin".to_string()));
+        assert!(!old_dirs.contains(&"/Users/me/.nvm/versions/node/v22.2.0/bin".to_string()));
+
+        // NEW logic: baseline dirs are appended, so the home install is reachable.
+        let env = move |k: &str| match k {
+            "HOME" => Some(home.to_string()),
+            _ => None,
+        };
+        let new_dirs = detect_search_dirs(Some(stripped), false, &env, &nvm);
+        assert!(new_dirs.contains(&"/Users/me/.local/bin".to_string()));
+        assert!(new_dirs.contains(&"/Users/me/.nvm/versions/node/v22.2.0/bin".to_string()));
+        assert!(new_dirs.contains(&"/opt/homebrew/bin".to_string()));
+    }
+
+    #[test]
+    fn parse_command_v_output_returns_resolved_path() {
+        assert_eq!(
+            parse_command_v_output("/opt/homebrew/bin/claude\n"),
+            Some("/opt/homebrew/bin/claude".to_string())
+        );
+        // Skips leading blank lines a login profile may emit.
+        assert_eq!(
+            parse_command_v_output("\n\n  /Users/me/.local/bin/codex  \n"),
+            Some("/Users/me/.local/bin/codex".to_string())
+        );
+        assert_eq!(parse_command_v_output(""), None);
+        assert_eq!(parse_command_v_output("   \n"), None);
+    }
+
+    #[test]
+    fn is_known_shell_accepts_absolute_known_shells_only() {
+        assert!(is_known_shell("/bin/zsh"));
+        assert!(is_known_shell("/opt/homebrew/bin/bash"));
+        assert!(is_known_shell("/usr/bin/fish"));
+        assert!(!is_known_shell("zsh")); // not absolute
+        assert!(!is_known_shell("/usr/bin/python3")); // not a shell
+        assert!(!is_known_shell(""));
+    }
+
+    #[test]
+    fn is_executable_file_detects_exec_bit() {
+        // /bin/sh is a known executable on macOS/Linux CI.
+        assert!(is_executable_file(Path::new("/bin/sh")));
+        assert!(!is_executable_file(Path::new(
+            "/definitely/not/a/real/path/xyz"
+        )));
+        // A directory is not an executable file.
+        assert!(!is_executable_file(Path::new("/usr")));
     }
 
     #[test]
