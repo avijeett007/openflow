@@ -200,6 +200,10 @@
           "meeting_capture": {
             "name": "會議擷取快速鍵",
             "description": "開始或停止擷取目前的會議。系統音訊會以最前景的應用程式（例如用於 Google Meet 的 Chrome）為目標。"
+          },
+          "hotkey_overlay": {
+            "name": "顯示熱鍵",
+            "description": "按住可顯示所有已設定熱鍵的速查表，放開即隱藏。"
           }
         },
         "errors": {
@@ -218,6 +222,29 @@
       "pushToTalk": {
         "label": "按住說話",
         "description": "按住錄製，放開停止"
+      },
+      "postProcessing": {
+        "title": "AI 後處理",
+        "master": {
+          "label": "AI 後處理",
+          "description": "在主熱鍵上用 AI 重塑你的語音輸入。關閉時，主熱鍵會原樣插入自然的轉錄文字；擁有自己熱鍵或應用程式規則的 AI 模式仍會運作。"
+        },
+        "defaultMode": {
+          "label": "預設模式",
+          "description": "開啟後處理時主熱鍵套用的模式。「Write」為內建清理。"
+        },
+        "writeMode": "Write（內建清理）",
+        "fillerFilter": {
+          "label": "移除填充詞",
+          "description": "不使用 AI，移除單獨的填充詞（um、uh、hmm）。僅套用於原始或直接語音輸入。"
+        }
+      },
+      "hotkeyOverview": {
+        "title": "熱鍵總覽",
+        "enable": {
+          "label": "顯示熱鍵浮層",
+          "description": "按住指定的熱鍵，顯示所有已設定快速鍵的速查表。"
+        }
       }
     },
     "models": {
@@ -984,6 +1011,23 @@
           "cancel": "取消",
           "confirm": "刪除"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "熱鍵",
+      "empty": "尚未設定任何熱鍵。",
+      "groups": {
+        "dictation": "語音輸入",
+        "aiModes": "AI 模式",
+        "agents": "代理程式",
+        "meetings": "會議"
+      },
+      "bindings": {
+        "transcribe": "轉錄",
+        "postProcess": "後處理",
+        "cancel": "取消",
+        "meetingCapture": "會議擷取",
+        "showHotkeys": "顯示熱鍵"
       }
     }
   },

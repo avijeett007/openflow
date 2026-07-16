@@ -218,6 +218,10 @@
           "meeting_capture": {
             "name": "Meeting-Aufnahme-Tastenkürzel",
             "description": "Aufnahme des aktuellen Meetings starten oder stoppen. Erfasst die Systemaudioausgabe der aktiven App (z. B. Chrome für Google Meet)."
+          },
+          "hotkey_overlay": {
+            "name": "Tastenkürzel anzeigen",
+            "description": "Gedrückt halten, um eine Übersicht aller konfigurierten Tastenkürzel anzuzeigen. Loslassen zum Ausblenden."
           }
         },
         "errors": {
@@ -236,6 +240,29 @@
       "pushToTalk": {
         "label": "Push-to-Talk",
         "description": "Gedrückt halten zum Aufnehmen, loslassen zum Stoppen"
+      },
+      "postProcessing": {
+        "title": "KI-Nachbearbeitung",
+        "master": {
+          "label": "KI-Nachbearbeitung",
+          "description": "Formt dein Diktat per KI über die Haupttaste. Wenn deaktiviert, fügt die Haupttaste die natürliche Transkription genau wie gesprochen ein – KI-Modi mit eigener Taste oder App-Regeln funktionieren weiterhin."
+        },
+        "defaultMode": {
+          "label": "Standardmodus",
+          "description": "Welchen Modus die Haupttaste anwendet, wenn die Nachbearbeitung aktiv ist. „Schreiben“ ist die integrierte Bereinigung."
+        },
+        "writeMode": "Schreiben (integrierte Bereinigung)",
+        "fillerFilter": {
+          "label": "Füllwörter entfernen",
+          "description": "Entfernt einzelne Füllwörter (äh, ähm, hmm) ohne KI. Gilt nur für rohe oder direkte Diktate."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Tastenkürzel-Übersicht",
+        "enable": {
+          "label": "Tastenkürzel-Overlay anzeigen",
+          "description": "Halte die zugewiesene Taste gedrückt, um eine Übersicht aller konfigurierten Tastenkürzel anzuzeigen."
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "Abbrechen",
           "confirm": "Löschen"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Tastenkürzel",
+      "empty": "Noch keine Tastenkürzel konfiguriert.",
+      "groups": {
+        "dictation": "Diktat",
+        "aiModes": "KI-Modi",
+        "agents": "Agenten",
+        "meetings": "Meetings"
+      },
+      "bindings": {
+        "transcribe": "Transkribieren",
+        "postProcess": "Nachbearbeitung",
+        "cancel": "Abbrechen",
+        "meetingCapture": "Meeting-Aufnahme",
+        "showHotkeys": "Tastenkürzel anzeigen"
       }
     }
   },

@@ -218,6 +218,10 @@
           "meeting_capture": {
             "name": "Scorciatoia cattura riunione",
             "description": "Avvia o interrompe la cattura della riunione corrente. Prende di mira l'app in primo piano (come Chrome per Google Meet) per l'audio di sistema."
+          },
+          "hotkey_overlay": {
+            "name": "Mostra scorciatoie",
+            "description": "Tieni premuto per mostrare un promemoria di tutte le scorciatoie configurate. Rilascia per nascondere."
           }
         },
         "errors": {
@@ -236,6 +240,29 @@
       "pushToTalk": {
         "label": "Premi per Parlare",
         "description": "Tieni premuto per parlare, rilascia per interrompere"
+      },
+      "postProcessing": {
+        "title": "Post-elaborazione IA",
+        "master": {
+          "label": "Post-elaborazione IA",
+          "description": "Rielabora la dettatura con l’IA sulla scorciatoia principale. Se disattivata, la scorciatoia principale inserisce la trascrizione naturale così come dettata; le modalità IA con scorciatoia propria o regole per app continuano a funzionare."
+        },
+        "defaultMode": {
+          "label": "Modalità predefinita",
+          "description": "Quale modalità applica la scorciatoia principale quando la post-elaborazione è attiva. Scrivi è la pulizia integrata."
+        },
+        "writeMode": "Scrivi (pulizia integrata)",
+        "fillerFilter": {
+          "label": "Rimuovi intercalari",
+          "description": "Rimuove gli intercalari isolati (ehm, uh, hmm) senza IA. Si applica solo alla dettatura grezza o diretta."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Panoramica scorciatoie",
+        "enable": {
+          "label": "Mostra pannello scorciatoie",
+          "description": "Tieni premuta la scorciatoia assegnata per mostrare un promemoria di tutte le scorciatoie configurate."
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "Annulla",
           "confirm": "Elimina"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Scorciatoie",
+      "empty": "Nessuna scorciatoia configurata.",
+      "groups": {
+        "dictation": "Dettatura",
+        "aiModes": "Modalità IA",
+        "agents": "Agenti",
+        "meetings": "Riunioni"
+      },
+      "bindings": {
+        "transcribe": "Trascrivi",
+        "postProcess": "Post-elaborazione",
+        "cancel": "Annulla",
+        "meetingCapture": "Cattura riunione",
+        "showHotkeys": "Mostra scorciatoie"
       }
     }
   },

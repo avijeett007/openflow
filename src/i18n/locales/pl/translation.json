@@ -218,6 +218,10 @@
           "meeting_capture": {
             "name": "Skrót przechwytywania spotkania",
             "description": "Rozpoczyna lub zatrzymuje przechwytywanie bieżącego spotkania. Kieruje na aplikację na pierwszym planie (np. Chrome dla Google Meet) w celu przechwycenia dźwięku systemowego."
+          },
+          "hotkey_overlay": {
+            "name": "Pokaż skróty",
+            "description": "Przytrzymaj, aby wyświetlić ściągę wszystkich skonfigurowanych skrótów. Zwolnij, aby ukryć."
           }
         },
         "errors": {
@@ -236,6 +240,29 @@
       "pushToTalk": {
         "label": "Push To Talk",
         "description": "Przytrzymaj, aby nagrywać, puść, aby zatrzymać"
+      },
+      "postProcessing": {
+        "title": "Przetwarzanie AI",
+        "master": {
+          "label": "Przetwarzanie AI",
+          "description": "Przekształcaj dyktowanie za pomocą AI głównym skrótem. Gdy wyłączone, główny skrót wstawia naturalną transkrypcję dokładnie tak, jak wypowiedziano — tryby AI z własnym skrótem lub regułami aplikacji nadal działają."
+        },
+        "defaultMode": {
+          "label": "Tryb domyślny",
+          "description": "Który tryb stosuje główny skrót, gdy przetwarzanie jest włączone. „Write” to wbudowane czyszczenie."
+        },
+        "writeMode": "Write (wbudowane czyszczenie)",
+        "fillerFilter": {
+          "label": "Usuń wtrącenia",
+          "description": "Usuwa pojedyncze wtrącenia (yy, eee, hmm) bez AI. Dotyczy tylko surowego lub bezpośredniego dyktowania."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Przegląd skrótów",
+        "enable": {
+          "label": "Pokaż nakładkę skrótów",
+          "description": "Przytrzymaj przypisany skrót, aby wyświetlić ściągę wszystkich skonfigurowanych skrótów."
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "Anuluj",
           "confirm": "Usuń"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Skróty",
+      "empty": "Nie skonfigurowano jeszcze żadnych skrótów.",
+      "groups": {
+        "dictation": "Dyktowanie",
+        "aiModes": "Tryby AI",
+        "agents": "Agenci",
+        "meetings": "Spotkania"
+      },
+      "bindings": {
+        "transcribe": "Transkrybuj",
+        "postProcess": "Przetwarzanie",
+        "cancel": "Anuluj",
+        "meetingCapture": "Przechwytywanie spotkania",
+        "showHotkeys": "Pokaż skróty"
       }
     }
   },

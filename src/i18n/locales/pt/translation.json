@@ -200,6 +200,10 @@
           "meeting_capture": {
             "name": "Atalho de captura de reunião",
             "description": "Inicia ou interrompe a captura da reunião atual. Direciona o app em primeiro plano (como o Chrome para o Google Meet) para o áudio do sistema."
+          },
+          "hotkey_overlay": {
+            "name": "Mostrar atalhos",
+            "description": "Mantenha pressionado para mostrar um resumo de todos os atalhos configurados. Solte para ocultar."
           }
         },
         "errors": {
@@ -218,6 +222,29 @@
       "pushToTalk": {
         "label": "Pressionar para Falar",
         "description": "Segure para gravar, solte para parar"
+      },
+      "postProcessing": {
+        "title": "Pós-processamento com IA",
+        "master": {
+          "label": "Pós-processamento com IA",
+          "description": "Reformula o seu ditado com IA na tecla principal. Quando desativado, a tecla principal insere a transcrição natural exatamente como falada; os modos de IA com a própria tecla ou regras de app continuam a funcionar."
+        },
+        "defaultMode": {
+          "label": "Modo padrão",
+          "description": "Qual modo a tecla principal aplica quando o pós-processamento está ativado. Escrever é a limpeza integrada."
+        },
+        "writeMode": "Escrever (limpeza integrada)",
+        "fillerFilter": {
+          "label": "Remover palavras de preenchimento",
+          "description": "Remove hesitações isoladas (hum, é, hmm) sem IA. Aplica-se apenas ao ditado bruto ou direto."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Visão geral de atalhos",
+        "enable": {
+          "label": "Mostrar painel de atalhos",
+          "description": "Mantenha pressionada a tecla atribuída para mostrar um resumo de todos os atalhos configurados."
+        }
       }
     },
     "models": {
@@ -984,6 +1011,23 @@
           "cancel": "Cancelar",
           "confirm": "Excluir"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Atalhos",
+      "empty": "Nenhum atalho configurado ainda.",
+      "groups": {
+        "dictation": "Ditado",
+        "aiModes": "Modos de IA",
+        "agents": "Agentes",
+        "meetings": "Reuniões"
+      },
+      "bindings": {
+        "transcribe": "Transcrever",
+        "postProcess": "Pós-processamento",
+        "cancel": "Cancelar",
+        "meetingCapture": "Captura de reunião",
+        "showHotkeys": "Mostrar atalhos"
       }
     }
   },

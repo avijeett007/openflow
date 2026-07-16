@@ -218,6 +218,10 @@
           "meeting_capture": {
             "name": "Phím tắt ghi cuộc họp",
             "description": "Bắt đầu hoặc dừng ghi cuộc họp hiện tại. Nhắm vào ứng dụng ở phía trước (như Chrome cho Google Meet) để lấy âm thanh hệ thống."
+          },
+          "hotkey_overlay": {
+            "name": "Hiển thị phím tắt",
+            "description": "Giữ để hiển thị bảng tra cứu mọi phím tắt đã cấu hình. Thả ra để ẩn."
           }
         },
         "errors": {
@@ -236,6 +240,29 @@
       "pushToTalk": {
         "label": "Nhấn để nói",
         "description": "Giữ để ghi âm, thả để dừng"
+      },
+      "postProcessing": {
+        "title": "Hậu xử lý bằng AI",
+        "master": {
+          "label": "Hậu xử lý bằng AI",
+          "description": "Định hình lại nội dung đọc chính tả bằng AI trên phím tắt chính. Khi tắt, phím tắt chính chèn bản ghi tự nhiên đúng như bạn nói — các chế độ AI có phím tắt riêng hoặc quy tắc ứng dụng vẫn hoạt động."
+        },
+        "defaultMode": {
+          "label": "Chế độ mặc định",
+          "description": "Chế độ mà phím tắt chính áp dụng khi bật hậu xử lý. Write là bản dọn dẹp tích hợp."
+        },
+        "writeMode": "Write (dọn dẹp tích hợp)",
+        "fillerFilter": {
+          "label": "Loại bỏ từ đệm",
+          "description": "Loại bỏ các từ đệm đứng riêng (ừm, à, hmm) mà không cần AI. Chỉ áp dụng cho đọc chính tả thô hoặc trực tiếp."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Tổng quan phím tắt",
+        "enable": {
+          "label": "Hiển thị lớp phủ phím tắt",
+          "description": "Giữ phím tắt được gán để hiển thị bảng tra cứu mọi phím tắt đã cấu hình."
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "Hủy",
           "confirm": "Xóa"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Phím tắt",
+      "empty": "Chưa cấu hình phím tắt nào.",
+      "groups": {
+        "dictation": "Đọc chính tả",
+        "aiModes": "Chế độ AI",
+        "agents": "Tác nhân",
+        "meetings": "Cuộc họp"
+      },
+      "bindings": {
+        "transcribe": "Phiên âm",
+        "postProcess": "Hậu xử lý",
+        "cancel": "Hủy",
+        "meetingCapture": "Ghi cuộc họp",
+        "showHotkeys": "Hiển thị phím tắt"
       }
     }
   },

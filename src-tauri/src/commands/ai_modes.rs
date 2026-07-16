@@ -183,6 +183,52 @@ pub async fn test_ai_mode(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Phase D: General-tab post-processing controls (D1) + cheat-sheet toggle (D2)
+// ---------------------------------------------------------------------------
+
+/// Set the default AI Mode applied on the main hotkey when post-processing is on.
+/// `None` (or an empty/whitespace string) = the built-in **Write** mode = today's
+/// cleanup path. `Some(id)` must reference an existing mode; unknown/disabled ids
+/// are accepted (stored) but degrade to Write at resolution time.
+#[tauri::command]
+#[specta::specta]
+pub fn set_default_ai_mode_id(app: AppHandle, mode_id: Option<String>) -> Result<(), String> {
+    let normalized = mode_id.and_then(|s| {
+        let t = s.trim().to_string();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t)
+        }
+    });
+    let mut settings = settings::get_settings(&app);
+    settings.default_ai_mode_id = normalized;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+/// Toggle the light, NON-AI basic filler filter (um/uh/… on Raw/Direct only).
+#[tauri::command]
+#[specta::specta]
+pub fn set_basic_filler_filter(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.basic_filler_filter = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+/// Toggle the hotkey cheat-sheet overlay master switch (D2). The `hotkey_overlay`
+/// binding ships unbound, so this only matters once the user assigns a hotkey.
+#[tauri::command]
+#[specta::specta]
+pub fn set_hotkey_overlay_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.hotkey_overlay_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

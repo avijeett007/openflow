@@ -218,6 +218,10 @@
           "meeting_capture": {
             "name": "Klávesová zkratka pro záznam schůzky",
             "description": "Spustí nebo zastaví záznam aktuální schůzky. Cílí na aplikaci v popředí (např. Chrome pro Google Meet) pro systémový zvuk."
+          },
+          "hotkey_overlay": {
+            "name": "Zobrazit zkratky",
+            "description": "Podržte pro zobrazení taháku všech nastavených zkratek. Uvolněte pro skrytí."
           }
         },
         "errors": {
@@ -236,6 +240,29 @@
       "pushToTalk": {
         "label": "Stisk a mluv",
         "description": "Podržte pro nahrávání, uvolněte pro zastavení"
+      },
+      "postProcessing": {
+        "title": "Následné zpracování AI",
+        "master": {
+          "label": "Následné zpracování AI",
+          "description": "Přetvořte diktování pomocí AI hlavní klávesovou zkratkou. Když je vypnuté, hlavní zkratka vloží přirozený přepis přesně tak, jak byl vysloven — režimy AI s vlastní zkratkou nebo pravidly aplikací fungují dál."
+        },
+        "defaultMode": {
+          "label": "Výchozí režim",
+          "description": "Který režim hlavní zkratka použije, když je následné zpracování zapnuté. „Write“ je vestavěné vyčištění."
+        },
+        "writeMode": "Write (vestavěné vyčištění)",
+        "fillerFilter": {
+          "label": "Odstranit výplňová slova",
+          "description": "Odstraní samostatná výplňová slova (ehm, hmm) bez AI. Platí jen pro surové nebo přímé diktování."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Přehled zkratek",
+        "enable": {
+          "label": "Zobrazit překryv zkratek",
+          "description": "Podržte přiřazenou zkratku pro zobrazení tahá­ku všech nastavených zkratek."
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "Zrušit",
           "confirm": "Smazat"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Zkratky",
+      "empty": "Zatím nejsou nastaveny žádné zkratky.",
+      "groups": {
+        "dictation": "Diktování",
+        "aiModes": "Režimy AI",
+        "agents": "Agenti",
+        "meetings": "Schůzky"
+      },
+      "bindings": {
+        "transcribe": "Přepsat",
+        "postProcess": "Následné zpracování",
+        "cancel": "Zrušit",
+        "meetingCapture": "Záznam schůzky",
+        "showHotkeys": "Zobrazit zkratky"
       }
     }
   },

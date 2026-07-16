@@ -218,6 +218,10 @@
           "meeting_capture": {
             "name": "会議キャプチャのショートカット",
             "description": "現在の会議のキャプチャを開始または停止します。システム音声は最前面のアプリ（Google Meet の場合は Chrome など）を対象にします。"
+          },
+          "hotkey_overlay": {
+            "name": "ホットキーを表示",
+            "description": "押し続けると設定済みのすべてのホットキーの一覧を表示します。離すと非表示になります。"
           }
         },
         "errors": {
@@ -236,6 +240,29 @@
       "pushToTalk": {
         "label": "プッシュトゥトーク",
         "description": "押し続けて録音、離して停止"
+      },
+      "postProcessing": {
+        "title": "AI 後処理",
+        "master": {
+          "label": "AI 後処理",
+          "description": "メインのホットキーで音声入力を AI が整えます。オフの場合、メインのホットキーは話したとおりの自然な文字起こしをそのまま入力します。独自のホットキーやアプリルールを持つ AI モードは引き続き動作します。"
+        },
+        "defaultMode": {
+          "label": "デフォルトモード",
+          "description": "後処理がオンのときにメインのホットキーが適用するモード。「Write」は組み込みのクリーンアップです。"
+        },
+        "writeMode": "Write（組み込みのクリーンアップ）",
+        "fillerFilter": {
+          "label": "フィラー語を削除",
+          "description": "AI を使わずに単独のフィラー語（um、uh、hmm）を除去します。生の入力またはダイレクト入力のみに適用されます。"
+        }
+      },
+      "hotkeyOverview": {
+        "title": "ホットキー一覧",
+        "enable": {
+          "label": "ホットキーのオーバーレイを表示",
+          "description": "割り当てたホットキーを押し続けると、設定済みのすべてのショートカットの一覧を表示します。"
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "キャンセル",
           "confirm": "削除"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "ホットキー",
+      "empty": "ホットキーはまだ設定されていません。",
+      "groups": {
+        "dictation": "音声入力",
+        "aiModes": "AI モード",
+        "agents": "エージェント",
+        "meetings": "会議"
+      },
+      "bindings": {
+        "transcribe": "文字起こし",
+        "postProcess": "後処理",
+        "cancel": "キャンセル",
+        "meetingCapture": "会議キャプチャ",
+        "showHotkeys": "ホットキーを表示"
       }
     }
   },

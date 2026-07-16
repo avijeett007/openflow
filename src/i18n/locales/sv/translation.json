@@ -200,6 +200,10 @@
           "meeting_capture": {
             "name": "Kortkommando för mötesinspelning",
             "description": "Starta eller stoppa inspelning av det aktuella mötet. Riktar in sig på appen i förgrunden (som Chrome för Google Meet) för systemljud."
+          },
+          "hotkey_overlay": {
+            "name": "Visa kortkommandon",
+            "description": "Håll in för att visa en lathund över alla konfigurerade kortkommandon. Släpp för att dölja."
           }
         },
         "errors": {
@@ -218,6 +222,29 @@
       "pushToTalk": {
         "label": "Tryck för att tala",
         "description": "Håll ned för att spela in, släpp för att stoppa"
+      },
+      "postProcessing": {
+        "title": "AI-efterbearbetning",
+        "master": {
+          "label": "AI-efterbearbetning",
+          "description": "Omforma din diktering med AI via huvudkortkommandot. När det är av infogar huvudkortkommandot naturlig transkribering exakt som du talade — AI-lägen med eget kortkommando eller appregler fortsätter fungera."
+        },
+        "defaultMode": {
+          "label": "Standardläge",
+          "description": "Vilket läge huvudkortkommandot tillämpar när efterbearbetning är på. Write är den inbyggda rensningen."
+        },
+        "writeMode": "Write (inbyggd rensning)",
+        "fillerFilter": {
+          "label": "Ta bort utfyllnadsord",
+          "description": "Tar bort enstaka utfyllnadsord (öh, eh, hmm) utan AI. Gäller endast rå eller direkt diktering."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Översikt över kortkommandon",
+        "enable": {
+          "label": "Visa kortkommando-överlägg",
+          "description": "Håll in det tilldelade kortkommandot för att visa en lathund över alla konfigurerade kortkommandon."
+        }
       }
     },
     "models": {
@@ -984,6 +1011,23 @@
           "cancel": "Avbryt",
           "confirm": "Ta bort"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Kortkommandon",
+      "empty": "Inga kortkommandon konfigurerade ännu.",
+      "groups": {
+        "dictation": "Diktering",
+        "aiModes": "AI-lägen",
+        "agents": "Agenter",
+        "meetings": "Möten"
+      },
+      "bindings": {
+        "transcribe": "Transkribera",
+        "postProcess": "Efterbearbetning",
+        "cancel": "Avbryt",
+        "meetingCapture": "Mötesinspelning",
+        "showHotkeys": "Visa kortkommandon"
       }
     }
   },

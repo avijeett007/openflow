@@ -204,6 +204,10 @@
           "meeting_capture": {
             "name": "Meeting Capture Hotkey",
             "description": "Start or stop capturing the current meeting. Targets the frontmost app (like Chrome for Google Meet) for system audio."
+          },
+          "hotkey_overlay": {
+            "name": "Show Hotkeys",
+            "description": "Hold to show a cheat-sheet of all configured hotkeys. Release to hide."
           }
         },
         "errors": {
@@ -222,6 +226,29 @@
       "pushToTalk": {
         "label": "Push To Talk",
         "description": "Hold to record, release to stop"
+      },
+      "postProcessing": {
+        "title": "AI post-processing",
+        "master": {
+          "label": "AI post-processing",
+          "description": "Reshape your dictation with AI on the main hotkey. When off, the main hotkey inserts natural transcription exactly as spoken — AI modes with their own hotkey or app rules keep working."
+        },
+        "defaultMode": {
+          "label": "Default mode",
+          "description": "Which mode the main hotkey applies when post-processing is on. Write is the built-in cleanup."
+        },
+        "writeMode": "Write (built-in cleanup)",
+        "fillerFilter": {
+          "label": "Remove filler words",
+          "description": "Strip standalone fillers (um, uh, hmm) without AI. Applies only to raw or direct dictation."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Hotkey overview",
+        "enable": {
+          "label": "Show hotkeys overlay",
+          "description": "Hold the assigned hotkey to show a cheat-sheet of every configured shortcut."
+        }
       }
     },
     "models": {
@@ -1229,6 +1256,23 @@
           "cancel": "Cancel",
           "confirm": "Delete"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Hotkeys",
+      "empty": "No hotkeys configured yet.",
+      "groups": {
+        "dictation": "Dictation",
+        "aiModes": "AI Modes",
+        "agents": "Agents",
+        "meetings": "Meetings"
+      },
+      "bindings": {
+        "transcribe": "Transcribe",
+        "postProcess": "Post-processing",
+        "cancel": "Cancel",
+        "meetingCapture": "Meeting capture",
+        "showHotkeys": "Show hotkeys"
       }
     }
   },

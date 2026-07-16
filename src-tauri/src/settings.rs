@@ -849,6 +849,31 @@ pub struct AppSettings {
     #[serde(default)]
     pub ai_modes: Vec<AiMode>,
 
+    // ---- Phase D: General-tab post-processing controls (D1) ----
+    /// The default AI Mode applied on the MAIN hotkey when post-processing is on
+    /// and no higher-precedence source (hotkey mode / app-rule mode / legacy
+    /// per-app prompt) matched. `None` = the built-in **Write** mode = today's
+    /// exact cleanup path (byte-for-byte unchanged). `Some(id)` points at an
+    /// enabled `ai_modes` entry that replaces the cleanup pass. Additive &
+    /// serde-defaulted: an old store deserializes to `None` → no behavior change.
+    #[serde(default)]
+    pub default_ai_mode_id: Option<String>,
+    /// Light, NON-AI filler filter. When `true`, standalone latin-script fillers
+    /// (um/uh/uhm/erm/hmm variants) are stripped from the injected text — but ONLY
+    /// for utterances that resolve to Raw (post-processing off) or a `Direct`
+    /// mode, never when an LLM cleanup/rewrite already runs. Default `false` = no
+    /// behavior change. See `audio_toolkit::text::strip_basic_fillers`.
+    #[serde(default)]
+    pub basic_filler_filter: bool,
+
+    // ---- Phase D: hotkey cheat-sheet overlay (D2) ----
+    /// Master switch for the "Show hotkeys" cheat-sheet overlay. Default `true` is
+    /// safe because the `hotkey_overlay` binding ships UNBOUND — there is zero
+    /// behavior until the user assigns it a hotkey. When bound, holding the hotkey
+    /// shows a panel of every configured shortcut.
+    #[serde(default = "default_true")]
+    pub hotkey_overlay_enabled: bool,
+
     // ---- OpenFlow Meetings (M1) ----
     /// Master switch for the meetings feature (capture + on-device transcription).
     /// Additive & fully defaultable; when false the detector never runs and manual
@@ -1346,6 +1371,21 @@ pub fn get_default_settings() -> AppSettings {
         },
     );
 
+    // Phase D: hotkey cheat-sheet. Seeded UNBOUND (empty) so there is zero new
+    // behavior until the user assigns a hotkey in Settings → General. HOLD
+    // semantics: the overlay shows on press and hides on release. Empty bindings
+    // are skipped by every registration loop, exactly like `meeting_capture`.
+    bindings.insert(
+        "hotkey_overlay".to_string(),
+        ShortcutBinding {
+            id: "hotkey_overlay".to_string(),
+            name: "Show Hotkeys".to_string(),
+            description: "Hold to show a cheat-sheet of all configured hotkeys.".to_string(),
+            default_binding: String::new(),
+            current_binding: String::new(),
+        },
+    );
+
     AppSettings {
         settings_schema_version: default_settings_schema_version(),
         bindings,
@@ -1423,6 +1463,9 @@ pub fn get_default_settings() -> AppSettings {
         hands_free_voice_feedback: default_hands_free_voice_feedback(),
         agents: Vec::new(),
         ai_modes: Vec::new(),
+        default_ai_mode_id: None,
+        basic_filler_filter: false,
+        hotkey_overlay_enabled: true,
         meetings_enabled: true,
         meeting_auto_detect: true,
         meeting_app_allowlist: default_meeting_app_allowlist(),
@@ -1729,8 +1772,38 @@ mod tests {
             "cmd+shift+d"
         );
 
+        // The Phase D `hotkey_overlay` binding is merged in the same pass, also
+        // seeded unbound — an upgrading user gets it without a fresh install.
+        let overlay = settings.bindings.get("hotkey_overlay").unwrap();
+        assert_eq!(overlay.current_binding, "");
+        assert_eq!(overlay.default_binding, "");
+
         // Idempotent: a second pass changes nothing further.
         assert!(!ensure_binding_defaults(&mut settings));
+    }
+
+    #[test]
+    fn phase_d_defaults_are_additive_and_nonbreaking() {
+        // A store persisted before Phase D carries none of the new keys; they
+        // must deserialize to the no-behavior-change defaults.
+        let raw = serde_json::json!({
+            "bindings": {},
+            "push_to_talk": true,
+            "audio_feedback": false
+        });
+        let settings: AppSettings =
+            serde_json::from_value(raw).expect("pre-Phase-D store should deserialize");
+        assert_eq!(settings.default_ai_mode_id, None);
+        assert!(!settings.basic_filler_filter);
+        // Cheat-sheet master defaults on, but the binding ships unbound so there
+        // is zero behavior until the user binds it.
+        assert!(settings.hotkey_overlay_enabled);
+
+        // Fresh-install defaults match.
+        let fresh = get_default_settings();
+        assert_eq!(fresh.default_ai_mode_id, None);
+        assert!(!fresh.basic_filler_filter);
+        assert!(fresh.hotkey_overlay_enabled);
     }
 
     #[cfg(not(target_os = "linux"))]

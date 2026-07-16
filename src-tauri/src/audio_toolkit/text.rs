@@ -578,6 +578,37 @@ pub fn filter_transcription_output(
     filtered.trim().to_string()
 }
 
+/// Conservative, NON-AI filler stripper for the Phase D "basic filler filter"
+/// (`AppSettings.basic_filler_filter`). Removes only standalone latin-script
+/// hesitation tokens — um / uh / uhm / erm / hmm and their elongated variants
+/// (umm, uhhh, hmmm, …) — leaving all other words untouched.
+///
+/// Deliberately narrower than [`filter_transcription_output`]: it runs on the
+/// RAW transcript for utterances that bypass the LLM (Raw / `Direct` modes), so
+/// it must never mangle real words. Word-boundary anchoring guarantees embedded
+/// substrings survive: "umbrella", "uhuru", "hum", "ohm", "term", "hmmm" as part
+/// of a larger token are all left alone because the whole `\b…\b` span must be
+/// exactly the filler. Case-insensitive. Adjacent whitespace left by a removed
+/// token is collapsed and the result is trimmed, so "well um yeah" → "well yeah"
+/// and "um hello" → "hello".
+static BASIC_FILLER_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    // Each alternative requires at least the canonical letters, with elongation
+    // allowed (u+h+, h+m+, …). Anchored with \b on both sides so only a token
+    // whose entirety is a filler matches.
+    Regex::new(r"(?i)\b(?:u+h+m+|u+m+|u+h+|e+r+m+|h+m+)\b").unwrap()
+});
+
+pub fn strip_basic_fillers(text: &str) -> String {
+    if text.is_empty() {
+        return text.to_string();
+    }
+    let stripped = BASIC_FILLER_PATTERN.replace_all(text, "");
+    // Collapse the doubled spaces a removed token leaves behind, then trim.
+    MULTI_SPACE_PATTERN
+        .replace_all(stripped.trim(), " ")
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1031,5 +1062,65 @@ mod tests {
         let entries = vec![entry("Hola", &["hola"])];
         let result = apply_dictionary("dice ¿hola mundo", &entries, 0.5);
         assert_eq!(result, "dice ¿Hola mundo");
+    }
+
+    // ---- Phase D: strip_basic_fillers (conservative, NON-AI) ----
+
+    #[test]
+    fn basic_fillers_removed_midsentence_and_collapsed() {
+        assert_eq!(strip_basic_fillers("well um yeah"), "well yeah");
+        assert_eq!(strip_basic_fillers("so uh I think"), "so I think");
+        assert_eq!(strip_basic_fillers("uhm let me see"), "let me see");
+        assert_eq!(strip_basic_fillers("erm maybe"), "maybe");
+        assert_eq!(strip_basic_fillers("hmm interesting"), "interesting");
+    }
+
+    #[test]
+    fn basic_fillers_leading_and_trailing_trimmed() {
+        assert_eq!(strip_basic_fillers("um hello"), "hello");
+        assert_eq!(strip_basic_fillers("hello um"), "hello");
+        assert_eq!(strip_basic_fillers("um"), "");
+        assert_eq!(strip_basic_fillers("  uh  "), "");
+    }
+
+    #[test]
+    fn basic_fillers_elongated_variants() {
+        assert_eq!(strip_basic_fillers("ummm okay"), "okay");
+        assert_eq!(strip_basic_fillers("uhhh right"), "right");
+        assert_eq!(strip_basic_fillers("hmmm nice"), "nice");
+        assert_eq!(strip_basic_fillers("uhmm sure"), "sure");
+    }
+
+    #[test]
+    fn basic_fillers_case_insensitive() {
+        assert_eq!(strip_basic_fillers("Um hello"), "hello");
+        assert_eq!(strip_basic_fillers("Well UH okay"), "Well okay");
+    }
+
+    #[test]
+    fn basic_fillers_false_positive_guards() {
+        // Real words that merely CONTAIN a filler substring must be untouched.
+        assert_eq!(strip_basic_fillers("umbrella"), "umbrella");
+        assert_eq!(strip_basic_fillers("uhuru"), "uhuru");
+        assert_eq!(strip_basic_fillers("hum a tune"), "hum a tune");
+        assert_eq!(strip_basic_fillers("ohm's law"), "ohm's law");
+        assert_eq!(strip_basic_fillers("the term ends"), "the term ends");
+        assert_eq!(
+            strip_basic_fillers("summarize the ummary"),
+            "summarize the ummary"
+        );
+        assert_eq!(
+            strip_basic_fillers("bring the umbrella uh now"),
+            "bring the umbrella now"
+        );
+    }
+
+    #[test]
+    fn basic_fillers_noop_on_clean_text() {
+        assert_eq!(
+            strip_basic_fillers("the quick brown fox"),
+            "the quick brown fox"
+        );
+        assert_eq!(strip_basic_fillers(""), "");
     }
 }

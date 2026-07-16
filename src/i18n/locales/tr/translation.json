@@ -218,6 +218,10 @@
           "meeting_capture": {
             "name": "Toplantı yakalama kısayolu",
             "description": "Geçerli toplantının yakalanmasını başlatır veya durdurur. Sistem sesi için öndeki uygulamayı (Google Meet için Chrome gibi) hedefler."
+          },
+          "hotkey_overlay": {
+            "name": "Kısayolları göster",
+            "description": "Yapılandırılmış tüm kısayolların özetini görmek için basılı tutun. Gizlemek için bırakın."
           }
         },
         "errors": {
@@ -236,6 +240,29 @@
       "pushToTalk": {
         "label": "Bas Konuş",
         "description": "Kaydetmek için basılı tutun, durdurmak için bırakın"
+      },
+      "postProcessing": {
+        "title": "Yapay zeka son işlemesi",
+        "master": {
+          "label": "Yapay zeka son işlemesi",
+          "description": "Ana kısayolla dikte metnini yapay zekayla yeniden biçimlendirin. Kapalıyken ana kısayol, söylendiği gibi doğal dökümü ekler; kendi kısayolu veya uygulama kuralları olan yapay zeka modları çalışmaya devam eder."
+        },
+        "defaultMode": {
+          "label": "Varsayılan mod",
+          "description": "Son işleme açıkken ana kısayolun uyguladığı mod. Write yerleşik temizlemedir."
+        },
+        "writeMode": "Write (yerleşik temizleme)",
+        "fillerFilter": {
+          "label": "Dolgu sözcüklerini kaldır",
+          "description": "Yapay zeka olmadan tek başına dolgu sözcüklerini (ıı, ee, hmm) kaldırır. Yalnızca ham veya doğrudan diktede geçerlidir."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Kısayol özeti",
+        "enable": {
+          "label": "Kısayol katmanını göster",
+          "description": "Yapılandırılmış tüm kısayolların özetini görmek için atanan kısayolu basılı tutun."
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "İptal",
           "confirm": "Sil"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Kısayollar",
+      "empty": "Henüz kısayol yapılandırılmadı.",
+      "groups": {
+        "dictation": "Dikte",
+        "aiModes": "Yapay zeka modları",
+        "agents": "Aracılar",
+        "meetings": "Toplantılar"
+      },
+      "bindings": {
+        "transcribe": "Deşifre et",
+        "postProcess": "Son işleme",
+        "cancel": "İptal",
+        "meetingCapture": "Toplantı kaydı",
+        "showHotkeys": "Kısayolları göster"
       }
     }
   },

@@ -200,6 +200,10 @@
           "meeting_capture": {
             "name": "회의 캡처 단축키",
             "description": "현재 회의 캡처를 시작하거나 중지합니다. 시스템 오디오는 맨 앞 앱(예: Google Meet의 경우 Chrome)을 대상으로 합니다."
+          },
+          "hotkey_overlay": {
+            "name": "단축키 표시",
+            "description": "누르고 있으면 설정된 모든 단축키의 요약을 표시합니다. 놓으면 숨겨집니다."
           }
         },
         "errors": {
@@ -218,6 +222,29 @@
       "pushToTalk": {
         "label": "녹음 중 단축키 홀딩",
         "description": "누르고 있으면 녹음, 놓으면 정지"
+      },
+      "postProcessing": {
+        "title": "AI 후처리",
+        "master": {
+          "label": "AI 후처리",
+          "description": "기본 단축키에서 AI가 받아쓴 내용을 다듬습니다. 끄면 기본 단축키는 말한 그대로의 자연스러운 전사를 삽입합니다. 자체 단축키나 앱 규칙이 있는 AI 모드는 계속 작동합니다."
+        },
+        "defaultMode": {
+          "label": "기본 모드",
+          "description": "후처리가 켜져 있을 때 기본 단축키가 적용하는 모드입니다. Write는 내장 정리 기능입니다."
+        },
+        "writeMode": "Write(내장 정리)",
+        "fillerFilter": {
+          "label": "군말 제거",
+          "description": "AI 없이 단독 군말(음, 어, 흠)을 제거합니다. 원본 또는 직접 받아쓰기에만 적용됩니다."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "단축키 개요",
+        "enable": {
+          "label": "단축키 오버레이 표시",
+          "description": "지정한 단축키를 누르고 있으면 설정된 모든 단축키의 요약을 표시합니다."
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "취소",
           "confirm": "삭제"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "단축키",
+      "empty": "아직 설정된 단축키가 없습니다.",
+      "groups": {
+        "dictation": "받아쓰기",
+        "aiModes": "AI 모드",
+        "agents": "에이전트",
+        "meetings": "회의"
+      },
+      "bindings": {
+        "transcribe": "전사",
+        "postProcess": "후처리",
+        "cancel": "취소",
+        "meetingCapture": "회의 캡처",
+        "showHotkeys": "단축키 표시"
       }
     }
   },

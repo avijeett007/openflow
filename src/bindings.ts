@@ -989,6 +989,43 @@ async getRunningApps() : Promise<RunningApp[]> {
     return await TAURI_INVOKE("get_running_apps");
 },
 /**
+ * Set the default AI Mode applied on the main hotkey when post-processing is on.
+ * `None` (or an empty/whitespace string) = the built-in **Write** mode = today's
+ * cleanup path. `Some(id)` must reference an existing mode; unknown/disabled ids
+ * are accepted (stored) but degrade to Write at resolution time.
+ */
+async setDefaultAiModeId(modeId: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_default_ai_mode_id", { modeId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle the light, NON-AI basic filler filter (um/uh/… on Raw/Direct only).
+ */
+async setBasicFillerFilter(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_basic_filler_filter", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle the hotkey cheat-sheet overlay master switch (D2). The `hotkey_overlay`
+ * binding ships unbound, so this only matters once the user assigns a hotkey.
+ */
+async setHotkeyOverlayEnabled(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_hotkey_overlay_enabled", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Resolve a CLI agent's binary path by looking up its canonical name on PATH
  * (`which`-style). Returns the absolute path, or an error if not found. The
  * PATH searched is the baseline-augmented one (Homebrew etc.), matching how the
@@ -1747,6 +1784,30 @@ agents?: AgentDefinition[];
  * existing `post_process_*` settings and is only *presented* as a mode.
  */
 ai_modes?: AiMode[]; 
+/**
+ * The default AI Mode applied on the MAIN hotkey when post-processing is on
+ * and no higher-precedence source (hotkey mode / app-rule mode / legacy
+ * per-app prompt) matched. `None` = the built-in **Write** mode = today's
+ * exact cleanup path (byte-for-byte unchanged). `Some(id)` points at an
+ * enabled `ai_modes` entry that replaces the cleanup pass. Additive &
+ * serde-defaulted: an old store deserializes to `None` → no behavior change.
+ */
+default_ai_mode_id?: string | null; 
+/**
+ * Light, NON-AI filler filter. When `true`, standalone latin-script fillers
+ * (um/uh/uhm/erm/hmm variants) are stripped from the injected text — but ONLY
+ * for utterances that resolve to Raw (post-processing off) or a `Direct`
+ * mode, never when an LLM cleanup/rewrite already runs. Default `false` = no
+ * behavior change. See `audio_toolkit::text::strip_basic_fillers`.
+ */
+basic_filler_filter?: boolean; 
+/**
+ * Master switch for the "Show hotkeys" cheat-sheet overlay. Default `true` is
+ * safe because the `hotkey_overlay` binding ships UNBOUND — there is zero
+ * behavior until the user assigns it a hotkey. When bound, holding the hotkey
+ * shows a panel of every configured shortcut.
+ */
+hotkey_overlay_enabled?: boolean; 
 /**
  * Master switch for the meetings feature (capture + on-device transcription).
  * Additive & fully defaultable; when false the detector never runs and manual

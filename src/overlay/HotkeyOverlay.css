@@ -1,0 +1,147 @@
+/* Phase D2: hotkey cheat-sheet overlay — calm, premium, theme-aware. Rendered in
+   its own transparent webview window (label "hotkey_overlay"), separate from the
+   recording overlay so their styles never collide. */
+
+.hk-stage {
+  --hk-bg: rgba(252, 252, 253, 0.92);
+  --hk-border: rgba(0, 0, 0, 0.08);
+  --hk-shadow: rgba(15, 23, 42, 0.18);
+  --hk-title: #0f172a;
+  --hk-group: #64748b;
+  --hk-name: #1e293b;
+  --hk-key-bg: rgba(15, 23, 42, 0.06);
+  --hk-key-border: rgba(15, 23, 42, 0.12);
+  --hk-key-text: #334155;
+  --hk-empty: #94a3b8;
+
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 12px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  opacity: 0;
+  transform: scale(0.98);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+  pointer-events: none;
+}
+
+.hk-stage.show {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .hk-stage {
+    --hk-bg: rgba(17, 20, 27, 0.94);
+    --hk-border: rgba(255, 255, 255, 0.08);
+    --hk-shadow: rgba(0, 0, 0, 0.45);
+    --hk-title: #f1f5f9;
+    --hk-group: #94a3b8;
+    --hk-name: #e2e8f0;
+    --hk-key-bg: rgba(255, 255, 255, 0.07);
+    --hk-key-border: rgba(255, 255, 255, 0.14);
+    --hk-key-text: #cbd5e1;
+    --hk-empty: #64748b;
+  }
+}
+
+.hk-card {
+  width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--hk-bg);
+  border: 1px solid var(--hk-border);
+  border-radius: 16px;
+  box-shadow: 0 18px 48px var(--hk-shadow);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  overflow: hidden;
+}
+
+.hk-header {
+  padding: 14px 18px 10px;
+  flex: 0 0 auto;
+}
+
+.hk-title {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--hk-title);
+}
+
+.hk-body {
+  padding: 0 18px 16px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  scrollbar-width: thin;
+}
+
+.hk-group {
+  margin-top: 12px;
+}
+
+.hk-group:first-child {
+  margin-top: 2px;
+}
+
+.hk-group-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--hk-group);
+  margin-bottom: 6px;
+}
+
+.hk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.hk-name {
+  font-size: 13px;
+  color: var(--hk-name);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hk-combo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.hk-key {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1;
+  color: var(--hk-key-text);
+  background: var(--hk-key-bg);
+  border: 1px solid var(--hk-key-border);
+  border-radius: 6px;
+  padding: 4px 7px;
+  min-width: 10px;
+  text-align: center;
+}
+
+.hk-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--hk-empty);
+}

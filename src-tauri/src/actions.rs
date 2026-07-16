@@ -228,6 +228,9 @@ pub(crate) enum ModeSource {
     HotkeyMode,
     AppRuleMode,
     LegacyPerAppPrompt,
+    /// Phase D: post-processing is on and the user picked a non-Write "default
+    /// mode" — that `ai_mode` replaces the legacy cleanup pass on the main hotkey.
+    DefaultMode,
     DefaultCleanup,
     Raw,
 }
@@ -246,12 +249,19 @@ pub(crate) struct ModeResolution {
 ///    the app captured at press time.
 /// 3. `LegacyPerAppPrompt` — cleanup will run AND a `per_app_prompts` entry
 ///    matches (unchanged legacy behavior).
-/// 4. `DefaultCleanup` — cleanup will run with the selected prompt.
-/// 5. `Raw` — no cleanup; inject the raw transcript.
+/// 4. `DefaultMode` — cleanup is on, no higher-precedence source matched, and the
+///    user selected a non-Write "default mode" (`default_ai_mode_id`) that exists
+///    and is enabled. That mode replaces the legacy cleanup pass (Phase D). Only
+///    consulted on the main hotkey (`mode_id` is `None`).
+/// 5. `DefaultCleanup` — cleanup will run with the selected prompt (Write mode;
+///    today's exact behavior).
+/// 6. `Raw` — no cleanup; inject the raw transcript.
 ///
-/// Only sources 1 and 2 alter behavior; 3–5 all route through the unchanged
-/// [`process_transcription_output`] path, so with no modes matching the pipeline
-/// is byte-for-byte identical to before AI modes existed.
+/// Only sources 1, 2 and 4 carry a mode; 3/5/6 route through the unchanged
+/// [`process_transcription_output`] path, so with `default_ai_mode_id` unset and
+/// no modes matching the pipeline is byte-for-byte identical to before AI modes
+/// existed. The default mode sits BELOW the legacy per-app prompt so configured
+/// per-app cleanup overrides are preserved exactly.
 pub(crate) fn resolve_ai_mode(
     settings: &AppSettings,
     mode_id: Option<&str>,
@@ -290,19 +300,52 @@ pub(crate) fn resolve_ai_mode(
         }
     }
 
-    // 3–5. Today's behavior, unchanged. The distinction here is only for the
-    // debug log; all three route through process_transcription_output.
+    // 3–6. Cleanup-on / off. When cleanup is on, a legacy per-app prompt wins
+    // (unchanged), then a selected non-Write default mode replaces cleanup
+    // (Phase D), else today's default cleanup. When cleanup is off, Raw.
     if post_process {
+        // 3. Legacy per-app cleanup prompt — highest cleanup precedence, and its
+        //    presence is preserved byte-for-byte (routes through cleanup).
         let legacy_hit = target
             .map(|t| resolve_per_app_prompt(settings, &t.app_name).is_some())
             .unwrap_or(false);
-        let source = if legacy_hit {
-            ModeSource::LegacyPerAppPrompt
-        } else {
-            ModeSource::DefaultCleanup
-        };
-        ModeResolution { source, mode: None }
+        if legacy_hit {
+            return ModeResolution {
+                source: ModeSource::LegacyPerAppPrompt,
+                mode: None,
+            };
+        }
+
+        // 4. Default mode (Phase D): only on the main hotkey (mode_id is None).
+        //    `None`/unknown/disabled → fall through to Write (DefaultCleanup),
+        //    so an unset `default_ai_mode_id` is today's exact behavior.
+        if mode_id.is_none() {
+            if let Some(id) = settings
+                .default_ai_mode_id
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
+                if let Some(mode) = settings
+                    .ai_modes
+                    .iter()
+                    .find(|m| m.id == id && m.enabled)
+                    .cloned()
+                {
+                    return ModeResolution {
+                        source: ModeSource::DefaultMode,
+                        mode: Some(mode),
+                    };
+                }
+            }
+        }
+
+        // 5. Default cleanup (built-in Write) — today's exact behavior.
+        ModeResolution {
+            source: ModeSource::DefaultCleanup,
+            mode: None,
+        }
     } else {
+        // 6. Raw — no cleanup.
         ModeResolution {
             source: ModeSource::Raw,
             mode: None,
@@ -1235,7 +1278,19 @@ pub(crate) async fn finish_dictation(
                 .map(|t| (t.bundle_id.as_str(), t.app_name.as_str())),
         );
     }
+    let mode_source = mode_resolution.as_ref().map(|r| r.source);
     let active_mode = mode_resolution.and_then(|r| r.mode);
+    // Phase D basic filler filter: a light, NON-AI strip of standalone latin
+    // fillers (um/uh/…), applied ONLY to utterances that bypass the LLM — Raw
+    // (post-processing off) or a `Direct` mode. Never runs when cleanup or a
+    // Rewrite/Command mode already reshapes the text. Default-off, so this is a
+    // no-op unless the user turns it on.
+    let is_direct_mode = active_mode
+        .as_ref()
+        .map(|m| m.kind == AiModeKind::Direct)
+        .unwrap_or(false);
+    let apply_basic_filler = get_settings(&ah).basic_filler_filter
+        && (mode_source == Some(ModeSource::Raw) || is_direct_mode);
     // A mode that calls an LLM needs the "working" overlay (like cleanup); a
     // Direct mode injects immediately and needs no spinner.
     let mode_needs_llm = active_mode
@@ -1296,7 +1351,7 @@ pub(crate) async fn finish_dictation(
     // Agent runs replace the cleanup pass with the agent LLM transform and honor
     // the agent's output mode; an active AI mode replaces cleanup with the mode
     // transform (always Inject); everything else uses the normal cleanup path.
-    let (processed, output_mode) = if let Some(agent) = agent.clone() {
+    let (mut processed, output_mode) = if let Some(agent) = agent.clone() {
         let mode = agent.output_mode.clone();
         let processed = match run_agent_transform(&ah, &agent, &raw_text).await {
             Ok(text) => ProcessedTranscription {
@@ -1336,6 +1391,12 @@ pub(crate) async fn finish_dictation(
             AgentOutputMode::Inject,
         )
     };
+    // Phase D: strip standalone fillers from the injected text for Raw/Direct
+    // utterances (no LLM ran). Only the injected text is touched — history and
+    // analytics keep the true raw transcript. No-op when the flag is off.
+    if apply_basic_filler {
+        processed.final_text = crate::audio_toolkit::strip_basic_fillers(&processed.final_text);
+    }
     let cleanup_latency_ms = if post_process || agent_active || mode_needs_llm {
         cleanup_start.elapsed().as_millis() as i64
     } else {
@@ -2078,6 +2139,32 @@ impl ShortcutAction for MeetingCaptureAction {
     }
 }
 
+// Hotkey cheat-sheet overlay (Phase D2)
+//
+// HOLD semantics, mirroring hold-to-talk: the shortcut handler calls `start` on
+// key PRESS and `stop` on key RELEASE for non-transcribe bindings, so we show the
+// cheat-sheet panel in `start` and hide it in `stop`. `show_hotkey_overlay` is
+// idempotent, so OS key auto-repeat (repeated Pressed while held) just keeps it
+// shown; the single Released hides it. A 30s failsafe inside `show_hotkey_overlay`
+// guards against a missed release.
+struct HotkeyOverlayAction;
+
+impl ShortcutAction for HotkeyOverlayAction {
+    fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        // Respect the master switch; the binding may be bound while the feature
+        // is toggled off.
+        if get_settings(app).hotkey_overlay_enabled {
+            utils::show_hotkey_overlay(app);
+        }
+    }
+
+    fn stop(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        // Hide on release regardless of the setting, so flipping the toggle mid-
+        // hold can never strand a visible overlay.
+        utils::hide_hotkey_overlay(app);
+    }
+}
+
 // Static Action Map
 pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -2103,6 +2190,10 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
         "meeting_capture".to_string(),
         Arc::new(MeetingCaptureAction::new()) as Arc<dyn ShortcutAction>,
     );
+    map.insert(
+        "hotkey_overlay".to_string(),
+        Arc::new(HotkeyOverlayAction) as Arc<dyn ShortcutAction>,
+    );
     map
 });
 
@@ -2112,7 +2203,8 @@ mod tests {
         app_rules_match, build_mode_system_prompt, build_system_prompt,
         dictionary_vocabulary_block, is_blank_transcription, mode_requires_llm,
         resolve_agent_api_key_with, resolve_ai_mode, strip_command_fences,
-        strip_leaked_vocabulary_block, CapturedTarget, ModeSource, VOCABULARY_BLOCK_MAX_CHARS,
+        strip_leaked_vocabulary_block, CapturedTarget, ModeSource, ACTION_MAP,
+        VOCABULARY_BLOCK_MAX_CHARS,
     };
     use crate::settings::{
         AgentDefinition, AgentKind, AgentOutputMode, AgentOutputSink, DictionaryEntry,
@@ -2561,5 +2653,132 @@ mod tests {
         let e = build_mode_system_prompt(AiModeKind::Rewrite, "");
         assert!(e.contains("dictation post-processor"));
         assert!(!e.contains("Style instructions:"));
+    }
+
+    // ---- Phase D1: default-mode funnel generalization ----
+
+    #[test]
+    fn funnel_default_mode_replaces_cleanup_when_selected() {
+        // Master ON + a selected non-Write default mode + no higher-precedence
+        // source → the default mode handles the utterance.
+        let mut settings = get_default_settings();
+        settings
+            .ai_modes
+            .push(ai_mode("formal", AiModeKind::Rewrite, &[]));
+        settings.default_ai_mode_id = Some("formal".to_string());
+        let res = resolve_ai_mode(&settings, None, None, true);
+        assert_eq!(res.source, ModeSource::DefaultMode);
+        assert_eq!(res.mode.unwrap().id, "formal");
+    }
+
+    #[test]
+    fn funnel_default_mode_none_is_legacy_cleanup() {
+        // default_ai_mode_id unset (the serde default) → today's exact behavior.
+        let settings = get_default_settings();
+        assert!(settings.default_ai_mode_id.is_none());
+        let res = resolve_ai_mode(&settings, None, None, true);
+        assert_eq!(res.source, ModeSource::DefaultCleanup);
+        assert!(res.mode.is_none());
+    }
+
+    #[test]
+    fn funnel_default_mode_unknown_or_disabled_falls_back_to_write() {
+        // Points at a missing mode → Write (DefaultCleanup), never an error.
+        let mut settings = get_default_settings();
+        settings.default_ai_mode_id = Some("ghost".to_string());
+        assert_eq!(
+            resolve_ai_mode(&settings, None, None, true).source,
+            ModeSource::DefaultCleanup
+        );
+        // Points at a disabled mode → also Write.
+        let mut disabled = ai_mode("formal", AiModeKind::Rewrite, &[]);
+        disabled.enabled = false;
+        settings.ai_modes.push(disabled);
+        settings.default_ai_mode_id = Some("formal".to_string());
+        assert_eq!(
+            resolve_ai_mode(&settings, None, None, true).source,
+            ModeSource::DefaultCleanup
+        );
+    }
+
+    #[test]
+    fn funnel_default_mode_yields_to_higher_precedence() {
+        let mut settings = get_default_settings();
+        settings
+            .ai_modes
+            .push(ai_mode("formal", AiModeKind::Rewrite, &[]));
+        settings
+            .ai_modes
+            .push(ai_mode("cmd", AiModeKind::Command, &["terminal"]));
+        settings.default_ai_mode_id = Some("formal".to_string());
+        let t = target("com.apple.Terminal", "Terminal");
+
+        // Hotkey mode beats the default mode.
+        assert_eq!(
+            resolve_ai_mode(&settings, Some("cmd"), None, true).source,
+            ModeSource::HotkeyMode
+        );
+        // App-rule mode beats the default mode.
+        assert_eq!(
+            resolve_ai_mode(&settings, None, Some(&t), true).source,
+            ModeSource::AppRuleMode
+        );
+        // Legacy per-app prompt beats the default mode (preserves existing
+        // per-app cleanup overrides exactly).
+        settings
+            .per_app_prompts
+            .insert("chrome".to_string(), "Be terse.".to_string());
+        let chrome = target("com.google.Chrome", "Google Chrome");
+        assert_eq!(
+            resolve_ai_mode(&settings, None, Some(&chrome), true).source,
+            ModeSource::LegacyPerAppPrompt
+        );
+    }
+
+    #[test]
+    fn funnel_master_off_is_raw_but_hotkey_and_app_rule_modes_still_fire() {
+        // The D1 contract: master OFF → main hotkey is Raw, yet explicit
+        // hotkey-bound and app-rule modes are user intent and STILL fire.
+        let mut settings = get_default_settings();
+        settings
+            .ai_modes
+            .push(ai_mode("translate", AiModeKind::Rewrite, &[]));
+        settings
+            .ai_modes
+            .push(ai_mode("cmd", AiModeKind::Command, &["terminal"]));
+        settings.default_ai_mode_id = Some("translate".to_string());
+        let t = target("com.apple.Terminal", "Terminal");
+
+        // Main hotkey, cleanup OFF, no app match → Raw (default mode suppressed).
+        let chrome = target("com.google.Chrome", "Google Chrome");
+        assert_eq!(
+            resolve_ai_mode(&settings, None, Some(&chrome), false).source,
+            ModeSource::Raw
+        );
+        // Hotkey mode fires regardless of the master toggle.
+        assert_eq!(
+            resolve_ai_mode(&settings, Some("translate"), None, false).source,
+            ModeSource::HotkeyMode
+        );
+        // App-rule mode fires regardless of the master toggle.
+        assert_eq!(
+            resolve_ai_mode(&settings, None, Some(&t), false).source,
+            ModeSource::AppRuleMode
+        );
+    }
+
+    #[test]
+    fn hotkey_overlay_binding_is_seeded_unbound() {
+        let settings = get_default_settings();
+        let b = settings
+            .bindings
+            .get("hotkey_overlay")
+            .expect("hotkey_overlay must be present in default bindings");
+        assert!(b.default_binding.is_empty());
+        assert!(b.current_binding.is_empty());
+        // Default-on master switch is safe because the binding ships unbound.
+        assert!(settings.hotkey_overlay_enabled);
+        // And it has a real action wired.
+        assert!(ACTION_MAP.contains_key("hotkey_overlay"));
     }
 }

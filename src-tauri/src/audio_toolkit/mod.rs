@@ -10,7 +10,7 @@ pub use audio::{
 };
 pub use text::{
     apply_custom_words, apply_dictionary, apply_dictionary_aliases_only,
-    filter_transcription_output,
+    filter_transcription_output, strip_basic_fillers,
 };
 pub use utils::get_cpal_host;
 pub use vad::{SileroVad, VoiceActivityDetector};

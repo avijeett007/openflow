@@ -218,6 +218,10 @@
           "meeting_capture": {
             "name": "Raccourci de capture de réunion",
             "description": "Démarre ou arrête la capture de la réunion en cours. Cible l'application au premier plan (comme Chrome pour Google Meet) pour l'audio système."
+          },
+          "hotkey_overlay": {
+            "name": "Afficher les raccourcis",
+            "description": "Maintenez pour afficher un aide-mémoire de tous les raccourcis configurés. Relâchez pour masquer."
           }
         },
         "errors": {
@@ -236,6 +240,29 @@
       "pushToTalk": {
         "label": "Appuyer pour parler",
         "description": "Maintenez pour enregistrer, relâchez pour arrêter"
+      },
+      "postProcessing": {
+        "title": "Post-traitement par IA",
+        "master": {
+          "label": "Post-traitement par IA",
+          "description": "Reformule votre dictée par IA sur le raccourci principal. Désactivé, le raccourci principal insère la transcription naturelle telle que dictée ; les modes IA avec leur propre raccourci ou règles d’application continuent de fonctionner."
+        },
+        "defaultMode": {
+          "label": "Mode par défaut",
+          "description": "Le mode appliqué par le raccourci principal lorsque le post-traitement est activé. Écrire est le nettoyage intégré."
+        },
+        "writeMode": "Écrire (nettoyage intégré)",
+        "fillerFilter": {
+          "label": "Supprimer les mots de remplissage",
+          "description": "Supprime les hésitations isolées (euh, hum, hmm) sans IA. S’applique uniquement à la dictée brute ou directe."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Aperçu des raccourcis",
+        "enable": {
+          "label": "Afficher la fiche des raccourcis",
+          "description": "Maintenez le raccourci attribué pour afficher un aide-mémoire de tous les raccourcis configurés."
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "Annuler",
           "confirm": "Supprimer"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Raccourcis",
+      "empty": "Aucun raccourci configuré pour l’instant.",
+      "groups": {
+        "dictation": "Dictée",
+        "aiModes": "Modes IA",
+        "agents": "Agents",
+        "meetings": "Réunions"
+      },
+      "bindings": {
+        "transcribe": "Transcrire",
+        "postProcess": "Post-traitement",
+        "cancel": "Annuler",
+        "meetingCapture": "Capture de réunion",
+        "showHotkeys": "Afficher les raccourcis"
       }
     }
   },

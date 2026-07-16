@@ -218,6 +218,10 @@
           "meeting_capture": {
             "name": "Atajo de captura de reunión",
             "description": "Inicia o detiene la captura de la reunión actual. Apunta a la app en primer plano (como Chrome para Google Meet) para el audio del sistema."
+          },
+          "hotkey_overlay": {
+            "name": "Mostrar atajos",
+            "description": "Mantén pulsado para ver una chuleta de todos los atajos configurados. Suelta para ocultar."
           }
         },
         "errors": {
@@ -236,6 +240,29 @@
       "pushToTalk": {
         "label": "Presionar para Hablar",
         "description": "Mantén presionado para grabar, suelta para detener"
+      },
+      "postProcessing": {
+        "title": "Posprocesamiento con IA",
+        "master": {
+          "label": "Posprocesamiento con IA",
+          "description": "Reformula tu dictado con IA en la tecla principal. Cuando está desactivado, la tecla principal inserta la transcripción natural tal como se habló; los modos de IA con su propia tecla o reglas de app siguen funcionando."
+        },
+        "defaultMode": {
+          "label": "Modo predeterminado",
+          "description": "Qué modo aplica la tecla principal cuando el posprocesamiento está activado. Escribir es la limpieza integrada."
+        },
+        "writeMode": "Escribir (limpieza integrada)",
+        "fillerFilter": {
+          "label": "Eliminar muletillas",
+          "description": "Elimina muletillas sueltas (em, eh, mmm) sin IA. Solo se aplica al dictado sin procesar o directo."
+        }
+      },
+      "hotkeyOverview": {
+        "title": "Resumen de atajos",
+        "enable": {
+          "label": "Mostrar panel de atajos",
+          "description": "Mantén pulsada la tecla asignada para ver una chuleta de todos los atajos configurados."
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "Cancelar",
           "confirm": "Eliminar"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "Atajos",
+      "empty": "Aún no hay atajos configurados.",
+      "groups": {
+        "dictation": "Dictado",
+        "aiModes": "Modos de IA",
+        "agents": "Agentes",
+        "meetings": "Reuniones"
+      },
+      "bindings": {
+        "transcribe": "Transcribir",
+        "postProcess": "Posprocesamiento",
+        "cancel": "Cancelar",
+        "meetingCapture": "Captura de reunión",
+        "showHotkeys": "Mostrar atajos"
       }
     }
   },

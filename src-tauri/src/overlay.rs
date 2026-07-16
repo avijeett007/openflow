@@ -1,7 +1,7 @@
 use crate::input;
 use crate::settings;
 use crate::settings::{OverlayPosition, OverlayStyle};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 #[cfg(not(target_os = "macos"))]
@@ -32,6 +32,11 @@ tauri_panel! {
     })
 }
 
+// Phase D2: the hotkey cheat-sheet is a SEPARATE window (label "hotkey_overlay")
+// so it never disturbs the recording overlay's state machine, but it reuses the
+// same floating-panel wrapper type — `tauri_panel!` can only be expanded once per
+// module (it imports NSEvent et al. at module scope).
+
 // Native overlay window sizes (logical points). One window is reused for every
 // state and resized in `show_overlay_state`; each size need only be at least as
 // large as the card it hosts (the `--ov-*` vars in RecordingOverlay.css). The
@@ -48,6 +53,19 @@ const OVERLAY_HEIGHT: f64 = 46.0;
 // Actual is 394x118, just a little extra
 const OVERLAY_STREAM_WIDTH: f64 = 400.0;
 const OVERLAY_STREAM_HEIGHT: f64 = 120.0;
+
+// Hotkey cheat-sheet overlay (Phase D2): a centered panel, capped in height with
+// internal scroll on the web side. Sized generously; the card centers itself.
+const HOTKEY_OVERLAY_WIDTH: f64 = 460.0;
+const HOTKEY_OVERLAY_HEIGHT: f64 = 560.0;
+
+/// Auto-hide the cheat-sheet after this long even if a key-release event was
+/// somehow never delivered (defensive; hold-to-show is the normal path).
+const HOTKEY_OVERLAY_FAILSAFE_SECS: u64 = 30;
+
+// Bumped on every show AND hide of the hotkey overlay so a stale 30s failsafe
+// thread can detect it was superseded and skip hiding.
+static HOTKEY_OVERLAY_GEN: AtomicU64 = AtomicU64::new(0);
 
 /// Overlay window size (logical) for a given UI state.
 fn overlay_dimensions(state: &str) -> (f64, f64) {
@@ -352,6 +370,146 @@ pub fn create_recording_overlay(app_handle: &AppHandle) {
                 log::error!("Failed to create recording overlay panel: {}", e);
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase D2: hotkey cheat-sheet overlay (separate window from the recording one)
+// ---------------------------------------------------------------------------
+
+/// Centered position (logical points) on the monitor under the cursor, for the
+/// cheat-sheet panel. Falls back to `None` when no monitor can be resolved.
+fn calculate_centered_position(
+    app_handle: &AppHandle,
+    width: f64,
+    height: f64,
+) -> Option<(f64, f64)> {
+    let monitor = get_monitor_with_cursor(app_handle)?;
+    let scale = monitor.scale_factor();
+    let monitor_x = monitor.position().x as f64 / scale;
+    let monitor_y = monitor.position().y as f64 / scale;
+    let monitor_width = monitor.size().width as f64 / scale;
+    let monitor_height = monitor.size().height as f64 / scale;
+    let x = monitor_x + (monitor_width - width) / 2.0;
+    let y = monitor_y + (monitor_height - height) / 2.0;
+    Some((x, y))
+}
+
+/// Creates the hotkey cheat-sheet overlay window, hidden by default.
+#[cfg(not(target_os = "macos"))]
+pub fn create_hotkey_overlay(app_handle: &AppHandle) {
+    let mut builder = WebviewWindowBuilder::new(
+        app_handle,
+        "hotkey_overlay",
+        tauri::WebviewUrl::App("src/overlay/hotkeys.html".into()),
+    )
+    .title("Hotkeys")
+    .resizable(false)
+    .inner_size(HOTKEY_OVERLAY_WIDTH, HOTKEY_OVERLAY_HEIGHT)
+    .shadow(false)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .transparent(true)
+    .focusable(false)
+    .focused(false)
+    .visible(false);
+
+    if let Some(data_dir) = crate::portable::data_dir() {
+        builder = builder.data_directory(data_dir.join("webview"));
+    }
+
+    match builder.build() {
+        Ok(_) => debug!("Hotkey overlay window created successfully (hidden)"),
+        Err(e) => debug!("Failed to create hotkey overlay window: {}", e),
+    }
+}
+
+/// Creates the hotkey cheat-sheet overlay panel, hidden by default (macOS).
+#[cfg(target_os = "macos")]
+pub fn create_hotkey_overlay(app_handle: &AppHandle) {
+    if let Some((x, y)) =
+        calculate_centered_position(app_handle, HOTKEY_OVERLAY_WIDTH, HOTKEY_OVERLAY_HEIGHT)
+    {
+        match PanelBuilder::<_, RecordingOverlayPanel>::new(app_handle, "hotkey_overlay")
+            .url(WebviewUrl::App("src/overlay/hotkeys.html".into()))
+            .title("Hotkeys")
+            .position(tauri::Position::Logical(tauri::LogicalPosition { x, y }))
+            .level(PanelLevel::Status)
+            .size(tauri::Size::Logical(tauri::LogicalSize {
+                width: HOTKEY_OVERLAY_WIDTH,
+                height: HOTKEY_OVERLAY_HEIGHT,
+            }))
+            .has_shadow(false)
+            .transparent(true)
+            .no_activate(true)
+            .corner_radius(0.0)
+            .style_mask(StyleMask::empty().borderless().nonactivating_panel())
+            .with_window(|w| w.decorations(false).transparent(true).focusable(false))
+            .collection_behavior(
+                CollectionBehavior::new()
+                    .can_join_all_spaces()
+                    .full_screen_auxiliary(),
+            )
+            .build()
+        {
+            Ok(panel) => {
+                panel.hide();
+            }
+            Err(e) => {
+                log::error!("Failed to create hotkey overlay panel: {}", e);
+            }
+        }
+    }
+}
+
+/// Shows the hotkey cheat-sheet overlay (HOLD-to-show). Idempotent — a held key's
+/// auto-repeat just re-shows it. Arms a 30s failsafe auto-hide in case a release
+/// event is missed.
+pub fn show_hotkey_overlay(app_handle: &AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("hotkey_overlay") {
+        if let Some((x, y)) =
+            calculate_centered_position(app_handle, HOTKEY_OVERLAY_WIDTH, HOTKEY_OVERLAY_HEIGHT)
+        {
+            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+        let _ = window.show();
+
+        #[cfg(target_os = "windows")]
+        force_overlay_topmost(&window);
+
+        // The web view reads settings itself and renders the grouped list on this
+        // event.
+        let _ = window.emit("show-hotkey-overlay", ());
+
+        // Arm the failsafe: only the newest show's thread will still match the
+        // generation counter when it wakes.
+        let generation = HOTKEY_OVERLAY_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+        let app = app_handle.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(HOTKEY_OVERLAY_FAILSAFE_SECS));
+            if HOTKEY_OVERLAY_GEN.load(Ordering::SeqCst) == generation {
+                hide_hotkey_overlay(&app);
+            }
+        });
+    }
+}
+
+/// Hides the hotkey cheat-sheet overlay (on key release, Esc, or the failsafe).
+pub fn hide_hotkey_overlay(app_handle: &AppHandle) {
+    // Supersede any pending failsafe thread.
+    HOTKEY_OVERLAY_GEN.fetch_add(1, Ordering::SeqCst);
+    if let Some(window) = app_handle.get_webview_window("hotkey_overlay") {
+        let _ = window.emit("hide-hotkey-overlay", ());
+        // Hide after a short delay so the web side can play a fade-out.
+        let window_clone = window.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(180));
+            let _ = window_clone.hide();
+        });
     }
 }
 

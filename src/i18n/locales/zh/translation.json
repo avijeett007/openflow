@@ -218,6 +218,10 @@
           "meeting_capture": {
             "name": "会议捕获快捷键",
             "description": "开始或停止捕获当前会议。系统音频以最前面的应用（例如用于 Google Meet 的 Chrome）为目标。"
+          },
+          "hotkey_overlay": {
+            "name": "显示热键",
+            "description": "按住可显示所有已配置热键的速查表，松开即隐藏。"
           }
         },
         "errors": {
@@ -236,6 +240,29 @@
       "pushToTalk": {
         "label": "按住说话",
         "description": "按住录制，松开停止"
+      },
+      "postProcessing": {
+        "title": "AI 后处理",
+        "master": {
+          "label": "AI 后处理",
+          "description": "在主热键上用 AI 重塑你的语音输入。关闭时，主热键会原样插入自然的转写文本；拥有自己热键或应用规则的 AI 模式仍会运行。"
+        },
+        "defaultMode": {
+          "label": "默认模式",
+          "description": "开启后处理时主热键应用的模式。“Write”为内置清理。"
+        },
+        "writeMode": "Write（内置清理）",
+        "fillerFilter": {
+          "label": "去除填充词",
+          "description": "不使用 AI，去除单独的填充词（um、uh、hmm）。仅适用于原始或直接语音输入。"
+        }
+      },
+      "hotkeyOverview": {
+        "title": "热键概览",
+        "enable": {
+          "label": "显示热键浮层",
+          "description": "按住所分配的热键，显示所有已配置快捷键的速查表。"
+        }
       }
     },
     "sound": {
@@ -984,6 +1011,23 @@
           "cancel": "取消",
           "confirm": "删除"
         }
+      }
+    },
+    "hotkeyOverlay": {
+      "title": "热键",
+      "empty": "尚未配置任何热键。",
+      "groups": {
+        "dictation": "语音输入",
+        "aiModes": "AI 模式",
+        "agents": "智能体",
+        "meetings": "会议"
+      },
+      "bindings": {
+        "transcribe": "转写",
+        "postProcess": "后处理",
+        "cancel": "取消",
+        "meetingCapture": "会议捕获",
+        "showHotkeys": "显示热键"
       }
     }
   },
