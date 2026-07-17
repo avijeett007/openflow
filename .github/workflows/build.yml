@@ -439,7 +439,7 @@ jobs:
       # Pull every platform's signed updater archive + `.sig` (one run artifact
       # per target, so the identically-named macOS archives don't collide).
       - name: Download updater artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: openflow-updater-*
           path: updater-dl
