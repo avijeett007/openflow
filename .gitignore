@@ -26,7 +26,11 @@ dist-ssr
 *.sln
 *.sw?
 
-.claude/
+# Ignore local Claude Code settings, but track the committed maintenance-crew
+# agent personas (the agent workflows read these from .claude/agents/ at runtime).
+.claude/*
+!.claude/agents/
+.claude/settings.local.json
 
 /target/
 recording_*

@@ -1,0 +1,57 @@
+# Dependabot version + security updates for OpenFlow.
+#
+# Two ecosystems: the Rust backend (src-tauri/Cargo.toml + Cargo.lock) and the
+# React/TS frontend (root package.json + bun.lock). Updates are grouped and
+# capped so the crew reviews a handful of PRs a week, not a flood. Each PR is
+# labelled `deps` + `agent-pr` so the pr-reviewer agent (agent-pr-review.yml)
+# picks it up and the required CI (rust-tests + code-quality) gates it. Nothing
+# auto-merges — main is protected and a tag ships an OTA release to every user.
+#
+# NOTE: this file drives *version* update PRs. Dependabot *security* alerts are a
+# separate repo setting (Settings → Code security → Dependabot alerts) — enable
+# them too so the maintenance-patrol can triage `gh api .../dependabot/alerts`.
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels: ["deps", "area:rust", "agent-pr"]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # One PR for all low-risk patch/minor bumps; majors come as their own PRs
+      # so a breaking change is never buried in a group.
+      cargo-minor:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels: ["deps", "area:ui", "agent-pr"]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      npm-minor:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 3
+    labels: ["deps", "area:ci", "agent-pr"]
+    commit-message:
+      prefix: "chore(ci)"

@@ -1,0 +1,57 @@
+name: dependency-scan
+
+# Deterministic supply-chain gate — NO LLM, so the result is auditable. Runs
+# Google's osv-scanner (OSV.dev, the same DB as GitHub Security) against the
+# committed lockfiles on every PR and weekly. The maintenance-patrol agent does the
+# intelligent triage/dedup on top of this; this job is just the hard check that a
+# vulnerable Cargo.lock cannot land unnoticed.
+#
+# Cargo.lock is the enforced gate. bun.lock is best-effort (older osv-scanner
+# builds may not parse the newer text format) so a parser gap never blocks a PR.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Weekly re-scan so newly disclosed CVEs against existing deps surface even
+    # when no code is changing.
+    - cron: "37 7 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan:
+    name: OSV-Scanner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install osv-scanner
+        env:
+          OSV_VERSION: v1.9.2
+        run: |
+          set -euo pipefail
+          curl --retry 3 --fail --silent --show-error --location \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64" \
+            -o "${RUNNER_TEMP}/osv-scanner"
+          chmod +x "${RUNNER_TEMP}/osv-scanner"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Scan Cargo.lock (enforced)
+        run: |
+          set -euo pipefail
+          osv-scanner --lockfile=./src-tauri/Cargo.lock | tee "${RUNNER_TEMP}/cargo-scan.txt"
+
+      - name: Scan bun.lock (best-effort)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if ! osv-scanner --lockfile=./bun.lock; then
+            echo "::warning::bun.lock scan reported findings or could not be parsed by this osv-scanner build — review manually" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,0 +1,72 @@
+name: Agent Issue Triage
+
+# Every newly opened issue is triaged by the issue-triage agent: type / area /
+# priority labels, a repro request when a bug lacks one, and one short triage
+# comment. It never writes code and never applies `agent:fix` — actioning a fix is
+# the founder's explicit opt-in.
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: agent-issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    # Skip agent-authored / patrol-filed issues — they arrive already labelled.
+    if: >
+      !contains(github.event.issue.labels.*.name, 'source:patrol') &&
+      !contains(github.event.issue.title, '[AGENT]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Gate (token + kill-switch)
+        id: gate
+        env:
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [[ -f agents/KILL-SWITCH ]]; then
+            echo "KILL-SWITCH present — skipping triage" >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$HAS_TOKEN" != "true" ]]; then
+            echo "CLAUDE_CODE_OAUTH_TOKEN not set — triage skipped (add the secret to enable)" >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run issue-triage agent
+        if: steps.gate.outputs.run == 'true'
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          mode: agent
+          direct_prompt: |
+            You are the issue-triage agent. Read your full instructions from
+            .claude/agents/issue-triage.md and follow them EXACTLY.
+
+            Triaging issue #${{ github.event.issue.number }} — "${{ github.event.issue.title }}"
+            Author: ${{ github.event.issue.user.login }}
+
+            Contract summary (the agent file is authoritative):
+            1. Read the issue.
+            2. Apply exactly one `type:*`, one or more `area:*`, and exactly one
+               `priority:*` — fail toward lower priority unless evidence says higher.
+            3. If it is a bug with no reproduction, add `needs-repro` and ask for the
+               missing details (steps, version, OS, model/mode).
+            4. Security/privacy reports → `type:security` + high/critical, and steer
+               exploit details to private disclosure.
+            5. Post ONE short, friendly triage comment with your reasoning.
+            6. NEVER write code, open a PR, or apply `agent:fix` / `review:*` labels.
+          allowed_tools: "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*)"
