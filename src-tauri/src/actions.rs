@@ -198,11 +198,20 @@ pub(crate) fn take_press_target() -> Option<CapturedTarget> {
     PRESS_TARGET_APP.lock().ok().and_then(|mut s| s.take())
 }
 
-/// Case-insensitive substring match, both directions, of any `rule` against the
-/// frontmost app's bundle id OR localized name — the same permissive semantics as
-/// [`resolve_per_app_prompt`] (so "terminal" matches "com.apple.Terminal" and
-/// "iTerm" matches "iTerm2"). Empty rules and an empty/"unknown" target never
+/// Case-insensitive match of any `rule` against the frontmost app's bundle id OR
+/// localized name: the rule must be contained IN the target ("terminal" matches
+/// "com.apple.Terminal"; "iTerm" matches "iTerm2"; a full bundle-id rule matches
+/// that bundle id exactly). Empty rules and an empty/"unknown" target never
 /// match, so an unconfigured mode is never auto-selected.
+///
+/// The containment is deliberately one-directional. Matching the reverse way too
+/// (rule CONTAINS target) made any short app name a substring of an unrelated
+/// bundle-id rule: VS Code's localized name is "Code", which is contained in the
+/// Command template's stock `com.googlecode.iterm2` rule (via "google_code_"), so
+/// dictating into VS Code silently auto-selected Command mode and emitted a shell
+/// command instead of prose. `com.github.wez.wezterm` vs. any app named "Git…" is
+/// the same class of bug. Rules are bundle-ids or name fragments, and both only
+/// ever need to match forwards.
 fn app_rules_match(rules: &[String], bundle_id: &str, app_name: &str) -> bool {
     let bundle = bundle_id.trim().to_lowercase();
     let name = app_name.trim().to_lowercase();
@@ -215,7 +224,7 @@ fn app_rules_match(rules: &[String], bundle_id: &str, app_name: &str) -> bool {
         if r.is_empty() {
             return false;
         }
-        let hits = |hay: &str| !hay.is_empty() && (hay.contains(&r) || r.contains(hay));
+        let hits = |hay: &str| !hay.is_empty() && hay.contains(&r);
         hits(&bundle) || (name_known && hits(&name))
     })
 }
@@ -2480,6 +2489,20 @@ mod tests {
         }
     }
 
+    /// Mirrors `TERMINAL_APP_RULES` in `src/components/settings/ai-modes/
+    /// modeTemplates.ts` — the rules a user gets by clicking the Command
+    /// template. Kept in sync by hand; these tests are what catch a bad rule.
+    const TERMINAL_TEMPLATE_RULES: [&str; 8] = [
+        "com.googlecode.iterm2",
+        "com.apple.Terminal",
+        "dev.warp.Warp",
+        "net.kovidgoyal.kitty",
+        "com.github.wez.wezterm",
+        "iterm",
+        "terminal",
+        "warp",
+    ];
+
     fn target(bundle: &str, name: &str) -> CapturedTarget {
         CapturedTarget {
             bundle_id: bundle.to_string(),
@@ -2488,14 +2511,14 @@ mod tests {
     }
 
     #[test]
-    fn app_rules_match_substring_both_directions() {
+    fn app_rules_match_rule_contained_in_target() {
         // "terminal" rule matches "com.apple.Terminal" bundle (rule ⊂ bundle).
         assert!(app_rules_match(
             &["terminal".to_string()],
             "com.apple.Terminal",
             "Terminal"
         ));
-        // "com.googlecode.iterm2" rule matches "iterm" app name (name ⊂ rule).
+        // A full bundle-id rule matches that bundle id.
         assert!(app_rules_match(
             &["com.googlecode.iterm2".to_string()],
             "com.googlecode.iterm2",
@@ -2516,6 +2539,82 @@ mod tests {
             "Terminal"
         ));
         assert!(!app_rules_match(&["terminal".to_string()], "", "unknown"));
+    }
+
+    /// Regression: a rule must never match an app merely because the app's short
+    /// name is a substring OF the rule. These all matched before the fix.
+    #[test]
+    fn app_rules_match_rejects_target_contained_in_rule() {
+        // The Command template's stock terminal rules vs. VS Code, whose
+        // localized name is "Code" — contained in "com.googlecode.iterm2".
+        assert!(!app_rules_match(
+            &TERMINAL_TEMPLATE_RULES.map(String::from),
+            "com.microsoft.VSCode",
+            "Code"
+        ));
+        // Same class: "git" ⊂ "com.github.wez.wezterm".
+        assert!(!app_rules_match(
+            &["com.github.wez.wezterm".to_string()],
+            "com.example.git",
+            "Git"
+        ));
+        // A bundle-id rule does not match a different app in the same namespace.
+        assert!(!app_rules_match(
+            &["com.apple.Terminal".to_string()],
+            "com.apple.TextEdit",
+            "TextEdit"
+        ));
+    }
+
+    /// The full Command-template rule set (mirrors `modeTemplates.ts`) must still
+    /// auto-select for every terminal it ships for, and for nothing else.
+    #[test]
+    fn command_template_rules_match_terminals_only() {
+        let rules = TERMINAL_TEMPLATE_RULES.map(String::from);
+        for (bundle, name) in [
+            ("com.googlecode.iterm2", "iTerm2"),
+            ("com.apple.Terminal", "Terminal"),
+            ("dev.warp.Warp", "Warp"),
+            ("net.kovidgoyal.kitty", "kitty"),
+            ("com.github.wez.wezterm", "WezTerm"),
+        ] {
+            assert!(app_rules_match(&rules, bundle, name), "{name} should match");
+        }
+        for (bundle, name) in [
+            ("com.microsoft.VSCode", "Code"),
+            ("com.apple.TextEdit", "TextEdit"),
+            ("com.google.Chrome", "Google Chrome"),
+            ("com.tinyspeck.slackmacgap", "Slack"),
+            ("notes.app", "Notes"),
+        ] {
+            assert!(
+                !app_rules_match(&rules, bundle, name),
+                "{name} should not match"
+            );
+        }
+    }
+
+    /// End-to-end through the funnel: the reported bug. Command mode is installed
+    /// from the template and Text Cleanup ("Write") is the General-tab default;
+    /// dictating into VS Code on the main hotkey must NOT produce a command.
+    #[test]
+    fn funnel_command_template_does_not_hijack_vs_code() {
+        let mut settings = get_default_settings();
+        settings.ai_modes.push(ai_mode(
+            "cmd",
+            AiModeKind::Command,
+            &TERMINAL_TEMPLATE_RULES,
+        ));
+        let vs_code = target("com.microsoft.VSCode", "Code");
+        let res = resolve_ai_mode(&settings, None, Some(&vs_code), true);
+        assert_eq!(res.source, ModeSource::DefaultCleanup);
+        assert!(res.mode.is_none());
+
+        // ...and it still auto-selects in the terminal it was configured for.
+        let iterm = target("com.googlecode.iterm2", "iTerm2");
+        let res = resolve_ai_mode(&settings, None, Some(&iterm), true);
+        assert_eq!(res.source, ModeSource::AppRuleMode);
+        assert_eq!(res.mode.unwrap().id, "cmd");
     }
 
     #[test]
