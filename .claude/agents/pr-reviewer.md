@@ -56,21 +56,21 @@ else on the checklist, judge the diff against this:
    - `gh pr edit <N> --add-label "review:approved,merge-tier:<T>" --remove-label "review:changes-requested"`, or
    - `gh pr edit <N> --add-label "review:changes-requested,merge-tier:<T>" --remove-label "review:approved"`
    - Add the matching `area:*` labels.
-   For changes-requested, list blocking items as a numbered, actionable list
-   (file:line, what is wrong, what right looks like).
+     For changes-requested, list blocking items as a numbered, actionable list
+     (file:line, what is wrong, what right looks like).
 
 # The canonical checklist
 
-| # | Check | What to verify |
-|---|-------|----------------|
-| 1 | Non-breaking | Core dictation path untouched, or the PR is an explicit, argued change to it; new settings are `#[serde(default)]`; unconfigured behaviour is unchanged |
-| 2 | Scope | Diff matches stated intent; no unrelated drive-by edits; no stray/committed junk (scratch files, `.DS_Store`, local logs) |
-| 3 | Tests | Behaviour changes have tests in the right layer; bug fixes include a regression test that fails pre-fix; no tests deleted or `#[ignore]`d to go green |
-| 4 | Correctness | Logic holds around each non-trivial hunk; error paths handled (no `unwrap()`/`expect()` on fallible runtime paths per AGENTS.md); no panics on the hot path |
-| 5 | Security | No secrets/keys in the diff; no new network exfiltration of transcripts or audio (OpenFlow is local-first — flag ANY new outbound call on the dictation/meeting path); Tauri capabilities in `capabilities/*.json` are least-privilege; updater signing untouched unless this is explicitly an updater change |
-| 6 | Platform | macOS/Windows/Linux `#[cfg(...)]` gating correct; no macOS-only API leaking into a cross-platform path; permissions (Accessibility/Mic/screen) handled where touched |
-| 7 | i18n | New user-facing strings use i18next (`t('…')`) and exist in `en/translation.json`; ESLint's no-hardcoded-strings rule not suppressed |
-| 8 | CI | `rust-tests` and `code-quality` green, or a failure is explained and demonstrably pre-existing |
+| #   | Check        | What to verify                                                                                                                                                                                                                                                                                                |
+| --- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Non-breaking | Core dictation path untouched, or the PR is an explicit, argued change to it; new settings are `#[serde(default)]`; unconfigured behaviour is unchanged                                                                                                                                                       |
+| 2   | Scope        | Diff matches stated intent; no unrelated drive-by edits; no stray/committed junk (scratch files, `.DS_Store`, local logs)                                                                                                                                                                                     |
+| 3   | Tests        | Behaviour changes have tests in the right layer; bug fixes include a regression test that fails pre-fix; no tests deleted or `#[ignore]`d to go green                                                                                                                                                         |
+| 4   | Correctness  | Logic holds around each non-trivial hunk; error paths handled (no `unwrap()`/`expect()` on fallible runtime paths per AGENTS.md); no panics on the hot path                                                                                                                                                   |
+| 5   | Security     | No secrets/keys in the diff; no new network exfiltration of transcripts or audio (OpenFlow is local-first — flag ANY new outbound call on the dictation/meeting path); Tauri capabilities in `capabilities/*.json` are least-privilege; updater signing untouched unless this is explicitly an updater change |
+| 6   | Platform     | macOS/Windows/Linux `#[cfg(...)]` gating correct; no macOS-only API leaking into a cross-platform path; permissions (Accessibility/Mic/screen) handled where touched                                                                                                                                          |
+| 7   | i18n         | New user-facing strings use i18next (`t('…')`) and exist in `en/translation.json`; ESLint's no-hardcoded-strings rule not suppressed                                                                                                                                                                          |
+| 8   | CI           | `rust-tests` and `code-quality` green, or a failure is explained and demonstrably pre-existing                                                                                                                                                                                                                |
 
 # Merge-tier classification (fail closed — when in doubt, go up a tier)
 
@@ -98,10 +98,10 @@ you could not fully verify.
 **Non-breaking:** <one line: is the core dictation path safe, and why>
 **Risk:** <why this tier>
 
-| Check | Result | Evidence |
-|-------|--------|----------|
-| 1. Non-breaking | ✅ | ... |
-| ... | | |
+| Check           | Result | Evidence |
+| --------------- | ------ | -------- |
+| 1. Non-breaking | ✅     | ...      |
+| ...             |        |          |
 
 **CI:** <rust-tests / code-quality state from `gh pr checks`>
 

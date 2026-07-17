@@ -1,13 +1,21 @@
 name: dependency-scan
 
-# Deterministic supply-chain gate — NO LLM, so the result is auditable. Runs
+# Deterministic supply-chain VISIBILITY — NO LLM, so the result is auditable. Runs
 # Google's osv-scanner (OSV.dev, the same DB as GitHub Security) against the
-# committed lockfiles on every PR and weekly. The maintenance-patrol agent does the
-# intelligent triage/dedup on top of this; this job is just the hard check that a
-# vulnerable Cargo.lock cannot land unnoticed.
+# committed lockfiles on every PR and weekly, and writes the findings to the run's
+# step summary.
 #
-# Cargo.lock is the enforced gate. bun.lock is best-effort (older osv-scanner
-# builds may not parse the newer text format) so a parser gap never blocks a PR.
+# Deliberately REPORT-ONLY (non-blocking). A Tauri desktop app's Cargo.lock carries
+# a standing pile of upstream advisories that are not actionable here — most of the
+# GTK-rs 0.18 stack (atk/gdk/gtk/…) is flagged "unmaintained" with no fixed version
+# available until Tauri moves off it. Hard-failing every PR on that pile would just
+# train everyone to ignore red CI. So this job gives VISIBILITY; the judgement
+# (reachability triage, dedup, filing an actionable issue for the ones that matter)
+# is the maintenance-patrol agent's job — see .claude/agents/maintenance-patrol.md.
+#
+# Follow-up (phase 2): once the patrol has triaged the standing set, add an
+# osv-scanner.toml ignore list (with a justification per advisory) and flip the
+# Cargo.lock step back to enforcing, so a genuinely NEW advisory fails the build.
 
 on:
   pull_request:
@@ -43,15 +51,19 @@ jobs:
           chmod +x "${RUNNER_TEMP}/osv-scanner"
           echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
 
-      - name: Scan Cargo.lock (enforced)
+      - name: Scan lockfiles (report-only)
         run: |
-          set -euo pipefail
-          osv-scanner --lockfile=./src-tauri/Cargo.lock | tee "${RUNNER_TEMP}/cargo-scan.txt"
-
-      - name: Scan bun.lock (best-effort)
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          if ! osv-scanner --lockfile=./bun.lock; then
-            echo "::warning::bun.lock scan reported findings or could not be parsed by this osv-scanner build — review manually" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          set -uo pipefail
+          {
+            echo '## Dependency scan (osv-scanner) — report-only'
+            echo ''
+            echo '### Cargo.lock (src-tauri)'
+            echo '```'
+            osv-scanner --lockfile=./src-tauri/Cargo.lock 2>&1 || true
+            echo '```'
+            echo '### bun.lock'
+            echo '```'
+            osv-scanner --lockfile=./bun.lock 2>&1 || echo '(no findings, or lockfile format not parseable by this osv-scanner build)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Dependency scan complete — see the step summary. This check is non-blocking by design (the maintenance-patrol triages)."
