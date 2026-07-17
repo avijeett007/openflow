@@ -1,0 +1,98 @@
+name: Agent Maintenance Patrol
+
+# Weekly whole-repo health patrol (security / dep-drift / ci-health). Monitors the
+# state every week and produces sparingly: it maintains one rolling digest issue,
+# files a GitHub issue only for a genuinely new actionable finding, and NEVER opens
+# a PR or edits a file. See .claude/agents/maintenance-patrol.md.
+
+on:
+  schedule:
+    # Mondays 07:00 UTC — after Dependabot's 06:00 update PRs land, so the patrol
+    # sees the current dependency picture.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — print findings, create/modify nothing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: agent-maintenance-patrol
+  cancel-in-progress: false
+
+jobs:
+  patrol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gate (token + kill-switch)
+        id: gate
+        env:
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [[ -f agents/KILL-SWITCH ]]; then
+            echo "KILL-SWITCH present — skipping patrol" >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$HAS_TOKEN" != "true" ]]; then
+            echo "CLAUDE_CODE_OAUTH_TOKEN not set — patrol skipped (add the secret to enable)" >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install osv-scanner
+        if: steps.gate.outputs.run == 'true'
+        env:
+          OSV_VERSION: v1.9.2
+        run: |
+          set -euo pipefail
+          curl --retry 3 --fail --silent --show-error --location \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64" \
+            -o "${RUNNER_TEMP}/osv-scanner"
+          chmod +x "${RUNNER_TEMP}/osv-scanner"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Run maintenance-patrol agent
+        if: steps.gate.outputs.run == 'true'
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          mode: agent
+          direct_prompt: |
+            You are the maintenance-patrol agent. Read your full instructions from
+            .claude/agents/maintenance-patrol.md and follow them EXACTLY. This runs
+            WEEKLY: monitor the whole state and PRODUCE SPARINGLY. A normal week
+            files nothing.
+
+            Output policy (GitHub-native, non-negotiable):
+            - ALWAYS update the single rolling digest issue titled
+              "🩺 Maintenance patrol — weekly digest" (label source:patrol; create it
+              if missing) with a dated one-line-per-lens comment, and append the same
+              to $GITHUB_STEP_SUMMARY — even on a nothing-new week.
+            - NEW actionable finding → ONE focused GitHub issue with labels and the
+              fingerprint line. Cap 3 new issues per lens. DEDUP first
+              (`gh issue list --state all --search "<lens>:<slug> in:body"`).
+            - You MUST NOT open a PR, push a commit, or edit any file.
+
+            Lenses: security (osv-scanner on src-tauri/Cargo.lock + bun.lock, plus
+            Dependabot alerts, plus new outbound-network-call check on the dictation
+            path), dep-drift (major bumps only; patch/minor is Dependabot's), and
+            ci-health (`gh run list` for test.yml / code-quality.yml / build.yml on
+            main — a required check red on main is URGENT).
+
+            ${{ github.event.inputs.dry_run == 'true' && 'DRY RUN: print all findings to the step summary only. Create/modify NO issues.' || '' }}
+          allowed_tools: "Read,Grep,Glob,Bash(osv-scanner:*),Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh search:*),Bash(gh run list:*),Bash(gh pr list:*),Bash(gh api:*),Bash(cargo search:*),Bash(git log:*),Bash(git diff:*)"

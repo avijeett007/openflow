@@ -1,0 +1,69 @@
+name: dependency-scan
+
+# Deterministic supply-chain VISIBILITY — NO LLM, so the result is auditable. Runs
+# Google's osv-scanner (OSV.dev, the same DB as GitHub Security) against the
+# committed lockfiles on every PR and weekly, and writes the findings to the run's
+# step summary.
+#
+# Deliberately REPORT-ONLY (non-blocking). A Tauri desktop app's Cargo.lock carries
+# a standing pile of upstream advisories that are not actionable here — most of the
+# GTK-rs 0.18 stack (atk/gdk/gtk/…) is flagged "unmaintained" with no fixed version
+# available until Tauri moves off it. Hard-failing every PR on that pile would just
+# train everyone to ignore red CI. So this job gives VISIBILITY; the judgement
+# (reachability triage, dedup, filing an actionable issue for the ones that matter)
+# is the maintenance-patrol agent's job — see .claude/agents/maintenance-patrol.md.
+#
+# Follow-up (phase 2): once the patrol has triaged the standing set, add an
+# osv-scanner.toml ignore list (with a justification per advisory) and flip the
+# Cargo.lock step back to enforcing, so a genuinely NEW advisory fails the build.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Weekly re-scan so newly disclosed CVEs against existing deps surface even
+    # when no code is changing.
+    - cron: "37 7 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan:
+    name: OSV-Scanner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install osv-scanner
+        env:
+          OSV_VERSION: v1.9.2
+        run: |
+          set -euo pipefail
+          curl --retry 3 --fail --silent --show-error --location \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64" \
+            -o "${RUNNER_TEMP}/osv-scanner"
+          chmod +x "${RUNNER_TEMP}/osv-scanner"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Scan lockfiles (report-only)
+        run: |
+          set -uo pipefail
+          {
+            echo '## Dependency scan (osv-scanner) — report-only'
+            echo ''
+            echo '### Cargo.lock (src-tauri)'
+            echo '```'
+            osv-scanner --lockfile=./src-tauri/Cargo.lock 2>&1 || true
+            echo '```'
+            echo '### bun.lock'
+            echo '```'
+            osv-scanner --lockfile=./bun.lock 2>&1 || echo '(no findings, or lockfile format not parseable by this osv-scanner build)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Dependency scan complete — see the step summary. This check is non-blocking by design (the maintenance-patrol triages)."

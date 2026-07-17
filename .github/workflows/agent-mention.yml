@@ -1,0 +1,62 @@
+name: Agent Mention (@claude)
+
+# On-demand agent: comment "@claude ..." on an issue or PR (or open an issue whose
+# body/title contains @claude) and Claude Code responds in that thread. This is the
+# founder's hands-on lever — ask it to explain a diff, draft a fix on a branch,
+# investigate a failing run, etc. It obeys the same repo rules (protected main, no
+# self-merge) and CLAUDE.md / AGENTS.md.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Gate (token + kill-switch)
+        id: gate
+        env:
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [[ -f agents/KILL-SWITCH ]]; then
+            echo "KILL-SWITCH present — skipping" >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$HAS_TOKEN" != "true" ]]; then
+            echo "CLAUDE_CODE_OAUTH_TOKEN not set — @claude skipped (add the secret to enable)" >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Claude Code
+        if: steps.gate.outputs.run == 'true'
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          additional_permissions: |
+            actions: read

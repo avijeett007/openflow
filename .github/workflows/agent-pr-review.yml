@@ -1,0 +1,85 @@
+name: Agent PR Review
+
+# Every non-draft PR gets an independent structured review from the pr-reviewer
+# agent — a role that never authors the change it reviews. It fills the OpenFlow
+# checklist (non-breaking principle first), classifies a merge tier, and applies
+# verdict + area labels. It NEVER merges: main is protected and a tag ships an OTA
+# release, so a human always clicks merge.
+#
+# Opt out per-PR with the `skip-agent-review` label.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read # so the reviewer can read CI results (rust-tests / code-quality)
+
+concurrency:
+  group: agent-pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >
+      github.event.pull_request.draft == false &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-agent-review')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gate (token + kill-switch)
+        id: gate
+        env:
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [[ -f agents/KILL-SWITCH ]]; then
+            echo "KILL-SWITCH present — skipping review" >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$HAS_TOKEN" != "true" ]]; then
+            echo "CLAUDE_CODE_OAUTH_TOKEN not set — agent review skipped (add the secret to enable)" >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run pr-reviewer agent
+        if: steps.gate.outputs.run == 'true'
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          mode: agent
+          use_sticky_comment: true
+          additional_permissions: |
+            actions: read
+          # To pin a stronger model, add e.g.  model: claude-opus-4-8
+          # (omitted so a stale id can never break the job; the action default is used).
+          direct_prompt: |
+            You are the pr-reviewer agent. Read your full instructions from
+            .claude/agents/pr-reviewer.md and follow them EXACTLY.
+
+            PR under review: #${{ github.event.pull_request.number }} — "${{ github.event.pull_request.title }}"
+            Author: ${{ github.event.pull_request.user.login }}
+            Base: ${{ github.event.pull_request.base.ref }}
+
+            Contract summary (the agent file is authoritative):
+            1. Judge the diff against OpenFlow's non-breaking principle FIRST — the
+               core dictation loop must not be regressed.
+            2. Scope the diff (`gh pr view`, `gh pr diff`), read surrounding code, and
+               read CI results (`gh pr checks`) — do NOT approve over a failing
+               required check by calling it unrelated.
+            3. Work the canonical checklist; record one line of evidence per item.
+            4. Classify the merge tier (0/1/2) with the fail-closed rules.
+            5. Post ONE sticky review comment, then apply labels with gh:
+               verdict `review:approved` OR `review:changes-requested` (remove the
+               other), exactly one `merge-tier:0|1|2`, and the matching `area:*`.
+            6. NEVER push commits, edit files, or merge.
+          allowed_tools: "Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh api:*),Bash(git diff:*),Bash(git log:*)"

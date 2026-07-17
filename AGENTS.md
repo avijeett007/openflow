@@ -231,3 +231,12 @@ cleanup → inject) — must NOT be touched or impacted by new features. Concret
   behavior is unchanged with the new feature present AND absent/unconfigured.
 - Run `bun run format` before committing — including verification/evidence markdown
   (`format:check` gates CI).
+
+## Autonomous maintenance crew
+
+A GitHub-native set of Claude Code agents reviews PRs, triages issues, and patrols
+weekly for security/dependency/CI problems. It cannot merge or release anything —
+`main` is protected and a `v*` tag ships an OTA release, so a human always does
+both. See [`agents/README.md`](agents/README.md) for the crew, the safety rails
+(kill switch, PR budget, token gate), and the `CLAUDE_CODE_OAUTH_TOKEN` prerequisite.
+The agents follow this file — the non-breaking principle above is their first check.
