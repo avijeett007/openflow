@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -118,7 +118,7 @@ jobs:
           git config --system core.longpaths true
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Even with long paths enabled, keep the cargo target dir short (C:\t) so
       # deep cmake artifact paths stay well under the limit.
@@ -434,7 +434,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Pull every platform's signed updater archive + `.sig` (one run artifact
       # per target, so the identically-named macOS archives don't collide).
