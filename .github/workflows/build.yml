@@ -372,7 +372,7 @@ jobs:
       # dispatch and tag builds). macOS -> .dmg, Windows -> .exe (NSIS) + .msi.
       - name: Upload installers (macOS)
         if: contains(matrix.platform, 'macos')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openflow-${{ matrix.target }}
           path: |
@@ -384,7 +384,7 @@ jobs:
       # src-tauri/target, because of the "Shorten build path" step above.
       - name: Upload installers (Windows)
         if: contains(matrix.platform, 'windows')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openflow-${{ matrix.target }}
           path: |
@@ -400,7 +400,7 @@ jobs:
       # Windows -> the NSIS -setup.exe(+.sig).
       - name: Upload updater artifacts (macOS)
         if: contains(matrix.platform, 'macos')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openflow-updater-${{ matrix.target }}
           path: |
@@ -411,7 +411,7 @@ jobs:
 
       - name: Upload updater artifacts (Windows)
         if: contains(matrix.platform, 'windows')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openflow-updater-${{ matrix.target }}
           path: |
