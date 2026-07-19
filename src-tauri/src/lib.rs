@@ -200,6 +200,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // now), and is a sibling of the TranscriptionCoordinator — never a client.
     let meeting_manager = Arc::new(managers::meeting::MeetingManager::new(app_handle));
 
+    // OpenFlow Service sync worker: a dormant-by-default sibling that pushes NEW
+    // history rows (READ-ONLY) + usage events to a user-paired self-hosted service.
+    // Started below ONLY when the feature is configured; never touches dictation.
+    let service_sync_manager =
+        Arc::new(managers::service_sync::ServiceSyncManager::new(app_handle));
+
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
@@ -209,6 +215,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(wake_word_manager.clone());
     app_handle.manage(agent_run_manager.clone());
     app_handle.manage(meeting_manager.clone());
+    app_handle.manage(service_sync_manager.clone());
 
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
@@ -348,6 +355,11 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     if settings::get_settings(app_handle).hands_free_enabled {
         wake_word_manager.start();
     }
+
+    // Start the OpenFlow Service sync worker ONLY when the user has paired and the
+    // feature is enabled (byte-for-byte no-op otherwise). `ensure_started` itself
+    // re-checks the gate, so this is safe and idempotent.
+    service_sync_manager.ensure_started();
 
     // Start the meeting detector. Its loop reads settings live and self-suppresses
     // while our own recorder/monitor is active or a meeting capture is running, so
@@ -744,6 +756,12 @@ pub fn run(cli_args: CliArgs) {
             commands::meetings::set_meetings_diarization_provisional,
             commands::meetings::get_diarization_models_status,
             commands::meetings::download_diarization_models,
+            commands::service::pair_service,
+            commands::service::unpair_service,
+            commands::service::service_status,
+            commands::service::test_service_connection,
+            commands::service::set_service_sync_transcripts,
+            commands::service::set_service_sync_usage,
             helpers::clamshell::is_laptop,
         ])
         .events(collect_events![
