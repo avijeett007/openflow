@@ -580,6 +580,63 @@ impl SseParser {
 }
 
 // ---------------------------------------------------------------------------
+// Incremental UTF-8 decoder (network chunk boundaries do NOT respect UTF-8
+// char boundaries; decoding each chunk independently would turn a multi-byte
+// character split across two chunks into replacement chars)
+// ---------------------------------------------------------------------------
+
+/// Decodes a byte stream to UTF-8 incrementally, holding back an INCOMPLETE
+/// trailing multi-byte sequence until its continuation bytes arrive in a later
+/// chunk. A genuinely invalid sequence is emitted as one replacement char (and
+/// skipped) so a hostile/broken stream can't stall the decoder.
+#[derive(Default)]
+pub struct Utf8Buffer {
+    tail: Vec<u8>,
+}
+
+impl Utf8Buffer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Push raw bytes; return the longest now-decodable UTF-8 text, retaining
+    /// any incomplete trailing sequence for the next call.
+    pub fn push(&mut self, bytes: &[u8]) -> String {
+        self.tail.extend_from_slice(bytes);
+        let mut out = String::new();
+        loop {
+            match std::str::from_utf8(&self.tail) {
+                Ok(s) => {
+                    out.push_str(s);
+                    self.tail.clear();
+                    break;
+                }
+                Err(e) => {
+                    let valid = e.valid_up_to();
+                    if valid > 0 {
+                        // SAFETY-of-logic: bytes[..valid] is valid UTF-8 by definition.
+                        out.push_str(std::str::from_utf8(&self.tail[..valid]).unwrap_or(""));
+                    }
+                    match e.error_len() {
+                        // Incomplete (could still become valid) — keep the tail.
+                        None => {
+                            self.tail.drain(..valid);
+                            break;
+                        }
+                        // Genuinely invalid — emit one replacement, skip it, continue.
+                        Some(bad) => {
+                            out.push('\u{FFFD}');
+                            self.tail.drain(..valid + bad);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Transport (mirror of ServiceTransport: HTTP behind a trait so the driver is
 // unit-testable against a mock with no network)
 // ---------------------------------------------------------------------------
@@ -738,11 +795,13 @@ impl A2aTransport for HttpA2aTransport {
 
         struct StreamState<S> {
             inner: S,
+            decoder: Utf8Buffer,
             parser: SseParser,
             queue: std::collections::VecDeque<String>,
         }
         let state = StreamState {
             inner: resp.bytes_stream(),
+            decoder: Utf8Buffer::new(),
             parser: SseParser::new(),
             queue: std::collections::VecDeque::new(),
         };
@@ -758,7 +817,9 @@ impl A2aTransport for HttpA2aTransport {
                 }
                 match st.inner.next().await {
                     Some(Ok(bytes)) => {
-                        let text = String::from_utf8_lossy(&bytes);
+                        // Decode incrementally: a multi-byte char split across a
+                        // network chunk boundary must not be mangled into U+FFFD.
+                        let text = st.decoder.push(&bytes);
                         for data in st.parser.feed(&text) {
                             st.queue.push_back(data);
                         }
@@ -1458,6 +1519,53 @@ mod tests {
         let out = p.feed("data: not json\n\n");
         assert_eq!(out, vec!["not json".to_string()]);
         assert!(serde_json::from_str::<Value>(&out[0]).is_err());
+    }
+
+    // ---- incremental UTF-8 decoder -----------------------------------------
+
+    #[test]
+    fn utf8_buffer_passes_ascii_through() {
+        let mut b = Utf8Buffer::new();
+        assert_eq!(b.push(b"hello"), "hello");
+        assert_eq!(b.push(b" world"), " world");
+    }
+
+    #[test]
+    fn utf8_buffer_reassembles_two_byte_char_split_across_chunks() {
+        // "é" = 0xC3 0xA9. Split between the two bytes at a chunk boundary.
+        let mut b = Utf8Buffer::new();
+        assert_eq!(b.push(&[0xC3]), ""); // incomplete — held back, NOT mangled
+        assert_eq!(b.push(&[0xA9]), "é");
+    }
+
+    #[test]
+    fn utf8_buffer_reassembles_four_byte_emoji_split_across_chunks() {
+        // "😀" = F0 9F 98 80. Feed it one byte at a time.
+        let bytes = "😀".as_bytes().to_vec();
+        let mut b = Utf8Buffer::new();
+        let mut out = String::new();
+        for byte in bytes {
+            out.push_str(&b.push(&[byte]));
+        }
+        assert_eq!(out, "😀");
+    }
+
+    #[test]
+    fn utf8_buffer_mixed_ascii_and_split_multibyte() {
+        // "aé" split so the ASCII 'a' plus the first byte of 'é' arrive together.
+        let mut b = Utf8Buffer::new();
+        assert_eq!(b.push(&[b'a', 0xC3]), "a");
+        assert_eq!(b.push(&[0xA9, b'b']), "éb");
+    }
+
+    #[test]
+    fn utf8_buffer_emits_replacement_for_genuinely_invalid_bytes() {
+        // A lone continuation byte 0x80 is invalid, not incomplete — must not
+        // stall the decoder; it yields one replacement and continues.
+        let mut b = Utf8Buffer::new();
+        let out = b.push(&[0x80, b'x']);
+        assert!(out.contains('x'), "got: {out:?}");
+        assert!(out.contains('\u{FFFD}'), "got: {out:?}");
     }
 
     #[test]
