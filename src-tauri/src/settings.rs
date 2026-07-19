@@ -903,6 +903,30 @@ pub struct AppSettings {
     /// (DESIGN-meetings.md §5.4 auto-degrade). Users on fast machines can opt in.
     #[serde(default)]
     pub meetings_diarization_provisional: bool,
+
+    // ---- OpenFlow Service ("Connect to my service") ----
+    /// Base URL of the paired self-hosted OpenFlow Service (e.g.
+    /// `https://openflow.example.com`). Empty = feature fully dormant: no sync
+    /// worker is ever started and nothing leaves the machine. The device token
+    /// itself is NEVER stored here — it lives in the OS keyring (scope
+    /// `"service"`, account `"device_token"`); this struct only holds the URL and
+    /// opt-in flags. All four fields are `#[serde(default)]` so an old settings
+    /// store (with none of these keys) deserializes byte-for-byte as before.
+    #[serde(default)]
+    pub service_url: String,
+    /// Whether a device is paired and the integration is active. Set true only on
+    /// a successful `pair_service`; cleared by `unpair_service`. When false the
+    /// sync worker does nothing even if a URL is present.
+    #[serde(default)]
+    pub service_enabled: bool,
+    /// Opt-in: push dictation transcript TEXT to the service. Default OFF. When
+    /// false, transcript text NEVER leaves the machine (privacy rule).
+    #[serde(default)]
+    pub service_sync_transcripts: bool,
+    /// Opt-in: push usage events (dictation counts/durations, NO text) to the
+    /// service. Default OFF. Independent of `service_sync_transcripts`.
+    #[serde(default)]
+    pub service_sync_usage: bool,
 }
 
 fn default_meeting_app_allowlist() -> Vec<String> {
@@ -1486,6 +1510,12 @@ pub fn get_default_settings() -> AppSettings {
         meeting_app_allowlist: default_meeting_app_allowlist(),
         meetings_diarization: true,
         meetings_diarization_provisional: false,
+
+        // OpenFlow Service — dormant by default (empty URL, all opt-ins off).
+        service_url: String::new(),
+        service_enabled: false,
+        service_sync_transcripts: false,
+        service_sync_usage: false,
     }
 }
 
@@ -1821,6 +1851,33 @@ mod tests {
         assert_eq!(fresh.default_ai_mode_id, None);
         assert!(!fresh.basic_filler_filter);
         assert!(fresh.hotkey_overlay_enabled);
+    }
+
+    #[test]
+    fn legacy_store_without_service_fields_defaults_them_off() {
+        // Non-breaking proof for the OpenFlow Service feature: a settings store
+        // persisted BEFORE any `service_*` key existed must deserialize with the
+        // integration fully dormant — empty URL, everything off — so an upgrading
+        // user's config is byte-for-byte unaffected and nothing is ever synced
+        // until they explicitly pair and opt in.
+        let raw = serde_json::json!({
+            "bindings": {},
+            "push_to_talk": true,
+            "audio_feedback": false
+        });
+        let settings: AppSettings =
+            serde_json::from_value(raw).expect("pre-service store should deserialize");
+        assert_eq!(settings.service_url, "");
+        assert!(!settings.service_enabled);
+        assert!(!settings.service_sync_transcripts);
+        assert!(!settings.service_sync_usage);
+
+        // Fresh-install defaults match: the feature is dormant out of the box.
+        let fresh = get_default_settings();
+        assert_eq!(fresh.service_url, "");
+        assert!(!fresh.service_enabled);
+        assert!(!fresh.service_sync_transcripts);
+        assert!(!fresh.service_sync_usage);
     }
 
     #[cfg(not(target_os = "linux"))]

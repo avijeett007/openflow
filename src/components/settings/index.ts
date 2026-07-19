@@ -15,6 +15,7 @@ export { ModelSetupSettings } from "./model-setup/ModelSetupSettings";
 export { DashboardSettings } from "./dashboard/DashboardSettings";
 export { HandsFreeSettings } from "./hands-free/HandsFreeSettings";
 export { MissionControlSettings } from "./mission-control/MissionControlSettings";
+export { ServiceSettings } from "./service/ServiceSettings";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";

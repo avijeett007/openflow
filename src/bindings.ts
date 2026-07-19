@@ -1027,13 +1027,16 @@ async setHotkeyOverlayEnabled(enabled: boolean) : Promise<Result<null, string>> 
 },
 /**
  * Resolve a CLI agent's binary path (`which`-style). Searches, in order: the
- * process PATH, then an explicit baseline of tool dirs (Homebrew on either
- * arch, `~/.local/bin`, bun/cargo/volta/deno, every nvm node version) that a
- * GUI-launched app's stripped launchd PATH omits — this is why detection found
- * nothing on the user's installed app while `which` worked in Terminal. As a
- * final fallback it consults the user's login shell (`<shell> -lc 'command -v
- * <name>'`) so custom profile PATHs (rbenv/asdf/fnm) resolve exactly as in
- * their Terminal. Returns the absolute path, or an error if not found.
+ * process PATH, then an explicit baseline of tool dirs that a GUI-launched
+ * app's stripped PATH omits — on macOS Homebrew on either arch, `~/.local/bin`,
+ * bun/cargo/volta/deno, every nvm node version (this is why detection found
+ * nothing on the user's installed app while `which` worked in Terminal); on
+ * Windows `%APPDATA%\npm`, `%LOCALAPPDATA%\Programs`, bun/volta/cargo/scoop
+ * and `%ProgramFiles%\nodejs`, probing PATHEXT-style candidate names
+ * (`claude.cmd` etc.). As a final fallback it consults the user's login shell
+ * (`<shell> -lc 'command -v <name>'`; `where.exe` on Windows) so custom
+ * profile PATHs (rbenv/asdf/fnm) resolve exactly as in their Terminal.
+ * Returns the absolute path, or an error if not found.
  */
 async detectAgentBinary(cliType: AgentCliType) : Promise<Result<string, string>> {
     try {
@@ -1490,6 +1493,78 @@ async downloadDiarizationModels() : Promise<Result<null, string>> {
 }
 },
 /**
+ * Pair this device with a self-hosted OpenFlow Service.
+ * 
+ * On `201`: store the returned `device_token` in the OS keyring, persist the URL,
+ * set `service_enabled = true`, record the device identity, and start the sync
+ * worker. On any error: friendly message, nothing persisted.
+ */
+async pairService(url: string, setupToken: string) : Promise<Result<PairedDeviceInfo, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("pair_service", { url, setupToken }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Unpair: best-effort revoke on the server, then remove the local token and
+ * disable the feature. Always succeeds locally even if the server is unreachable.
+ */
+async unpairService() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("unpair_service") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Current status for the settings UI.
+ */
+async serviceStatus() : Promise<Result<ServiceStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("service_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Test the connection with the stored token: `GET /v1/info`.
+ */
+async testServiceConnection() : Promise<Result<ServiceInfo, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_service_connection") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle transcript sync (privacy-critical opt-in). Also nudges the worker so a
+ * freshly-enabled sync starts promptly.
+ */
+async setServiceSyncTranscripts(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_service_sync_transcripts", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle usage-event sync (counts/durations only — never text).
+ */
+async setServiceSyncUsage(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_service_sync_usage", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Checks if the Mac is a laptop by detecting battery presence
  * 
  * This uses pmset to check for battery information.
@@ -1938,7 +2013,33 @@ meetings_diarization?: boolean;
  * infeasible past a few minutes, so the safe default is final-pass-only
  * (DESIGN-meetings.md §5.4 auto-degrade). Users on fast machines can opt in.
  */
-meetings_diarization_provisional?: boolean }
+meetings_diarization_provisional?: boolean; 
+/**
+ * Base URL of the paired self-hosted OpenFlow Service (e.g.
+ * `https://openflow.example.com`). Empty = feature fully dormant: no sync
+ * worker is ever started and nothing leaves the machine. The device token
+ * itself is NEVER stored here — it lives in the OS keyring (scope
+ * `"service"`, account `"device_token"`); this struct only holds the URL and
+ * opt-in flags. All four fields are `#[serde(default)]` so an old settings
+ * store (with none of these keys) deserializes byte-for-byte as before.
+ */
+service_url?: string; 
+/**
+ * Whether a device is paired and the integration is active. Set true only on
+ * a successful `pair_service`; cleared by `unpair_service`. When false the
+ * sync worker does nothing even if a URL is present.
+ */
+service_enabled?: boolean; 
+/**
+ * Opt-in: push dictation transcript TEXT to the service. Default OFF. When
+ * false, transcript text NEVER leaves the machine (privacy rule).
+ */
+service_sync_transcripts?: boolean; 
+/**
+ * Opt-in: push usage events (dictation counts/durations, NO text) to the
+ * service. Default OFF. Independent of `service_sync_transcripts`.
+ */
+service_sync_usage?: boolean }
 export type AppUsage = { app: string; dictations: number; words: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
@@ -2181,6 +2282,10 @@ export type OverlayPosition = "top" | "bottom"
  */
 export type OverlayStyle = "none" | "minimal" | "live"
 export type PaginatedHistory = { entries: HistoryEntry[]; has_more: boolean }
+/**
+ * Returned to the UI after a successful pairing.
+ */
+export type PairedDeviceInfo = { device_id: string; device_name: string; url: string }
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v" | "external_script"
 export type PermissionAccess = "allowed" | "denied" | "unknown"
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; models_endpoint?: string | null; supports_structured_output?: boolean }
@@ -2204,6 +2309,30 @@ export type RunStatus = { status: "running" } | { status: "finished"; code: numb
  */
 export type RunningApp = { bundle_id: string; name: string }
 export type SecretMap = Partial<{ [key in string]: string }>
+/**
+ * Typed result of a connection test / info fetch.
+ */
+export type ServiceInfo = { version: string; edition: string; module_stt: boolean; module_llm: boolean; module_memory: boolean }
+/**
+ * Status snapshot for the settings UI.
+ */
+export type ServiceStatus = { 
+/**
+ * A URL is configured (feature is at least half-set-up).
+ */
+configured: boolean; 
+/**
+ * A device is paired and the integration is active.
+ */
+enabled: boolean; url: string; sync_transcripts: boolean; sync_usage: boolean; paired_device_name: string | null; 
+/**
+ * Unix seconds of the last successful push, if any.
+ */
+last_sync_at: number | null; 
+/**
+ * History rows not yet synced (informational).
+ */
+pending_count: number | null }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "custom"
 /**

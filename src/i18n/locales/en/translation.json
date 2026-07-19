@@ -33,7 +33,8 @@
       "agents": "Agents",
       "meetings": "Meetings",
       "system": "System"
-    }
+    },
+    "service": "OpenFlow Service"
   },
   "onboarding": {
     "subtitle": "To get started, choose a transcription model",
@@ -1307,6 +1308,32 @@
         "meetingCapture": "Meeting capture",
         "showHotkeys": "Show hotkeys"
       }
+    },
+    "service": {
+      "title": "OpenFlow Service",
+      "intro": "Connect this device to your own self-hosted OpenFlow Service to sync dictation history and usage across your machines.",
+      "privacyNote": "Nothing is sent unless you turn it on. Your service, your data.",
+      "loading": "Checking connection…",
+      "thisDevice": "This device",
+      "urlLabel": "Service URL",
+      "urlPlaceholder": "https://openflow.example.com",
+      "setupTokenLabel": "Setup token",
+      "setupTokenPlaceholder": "Paste the setup token from your service",
+      "pair": "Pair",
+      "unpair": "Unpair",
+      "testConnection": "Test connection",
+      "infoLine": "{{edition}} · v{{version}}",
+      "pairedToast": "Paired as {{name}}",
+      "unpairedToast": "This device has been unpaired.",
+      "testOk": "Connected to OpenFlow Service v{{version}}",
+      "syncTitle": "Sync",
+      "syncTranscripts": "Sync transcripts",
+      "syncTranscriptsHint": "Push dictation transcript text to your service. Off by default — when off, transcript text never leaves this machine.",
+      "syncUsage": "Sync usage",
+      "syncUsageHint": "Push usage events (dictation counts and durations only — never text) to your service.",
+      "lastSync": "Last sync: {{when}}",
+      "neverSynced": "Not synced yet",
+      "pending": "{{count}} pending"
     }
   },
   "footer": {
