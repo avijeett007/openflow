@@ -7,6 +7,7 @@ pub mod backends;
 pub mod history;
 pub mod meetings;
 pub mod models;
+pub mod remote_agents;
 pub mod service;
 pub mod transcription;
 

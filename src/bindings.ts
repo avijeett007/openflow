@@ -943,6 +943,32 @@ async testAgent(id: string, sampleText: string) : Promise<Result<AgentTestResult
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Fetch and resolve a remote agent's card, PERSIST the resolved endpoint +
+ * display metadata onto the agent, and return a summary for the UI. This is the
+ * settings "Fetch card" button.
+ */
+async fetchRemoteAgentCard(agentId: string) : Promise<Result<AgentCardSummary, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("fetch_remote_agent_card", { agentId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Lightweight reachability test: re-fetch the card (with the 401→token retry).
+ * Deliberately does NOT send a real message — that could cost money or trigger
+ * real work on the user's server. Returns the resolved endpoint on success.
+ */
+async testRemoteAgent(agentId: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_remote_agent", { agentId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async createAiMode(mode: AiMode) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_ai_mode", { mode }) };
@@ -1633,6 +1659,16 @@ export type AgentBinaryTest = { ok: boolean; output: string;
  * message (e.g. a broken Codex install). `None` for ordinary output.
  */
 hint: AgentBinaryHint | null }
+export type AgentCardSkill = { id: string; name: string }
+/**
+ * UI-facing summary returned by `fetch_remote_agent_card` / persisted on the agent.
+ */
+export type AgentCardSummary = { name: string; version: string; streaming: boolean; 
+/**
+ * The resolved JSON-RPC endpoint (empty only if selection somehow failed —
+ * callers error out before building a summary in that case).
+ */
+endpoint: string; auth_schemes: string[]; skills: AgentCardSkill[] }
 /**
  * Which local coding-agent CLI a `Cli` agent drives. Selects the prefilled
  * invocation template (see `default_command_template_for`). `Custom` is a
@@ -1697,15 +1733,41 @@ output_sinks?: AgentOutputSink[];
 /**
  * How the instruction reaches the CLI. `Stdin` (default) or `Arg`.
  */
-prompt_via?: PromptDelivery }
+prompt_via?: PromptDelivery; 
+/**
+ * The A2A agent's base URL as entered by the user. We derive
+ * `<origin>/.well-known/agent-card.json`; a full `…/agent-card.json` URL is
+ * accepted verbatim. Only meaningful when `kind == Remote`.
+ */
+remote_url?: string; 
+/**
+ * The resolved JSON-RPC endpoint URL from the agent card, cached at fetch
+ * time. Empty until the first successful `fetch_remote_agent_card`.
+ */
+remote_endpoint?: string; 
+/**
+ * Display name cached from the agent card.
+ */
+remote_card_name?: string; 
+/**
+ * Version cached from the agent card.
+ */
+remote_card_version?: string; 
+/**
+ * Card `capabilities.streaming`, cached — whether we may use `message/stream`.
+ */
+remote_streaming?: boolean }
 /**
  * Flow OS increment 2 — what KIND of agent this is. `Prompt` is the increment-1
  * behavior (dictation routed through a persona LLM before injection). `Cli`
  * drives a REAL local coding-agent binary (Claude Code, Codex, …) as a
- * subprocess in a chosen project folder. Defaults to `Prompt` so every agent
- * stored before this field existed stays a prompt agent, byte-for-byte.
+ * subprocess in a chosen project folder. `Remote` (increment 3) drives a
+ * spec-compliant **A2A** server the user points OpenFlow at (their VPS agent, a
+ * hosted flow, any endpoint) over the A2A JSON-RPC binding. Defaults to
+ * `Prompt` so every agent stored before this field existed stays a prompt
+ * agent, byte-for-byte.
  */
-export type AgentKind = "prompt" | "cli"
+export type AgentKind = "prompt" | "cli" | "remote"
 /**
  * What an agent does with its LLM response. `Inject` pastes it at the cursor
  * exactly like a normal dictation; `Clipboard` only copies it (no paste, no

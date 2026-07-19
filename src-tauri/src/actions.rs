@@ -1313,31 +1313,38 @@ pub(crate) async fn finish_dictation(
         .map(|m| m.kind == AiModeKind::Command)
         .unwrap_or(false);
 
-    // Flow OS increment 2: a CLI agent does NOT run the persona-LLM transform or
-    // inject anything — it drives a real coding-agent subprocess. Hand the
-    // transcript to the AgentRunManager (which spawns the process + a detached
-    // streaming task and returns at once) and RETURN IMMEDIATELY so the
+    // Flow OS increment 2/3: a CLI or REMOTE (A2A) agent does NOT run the
+    // persona-LLM transform or inject anything — it drives a real coding-agent
+    // subprocess (Cli) or a remote A2A server (Remote) behind the SAME run seam.
+    // Hand the transcript to the AgentRunManager (which registers the run + a
+    // detached driver task and returns at once) and RETURN IMMEDIATELY so the
     // coordinator's Processing stage ends promptly and dictation is never
     // blocked by a long agent run. Prompt agents and normal dictation fall
     // through to the unchanged increment-1 path below.
     if let Some(agent) = agent.as_ref() {
-        if agent.kind == crate::settings::AgentKind::Cli {
+        use crate::settings::AgentKind;
+        if agent.kind == AgentKind::Cli || agent.kind == AgentKind::Remote {
+            let kind_label = if agent.kind == AgentKind::Remote {
+                "remote"
+            } else {
+                "CLI"
+            };
             let instruction = raw_text.trim().to_string();
             if instruction.is_empty() {
                 debug!(
-                    "CLI agent '{}' triggered with an empty transcript; skipping run",
-                    agent.id
+                    "{} agent '{}' triggered with an empty transcript; skipping run",
+                    kind_label, agent.id
                 );
             } else if let Some(mgr) = ah.try_state::<Arc<AgentRunManager>>() {
                 let run_id = mgr.inner().start(&ah, agent.clone(), instruction);
                 debug!(
-                    "Started CLI agent run '{}' for agent '{}' (project: '{}')",
-                    run_id, agent.id, agent.project_path
+                    "Started {} agent run '{}' for agent '{}'",
+                    kind_label, run_id, agent.id
                 );
             } else {
                 error!(
-                    "AgentRunManager not initialized; cannot start CLI agent '{}'",
-                    agent.id
+                    "AgentRunManager not initialized; cannot start {} agent '{}'",
+                    kind_label, agent.id
                 );
             }
             utils::hide_recording_overlay(&ah);
@@ -2237,6 +2244,11 @@ mod tests {
             project_path: String::new(),
             output_sinks: vec![AgentOutputSink::Panel],
             prompt_via: PromptDelivery::Stdin,
+            remote_url: String::new(),
+            remote_endpoint: String::new(),
+            remote_card_name: String::new(),
+            remote_card_version: String::new(),
+            remote_streaming: false,
         }
     }
 

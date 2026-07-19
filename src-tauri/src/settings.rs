@@ -112,13 +112,17 @@ impl Default for AgentOutputMode {
 /// Flow OS increment 2 — what KIND of agent this is. `Prompt` is the increment-1
 /// behavior (dictation routed through a persona LLM before injection). `Cli`
 /// drives a REAL local coding-agent binary (Claude Code, Codex, …) as a
-/// subprocess in a chosen project folder. Defaults to `Prompt` so every agent
-/// stored before this field existed stays a prompt agent, byte-for-byte.
+/// subprocess in a chosen project folder. `Remote` (increment 3) drives a
+/// spec-compliant **A2A** server the user points OpenFlow at (their VPS agent, a
+/// hosted flow, any endpoint) over the A2A JSON-RPC binding. Defaults to
+/// `Prompt` so every agent stored before this field existed stays a prompt
+/// agent, byte-for-byte.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Type, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentKind {
     Prompt,
     Cli,
+    Remote,
 }
 
 impl Default for AgentKind {
@@ -259,6 +263,26 @@ pub struct AgentDefinition {
     /// How the instruction reaches the CLI. `Stdin` (default) or `Arg`.
     #[serde(default)]
     pub prompt_via: PromptDelivery,
+
+    // ---- Flow OS increment 3: Remote agents (A2A) ----
+    /// The A2A agent's base URL as entered by the user. We derive
+    /// `<origin>/.well-known/agent-card.json`; a full `…/agent-card.json` URL is
+    /// accepted verbatim. Only meaningful when `kind == Remote`.
+    #[serde(default)]
+    pub remote_url: String,
+    /// The resolved JSON-RPC endpoint URL from the agent card, cached at fetch
+    /// time. Empty until the first successful `fetch_remote_agent_card`.
+    #[serde(default)]
+    pub remote_endpoint: String,
+    /// Display name cached from the agent card.
+    #[serde(default)]
+    pub remote_card_name: String,
+    /// Version cached from the agent card.
+    #[serde(default)]
+    pub remote_card_version: String,
+    /// Card `capabilities.streaming`, cached — whether we may use `message/stream`.
+    #[serde(default)]
+    pub remote_streaming: bool,
 }
 
 /// What an AI Mode does with the raw transcript before it reaches the cursor.
@@ -2154,6 +2178,44 @@ mod tests {
         assert!(agent.project_path.is_empty());
         assert_eq!(agent.output_sinks, vec![AgentOutputSink::Panel]);
         assert_eq!(agent.prompt_via, PromptDelivery::Stdin);
+        // Increment-3 remote fields must also default to empty/false so a
+        // pre-remote store stays byte-for-byte a Prompt agent.
+        assert!(agent.remote_url.is_empty());
+        assert!(agent.remote_endpoint.is_empty());
+        assert!(agent.remote_card_name.is_empty());
+        assert!(agent.remote_card_version.is_empty());
+        assert!(!agent.remote_streaming);
+    }
+
+    #[test]
+    fn remote_agent_round_trips_through_serde() {
+        // A remote (A2A) agent's new fields must survive a serialize→deserialize
+        // cycle (this is what create_agent/update_agent persist through), and a
+        // `kind:"remote"` value must map to AgentKind::Remote.
+        let raw = serde_json::json!({
+            "id": "vps",
+            "name": "My VPS Agent",
+            "enabled": true,
+            "binding_id": "agent:vps",
+            "provider_id": "",
+            "kind": "remote",
+            "remote_url": "https://agent.example.com",
+            "remote_endpoint": "https://agent.example.com/a2a/v1",
+            "remote_card_name": "Example Agent",
+            "remote_card_version": "1.2.3",
+            "remote_streaming": true,
+            "output_mode": "inject"
+        });
+        let agent: AgentDefinition = serde_json::from_value(raw).unwrap();
+        assert_eq!(agent.kind, AgentKind::Remote);
+        assert_eq!(agent.remote_url, "https://agent.example.com");
+        assert_eq!(agent.remote_endpoint, "https://agent.example.com/a2a/v1");
+        assert_eq!(agent.remote_card_name, "Example Agent");
+        assert_eq!(agent.remote_card_version, "1.2.3");
+        assert!(agent.remote_streaming);
+        // CLI fields stay at their defaults for a remote agent.
+        assert!(agent.cli_type.is_none());
+        assert!(agent.binary_path.is_empty());
     }
 
     #[test]

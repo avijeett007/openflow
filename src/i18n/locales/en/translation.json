@@ -692,7 +692,10 @@
         "promptSectionTitle": "Prompt agents",
         "cliSectionTitle": "CLI agents",
         "cliAgent": "CLI agent",
-        "cliDescription": "Drive a real coding-agent CLI (Claude Code, Codex, …) as a subprocess in a project folder."
+        "cliDescription": "Drive a real coding-agent CLI (Claude Code, Codex, …) as a subprocess in a project folder.",
+        "remoteSectionTitle": "Remote agents",
+        "remoteAgent": "Remote agent (A2A)",
+        "remoteDescription": "Point a hotkey at any spec-compliant A2A server — your VPS agent, a hosted flow, any endpoint."
       },
       "card": {
         "name": {
@@ -802,6 +805,37 @@
             "placeholder": "e.g. -p --output-format stream-json --verbose",
             "show": "Show advanced",
             "hide": "Hide advanced"
+          },
+          "outputSinks": {
+            "label": "Output",
+            "description": "Where this run's output goes when it finishes.",
+            "panel": "Panel",
+            "notify": "Notify",
+            "file": "File"
+          }
+        },
+        "remote": {
+          "url": {
+            "label": "Agent URL",
+            "description": "The base URL of the A2A agent. OpenFlow reads its card from /.well-known/agent-card.json (or paste a full card URL).",
+            "placeholder": "e.g. https://agent.example.com"
+          },
+          "token": {
+            "label": "Token",
+            "description": "Optional bearer token sent with every request. Stored in your OS keychain, never in settings."
+          },
+          "fetch": {
+            "label": "Agent card",
+            "description": "Fetch the card to resolve the agent's JSON-RPC endpoint and capabilities.",
+            "button": "Fetch card",
+            "fetching": "Fetching…",
+            "error": "Couldn't fetch the card: {{error}}",
+            "notFetched": "No card fetched yet. Enter the URL above and fetch the card.",
+            "streaming": "Streaming",
+            "endpoint": "Endpoint: {{endpoint}}",
+            "version": "v{{version}}",
+            "skills": "Skills",
+            "auth": "Auth: {{schemes}}"
           },
           "outputSinks": {
             "label": "Output",
