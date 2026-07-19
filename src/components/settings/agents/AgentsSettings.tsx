@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Bot, Plus, Terminal } from "lucide-react";
+import { Bot, Plus, RadioTower, Terminal } from "lucide-react";
 import type { AgentCliType, AgentDefinition } from "@/bindings";
 import { commands } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
@@ -134,6 +134,38 @@ export const AgentsSettings: React.FC = () => {
     }
   };
 
+  const handleAddRemote = async () => {
+    setCreatingKey("remote");
+    try {
+      const name = t("settings.agents.addAgent.remoteAgent");
+      const existingIds = new Set(agents.map((agent) => agent.id));
+      const id = uniqueAgentId(slugify(name), existingIds);
+
+      const result = await commands.createAgent({
+        id,
+        name,
+        binding_id: `agent:${id}`,
+        provider_id: "",
+        kind: "remote",
+        remote_url: "",
+        output_sinks: ["panel"],
+        enabled: true,
+      });
+
+      if (result.status === "error") {
+        toast.error(
+          t("settings.agents.addAgent.error", { error: result.error }),
+        );
+        return;
+      }
+
+      await refreshSettings();
+      toast.success(t("settings.agents.addAgent.created", { name }));
+    } finally {
+      setCreatingKey(null);
+    }
+  };
+
   return (
     <div className="max-w-3xl w-full mx-auto space-y-6">
       <SettingsGroup title={t("settings.agents.title")}>
@@ -194,6 +226,26 @@ export const AgentsSettings: React.FC = () => {
               >
                 <Terminal className="h-4 w-4" />
                 {t("settings.agents.addAgent.cliAgent")}
+              </Button>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-medium text-mid-gray uppercase tracking-wide mb-2">
+              {t("settings.agents.addAgent.remoteSectionTitle")}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={() => void handleAddRemote()}
+                disabled={creatingKey !== null}
+                className="inline-flex items-center gap-1.5"
+                title={t("settings.agents.addAgent.remoteDescription")}
+              >
+                <RadioTower className="h-4 w-4" />
+                {t("settings.agents.addAgent.remoteAgent")}
               </Button>
             </div>
           </div>
