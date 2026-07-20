@@ -59,6 +59,25 @@ pub fn classify_binary_output(output: &str) -> Option<AgentBinaryHint> {
     }
 }
 
+/// Log a warning when a resolved `codex` binary's native vendor payload is
+/// provably missing (GAP 2), so handy.log records it at detect time. Returns
+/// the path UNCHANGED — detect still succeeds because the launcher path IS
+/// resolved; the actionable fix is surfaced to the user by the Test button
+/// (`test_agent_binary`), and a real run's classifier is the final safety net.
+/// Non-codex types and any indeterminate result are a silent no-op.
+fn note_codex_vendor(cli_type: AgentCliType, path: String) -> String {
+    use crate::managers::agent_run::{codex_static_vendor_hint, CodexVendorStatus};
+    if cli_type == AgentCliType::Codex
+        && codex_static_vendor_hint(&path) == CodexVendorStatus::Missing
+    {
+        log::warn!(
+            "detect_agent_binary: resolved codex at '{path}' but its native vendor \
+             payload (@openai/codex-<os>-<arch>) is provably missing — reinstall Codex"
+        );
+    }
+    path
+}
+
 /// The prefilled config for a CLI agent type — one source of truth shared with
 /// the frontend so its "Add CLI agent" form matches exactly what the backend
 /// verified (esp. the live-tested `claude` template).
@@ -125,7 +144,10 @@ pub async fn detect_agent_binary(cli_type: AgentCliType) -> Result<String, Strin
         for file_name in &file_names {
             let candidate = Path::new(dir).join(file_name);
             if agent_run::is_executable_file(&candidate) {
-                return Ok(candidate.to_string_lossy().to_string());
+                return Ok(note_codex_vendor(
+                    cli_type,
+                    candidate.to_string_lossy().to_string(),
+                ));
             }
         }
     }
@@ -133,7 +155,7 @@ pub async fn detect_agent_binary(cli_type: AgentCliType) -> Result<String, Strin
     // Nothing in the known dirs — ask the user's login shell (where.exe on
     // Windows), which sees any custom PATH the user's profile exports.
     if let Some(path) = agent_run::login_shell_which(name).await {
-        return Ok(path);
+        return Ok(note_codex_vendor(cli_type, path));
     }
 
     Err(format!(
@@ -171,14 +193,28 @@ pub async fn test_agent_binary(binary_path: String) -> Result<AgentBinaryTest, S
     // to stderr while still exiting non-zero.
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let hint = classify_binary_output(&format!("{stdout}\n{stderr}"));
+    let mut hint = classify_binary_output(&format!("{stdout}\n{stderr}"));
+
+    // GAP 1: `codex --version` can succeed via the JS launcher WITHOUT ever
+    // touching the vendored native binary — so Test would report OK while a
+    // real run fails. Proactively (and statically) prove the native payload is
+    // present; only a PROVABLY-missing payload downgrades the result (an
+    // `Unknown` result never fabricates a warning — see `codex_static_vendor_hint`).
+    if hint.is_none()
+        && crate::managers::agent_run::codex_static_vendor_hint(&binary_path)
+            == crate::managers::agent_run::CodexVendorStatus::Missing
+    {
+        hint = Some(AgentBinaryHint::CodexVendorMissing);
+    }
 
     let mut text = stdout.trim().to_string();
     if text.is_empty() {
         text = stderr.trim().to_string();
     }
     Ok(AgentBinaryTest {
-        ok: output.status.success(),
+        // A proven-missing vendor payload flips Test to not-OK even when the
+        // launcher's `--version` exited 0, so the UI shows the actionable fix.
+        ok: output.status.success() && hint.is_none(),
         output: text,
         hint,
     })
