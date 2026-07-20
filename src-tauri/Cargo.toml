@@ -97,7 +97,7 @@ hf-hub = { git = "https://github.com/cjpais/hf-hub", branch = "cancellable-downl
 ] }
 
 [target.'cfg(unix)'.dependencies]
-signal-hook = "0.3"
+signal-hook = "0.4"
 # SIGTERM→SIGKILL graceful stop for spawned CLI-agent subprocesses (Flow OS).
 libc = "0.2"
 
