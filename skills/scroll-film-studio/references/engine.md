@@ -1,6 +1,6 @@
 # Engine recipes — how to build the page (both lanes)
 
-Not a template. These are the load-bearing mechanics you write *into* each bespoke
+Not a template. These are the load-bearing mechanics you write _into_ each bespoke
 build. Everything else — markup, styling, motion shape, copy — you design fresh per
 brand.
 
@@ -22,33 +22,45 @@ const p = Math.max(0, Math.min(1, -r.top / (r.height - innerHeight)));
 **Lerped playhead** (this is the butter — direct mapping feels mechanical):
 
 ```js
-currentFrame += (target - currentFrame) * 0.14;   // target = p * (FRAME_COUNT - 1)
+currentFrame += (target - currentFrame) * 0.14; // target = p * (FRAME_COUNT - 1)
 ```
 
 **The anti-jank core — ImageBitmap sliding window.** `drawImage(HTMLImageElement)`
-forces a *synchronous* JPEG decode on the main thread at first paint and again after
+forces a _synchronous_ JPEG decode on the main thread at first paint and again after
 browser cache eviction — those decode spikes are the "frame-by-frame glitchy" feel.
 Decode off-thread around the playhead so every draw is a pure GPU blit:
 
 ```js
-const bitmaps = new Map(), decoding = new Set();
-const B_AHEAD = 18, B_KEEP = 28; let bmpCenter = -999;
-function ensureBitmaps(center){
+const bitmaps = new Map(),
+  decoding = new Set();
+const B_AHEAD = 18,
+  B_KEEP = 28;
+let bmpCenter = -999;
+function ensureBitmaps(center) {
   if (Math.abs(center - bmpCenter) < 3) return;
   bmpCenter = center;
-  const lo = Math.max(0, center - B_AHEAD), hi = Math.min(FRAME_COUNT - 1, center + B_AHEAD);
-  for (let i = lo; i <= hi; i++){
+  const lo = Math.max(0, center - B_AHEAD),
+    hi = Math.min(FRAME_COUNT - 1, center + B_AHEAD);
+  for (let i = lo; i <= hi; i++) {
     if (bitmaps.has(i) || decoding.has(i) || !images[i]) continue;
     decoding.add(i);
-    createImageBitmap(images[i]).then(b => {
-      decoding.delete(i);
-      if (Math.abs(i - bmpCenter) > B_KEEP){ b.close(); return; }
-      bitmaps.set(i, b);
-      if (i === displayed) drawFrame(i, true);      // repaint if the shown frame upgraded
-    }).catch(() => decoding.delete(i));
+    createImageBitmap(images[i])
+      .then((b) => {
+        decoding.delete(i);
+        if (Math.abs(i - bmpCenter) > B_KEEP) {
+          b.close();
+          return;
+        }
+        bitmaps.set(i, b);
+        if (i === displayed) drawFrame(i, true); // repaint if the shown frame upgraded
+      })
+      .catch(() => decoding.delete(i));
   }
   for (const k of Array.from(bitmaps.keys()))
-    if (k < center - B_KEEP || k > center + B_KEEP){ bitmaps.get(k).close(); bitmaps.delete(k); }
+    if (k < center - B_KEEP || k > center + B_KEEP) {
+      bitmaps.get(k).close();
+      bitmaps.delete(k);
+    }
 }
 // draw: prefer bitmaps.get(idx), fall back to nearest loaded HTMLImageElement
 ```
@@ -68,13 +80,16 @@ doubles JPEG bytes — resist going bigger.
 Absolute-positioned overlays with progress envelopes, driven from the same tick:
 
 ```html
-<div class="beat" data-in="0.16" data-peak="0.235" data-out="0.31"><h2>…</h2></div>
+<div class="beat" data-in="0.16" data-peak="0.235" data-out="0.31">
+  <h2>…</h2>
+</div>
 ```
+
 ```js
-function beatAlpha(b, p){
+function beatAlpha(b, p) {
   if (p < b.in || p > b.out) return 0;
   if (p < b.peak) return (p - b.in) / Math.max(1e-4, b.peak - b.in);
-  if (b.out > 1.5) return 1;                    // finale: data-out="2" never fades
+  if (b.out > 1.5) return 1; // finale: data-out="2" never fades
   return 1 - (p - b.peak) / Math.max(1e-4, b.out - b.peak);
 }
 // alpha → style.opacity, plus a small translateY against scroll direction
@@ -111,10 +126,12 @@ Skip under `prefers-reduced-motion`.
 ## The dev contract (verification hooks — implement in every build)
 
 ```js
-const JUMP = new URLSearchParams(location.search).get('jump');
-if (JUMP !== null) history.scrollRestoration = 'manual';   // and skip smooth-scroll init
+const JUMP = new URLSearchParams(location.search).get("jump");
+if (JUMP !== null) history.scrollRestoration = "manual"; // and skip smooth-scroll init
 // after everything is loaded and settled:
-if (JUMP !== null){ scrollTo(0, +JUMP || 0); /* recompute progress, draw, tick once */ }
+if (JUMP !== null) {
+  scrollTo(0, +JUMP || 0); /* recompute progress, draw, tick once */
+}
 window.__ready = true;
 ```
 
@@ -134,11 +151,13 @@ The "film" is a sequence of scroll-driven scenes. Wire Lenis into GSAP's ticker:
 
 ```js
 const lenis = new Lenis({ lerp: 0.09, smoothWheel: true });
-lenis.on('scroll', ScrollTrigger.update);
-gsap.ticker.add(t => lenis.raf(t * 1000)); gsap.ticker.lagSmoothing(0);
+lenis.on("scroll", ScrollTrigger.update);
+gsap.ticker.add((t) => lenis.raf(t * 1000));
+gsap.ticker.lagSmoothing(0);
 ```
 
-Vocabulary to compose from (pick what tells *this* brand's journey):
+Vocabulary to compose from (pick what tells _this_ brand's journey):
+
 - **Char-split hero reveal** — split the wordmark into spans, stagger `yPercent:120 → 0`
   with `power4.out`.
 - **Pinned scrubbed scenes** — `pin: true, scrub: true, end: '+=140%'` timelines
@@ -151,7 +170,7 @@ Vocabulary to compose from (pick what tells *this* brand's journey):
 - **Counters** — `once: true` triggers with `snap: { textContent: 1 }`.
 - **Marquee drift** — `xPercent: -50, repeat: -1` on a doubled row.
 
-**Ordering law (silent killer):** ScrollTriggers are refreshed in *creation order*.
+**Ordering law (silent killer):** ScrollTriggers are refreshed in _creation order_.
 Create all pinned scenes **first**, ambient/background triggers **after** — otherwise
 positions computed before pin spacers exist are silently wrong (effects fire thousands
 of pixels early).
