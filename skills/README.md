@@ -3,9 +3,9 @@
 Reusable [Claude Code skills](https://docs.anthropic.com/en/docs/claude-code) we use to build
 and ship OpenFlow itself — shared so you can use them too.
 
-| Skill | What it does | Proof it works |
-|---|---|---|
-| [`scroll-film-studio`](./scroll-film-studio/) | Builds a cinematic scroll-film website: the whole hero is one continuous shot that plays as the visitor scrolls, then melts into your content. | [openflow.computer](https://openflow.computer) — our homepage was built with it. |
+| Skill | What it does | Proof it works | Credit |
+|---|---|---|---|
+| [`scroll-film-studio`](./scroll-film-studio/) | Builds a cinematic scroll-film website: the whole hero is one continuous shot that plays as the visitor scrolls, then melts into your content. | [openflow.computer](https://openflow.computer) — our homepage was built with it. | [Jack Roberts](https://www.youtube.com/@Itssssss_Jack) |
 
 ## Installing a skill
 
@@ -40,3 +40,17 @@ extras).
 
 Each skill folder contains its own guide — start with
 [`scroll-film-studio/GUIDE.md`](./scroll-film-studio/GUIDE.md).
+
+## Credits & origins
+
+Skills in this folder come from the wider Claude Code community as well as our own work.
+Original authors are credited in the table above, and we keep that credit intact as skills
+evolve here.
+
+- **`scroll-film-studio`** — originally from **Jack Roberts**
+  ([youtube.com/@Itssssss_Jack](https://www.youtube.com/@Itssssss_Jack)). Go watch his
+  channel — the scroll-film concept and workflow started there; our copy carries the
+  refinements we made while shipping [openflow.computer](https://openflow.computer) with it.
+
+If you're an original author of a skill here and want the attribution changed (or the
+skill removed), open an issue and we'll sort it immediately.
