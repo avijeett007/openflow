@@ -240,3 +240,7 @@ weekly for security/dependency/CI problems. It cannot merge or release anything 
 both. See [`agents/README.md`](agents/README.md) for the crew, the safety rails
 (kill switch, PR budget, token gate), and the `CLAUDE_CODE_OAUTH_TOKEN` prerequisite.
 The agents follow this file — the non-breaking principle above is their first check.
+A nightly local **pr-steward** (on the Intel Mac) batches dependency PRs into one
+build-tested integration PR for your final merge. Release discipline is in
+[`RELEASES.md`](RELEASES.md): **merging ships nothing — only a `v*` tag publishes an
+OTA release, and only a human tags.**
