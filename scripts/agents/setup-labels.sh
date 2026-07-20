@@ -43,6 +43,7 @@ LABELS=(
   "agent:fix|0052cc|Founder opt-in: authorize a fix PR for this issue"
   "source:patrol|fef2c0|Filed by the maintenance patrol"
   "needs-founder|e99695|Waiting on the founder"
+  "needs-human-verification|e99695|Excluded from auto-integration — needs a human to verify (major/core-path bump)"
   "needs-repro|fbca04|Bug report missing a reproduction"
   "skip-agent-review|ededed|Opt this PR out of agent review"
   "deps|0366d6|Dependency update"

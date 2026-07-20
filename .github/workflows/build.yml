@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -118,7 +118,7 @@ jobs:
           git config --system core.longpaths true
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Even with long paths enabled, keep the cargo target dir short (C:\t) so
       # deep cmake artifact paths stay well under the limit.
@@ -372,7 +372,7 @@ jobs:
       # dispatch and tag builds). macOS -> .dmg, Windows -> .exe (NSIS) + .msi.
       - name: Upload installers (macOS)
         if: contains(matrix.platform, 'macos')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openflow-${{ matrix.target }}
           path: |
@@ -384,7 +384,7 @@ jobs:
       # src-tauri/target, because of the "Shorten build path" step above.
       - name: Upload installers (Windows)
         if: contains(matrix.platform, 'windows')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openflow-${{ matrix.target }}
           path: |
@@ -400,7 +400,7 @@ jobs:
       # Windows -> the NSIS -setup.exe(+.sig).
       - name: Upload updater artifacts (macOS)
         if: contains(matrix.platform, 'macos')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openflow-updater-${{ matrix.target }}
           path: |
@@ -411,7 +411,7 @@ jobs:
 
       - name: Upload updater artifacts (Windows)
         if: contains(matrix.platform, 'windows')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openflow-updater-${{ matrix.target }}
           path: |
@@ -434,12 +434,12 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Pull every platform's signed updater archive + `.sig` (one run artifact
       # per target, so the identically-named macOS archives don't collide).
       - name: Download updater artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: openflow-updater-*
           path: updater-dl

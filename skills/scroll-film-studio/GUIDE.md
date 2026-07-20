@@ -19,7 +19,7 @@ All text stays real HTML: selectable, indexable, never baked into footage.
    ends), which lane, what sits below the film, where it deploys. Every creative question
    has a "you decide" escape hatch — Claude art-directs anything you leave open.
 4. Pick one of the 2–3 pitched concepts (each is a concrete scroll-through walkthrough).
-5. Approve the costs *before* anything is spent (Lane B only), watch the draft, approve
+5. Approve the costs _before_ anything is spent (Lane B only), watch the draft, approve
    the master. Claude builds, verifies with a real headless-Chrome harness, and hands you
    a finished site.
 
@@ -36,16 +36,16 @@ This is the signature look — openflow.computer is Lane B.
 
 ### Decision table
 
-| Factor | Lane A (GSAP) | Lane B (footage) |
-|---|---|---|
-| **Cash cost** | $0 | Engine credits (real numbers below) |
-| **Page weight** | tens of KB of JS | ~11–17 MB of frames (≈2.5 MB to interactive with the two-phase loader) |
-| **Time to first scroll** | instant | ~1–3 s on fast connections (loader with progress bar) |
-| **SEO** | unaffected | unaffected — copy is HTML, metadata untouched; see notes below |
-| **Look** | polished, motion-design | cinematic, one-take film — the "how did they do that" look |
-| **Mobile data** | negligible | meaningful; consider a reduced mobile frame set |
-| **Accessibility** | honors `prefers-reduced-motion` | honors it too (static final frame + full content) |
-| **Iteration cost** | free, edit code | re-skins/copy free; re-shooting chapters costs credits |
+| Factor                   | Lane A (GSAP)                   | Lane B (footage)                                                       |
+| ------------------------ | ------------------------------- | ---------------------------------------------------------------------- |
+| **Cash cost**            | $0                              | Engine credits (real numbers below)                                    |
+| **Page weight**          | tens of KB of JS                | ~11–17 MB of frames (≈2.5 MB to interactive with the two-phase loader) |
+| **Time to first scroll** | instant                         | ~1–3 s on fast connections (loader with progress bar)                  |
+| **SEO**                  | unaffected                      | unaffected — copy is HTML, metadata untouched; see notes below         |
+| **Look**                 | polished, motion-design         | cinematic, one-take film — the "how did they do that" look             |
+| **Mobile data**          | negligible                      | meaningful; consider a reduced mobile frame set                        |
+| **Accessibility**        | honors `prefers-reduced-motion` | honors it too (static final frame + full content)                      |
+| **Iteration cost**       | free, edit code                 | re-skins/copy free; re-shooting chapters costs credits                 |
 
 **Choose Lane A when:** budget is zero, the audience is data-constrained or docs-focused,
 you need the absolute lightest page, or the brand story doesn't need literal imagery.
@@ -57,12 +57,12 @@ nobody else has, and a one-time ~$5–15 of engine credits is acceptable.
 
 Per 5-second clip, audio off:
 
-| Tier | Credits |
-|---|---|
-| 480p / fast (drafting) | 7.5 |
-| 720p / std (delivery-quality: matches the 1280px frame payload) | 22.5 |
-| 1080p / std (max quality) | 45 |
-| Opening keyframe (Nano Banana Pro image) | 2 |
+| Tier                                                            | Credits |
+| --------------------------------------------------------------- | ------- |
+| 480p / fast (drafting)                                          | 7.5     |
+| 720p / std (delivery-quality: matches the 1280px frame payload) | 22.5    |
+| 1080p / std (max quality)                                       | 45      |
+| Opening keyframe (Nano Banana Pro image)                        | 2       |
 
 A full 5-chapter film: **~40 credits to draft the whole chain cheap**, then
 **112.5 (720p) or 225 (1080p) to master** only after you approve the draft. Two levers
@@ -92,7 +92,7 @@ us real debugging hours:
 1. **Never scrub a `<video>` tag.** Seek latency stutters. Canvas + pre-extracted JPEG
    frames only.
 2. **Never use `createImageBitmap` in the scrub engine.** Its decode worker races the
-   canvas raster on macOS Chrome and *crashes the browser tab* on fast upward scroll
+   canvas raster on macOS Chrome and _crashes the browser tab_ on fast upward scroll
    reversals. Warm frames with `img.decode()`, copy them to pooled offscreen canvases
    (throttled to one copy per tick), and blit canvas→canvas. Also: `overflow-anchor: none`
    on the page, snap the playhead on giant jumps, and skip one tick after a >2-viewport

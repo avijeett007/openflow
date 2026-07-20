@@ -197,6 +197,52 @@ impl AgentRunManager {
         }
     }
 
+    /// Snapshot the current rolling output buffer for a run (for classifying a
+    /// failed run's captured stderr/stdout on the run-path).
+    fn current_output(&self, run_id: &str) -> String {
+        let runs = self.runs.lock().unwrap();
+        runs.get(run_id)
+            .map(|r| r.output.clone())
+            .unwrap_or_default()
+    }
+
+    /// Classify a failed run's captured output into an actionable diagnostic, or
+    /// `None`. First reuses the Test-button classifier (`run_failure_diagnostic`)
+    /// on the captured stderr/stdout; then, for codex specifically, falls back to
+    /// the proactive static vendor check so even a failure whose text we didn't
+    /// recognize still gets the actionable "reinstall Codex" guidance.
+    fn classify_run_failure(
+        &self,
+        output: &str,
+        binary: &str,
+        agent: &AgentDefinition,
+    ) -> Option<String> {
+        if let Some(diag) = run_failure_diagnostic(output) {
+            return Some(diag);
+        }
+        if agent.cli_type == Some(AgentCliType::Codex)
+            && codex_static_vendor_hint(binary) == CodexVendorStatus::Missing
+        {
+            return Some(CODEX_VENDOR_MISSING_DIAGNOSTIC.to_string());
+        }
+        None
+    }
+
+    /// Emit a clearly-marked actionable diagnostic line to the run panel — in
+    /// ADDITION to the raw output, which is never swallowed — and `log::error!`
+    /// it (so handy.log records the run-path failure, which it previously did
+    /// not). Used only on failure paths; the happy path never calls this.
+    fn emit_diagnostic(&self, app: &AppHandle, run_id: &str, diagnostic: &str) {
+        let line = format!("⚠️  {diagnostic}");
+        self.append_output(run_id, &line);
+        let _ = AgentRunOutput {
+            run_id: run_id.to_string(),
+            chunk: line,
+        }
+        .emit(app);
+        log::error!("agent run {run_id}: {diagnostic}");
+    }
+
     /// Spawn the agent process + a detached streaming task and return the run id
     /// immediately. Never blocks the caller (the coordinator).
     pub fn start(
@@ -304,6 +350,14 @@ impl AgentRunManager {
                     chunk: err.clone(),
                 }
                 .emit(&app);
+                // GAP: a spawn failure otherwise dumps only the raw OS error to
+                // the panel (and nothing to handy.log). Log it, and classify it
+                // (plus, for codex, statically probe the vendor payload) so the
+                // actionable fix reaches the panel too.
+                log::error!("agent run {run_id}: {err}");
+                if let Some(diag) = self.classify_run_failure(&err, &binary, &agent) {
+                    self.emit_diagnostic(&app, &run_id, &diag);
+                }
                 self.finalize(
                     &app,
                     &run_id,
@@ -375,6 +429,23 @@ impl AgentRunManager {
                 },
             }
         };
+
+        // GAP: a fast non-zero exit streams raw stderr to the panel without the
+        // actionable classification the Test button gives, and logs nothing. On
+        // a short-window failure WITH captured output, route it through the
+        // classifier and surface the fix. The happy path (exit 0 / stopped) is
+        // byte-for-byte unchanged — this branch never runs for it.
+        let is_failure = matches!(status, RunStatus::Finished { code } if code != 0)
+            || matches!(status, RunStatus::Failed { .. });
+        let failed_fast = !stopped && is_failure && started.elapsed() < Duration::from_secs(10);
+        if failed_fast {
+            let captured = self.current_output(&run_id);
+            if !captured.trim().is_empty() {
+                if let Some(diag) = self.classify_run_failure(&captured, &binary, &agent) {
+                    self.emit_diagnostic(&app, &run_id, &diag);
+                }
+            }
+        }
 
         self.finalize(&app, &run_id, &agent, status, started).await;
     }
@@ -837,6 +908,216 @@ pub fn is_executable_file(path: &Path) -> bool {
     #[cfg(not(unix))]
     {
         true
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Codex CLI-agent diagnostics (GAP 1 run-path classification + GAP 2 proactive
+// vendor check). `@openai/codex` ships a thin Node launcher whose real native
+// binary is a per-platform npm optional dependency (`@openai/codex-<os>-<arch>`)
+// — a partial install (optional deps skipped offline / with `--omit=optional`)
+// leaves the launcher unable to resolve it, so `codex --version` can still
+// "succeed" via the JS launcher while a real run fails.
+// ---------------------------------------------------------------------------
+
+/// Actionable diagnostic emitted into the run panel + handy.log when a run's
+/// failure is classified as a missing Codex native payload. This is streamed as
+/// a raw run-output line (the run panel is intentionally un-i18n'd raw tool
+/// output — subprocess stderr flows through it verbatim), in ADDITION to the
+/// raw output, which is never swallowed. The Test button surfaces the localized
+/// equivalent (`settings.agents.card.cli.binaryPath.hint.codexVendorMissing`).
+pub const CODEX_VENDOR_MISSING_DIAGNOSTIC: &str = "OpenFlow diagnostic: Codex's \
+native binary is missing from its install (the per-platform \
+@openai/codex-<os>-<arch> package was not installed). Reinstall Codex — \
+`npm i -g @openai/codex` or `brew reinstall codex` — then use the Test button \
+to confirm before running again.";
+
+/// Classify a failed run's captured stderr/stdout into an actionable
+/// run-panel diagnostic, or `None` if it doesn't match a known actionable case.
+/// This is GAP 1's safety net: a run's spawn failure or fast non-zero exit
+/// otherwise dumps raw stderr to the panel without the actionable "reinstall
+/// Codex" guidance the Test button already gives. Reuses the exact same
+/// classifier the Test button uses so Test and Run agree.
+pub fn run_failure_diagnostic(output: &str) -> Option<String> {
+    use crate::commands::agent_runs::{classify_binary_output, AgentBinaryHint};
+    // Match the concrete hint (not `Option::map`) so a future hint variant
+    // forces a decision here rather than silently mapping to the codex fix.
+    match classify_binary_output(output)? {
+        AgentBinaryHint::CodexVendorMissing => Some(CODEX_VENDOR_MISSING_DIAGNOSTIC.to_string()),
+    }
+}
+
+/// Provable state of a Codex launcher's native payload. We only ever act on
+/// `Missing` — `Unknown` (self-contained native binary, unrecognized layout,
+/// or any IO uncertainty) yields NO warning, so a false "reinstall" is
+/// impossible. Certainty is impossible without executing the launcher, so
+/// GAP 1's run-path classifier (`run_failure_diagnostic`) stays the safety net
+/// for the real failures this static check can't predict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodexVendorStatus {
+    /// A native payload is present (optional-dep package or legacy vendor dir).
+    Present,
+    /// The launcher declares a per-platform native optional dependency and it
+    /// is provably absent, with no legacy vendor payload either. Actionable.
+    Missing,
+    /// Can't prove either way — never surfaced as a warning.
+    Unknown,
+}
+
+/// Whether a resolved binary is the npm Node launcher (vs. a self-contained
+/// native binary). Two robust signals: the resolved path lives inside a
+/// `node_modules` tree, or the file starts with a `#!...node` shebang.
+pub fn is_node_launcher(path: &Path) -> bool {
+    if path.components().any(|c| c.as_os_str() == "node_modules") {
+        return true;
+    }
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut buf = [0u8; 128];
+    let Ok(n) = f.read(&mut buf) else {
+        return false;
+    };
+    let head = String::from_utf8_lossy(&buf[..n]);
+    head.lines()
+        .next()
+        .map(|l| l.starts_with("#!") && l.contains("node"))
+        .unwrap_or(false)
+}
+
+/// Walk a resolved launcher path's ancestors to find the `@openai/codex`
+/// package root — the ancestor dir named `codex` whose parent is `@openai`
+/// (e.g. `.../node_modules/@openai/codex` for a `.../@openai/codex/bin/codex.js`
+/// launcher). `None` if the path isn't inside such a package.
+pub fn openai_codex_pkg_root(launcher: &Path) -> Option<PathBuf> {
+    for anc in launcher.ancestors() {
+        let is_codex = anc.file_name().and_then(|n| n.to_str()) == Some("codex");
+        let parent_is_scope = anc
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            == Some("@openai");
+        if is_codex && parent_is_scope {
+            return Some(anc.to_path_buf());
+        }
+    }
+    None
+}
+
+/// Read the `@openai/codex-*` keys from a package.json's `optionalDependencies`.
+/// Their presence proves the per-platform-optional-dep vendor mechanism is in
+/// use and gives the EXACT sibling package names to look for — so we never
+/// guess a platform-name scheme that could drift between Codex versions.
+pub fn read_codex_optional_deps(package_json: &Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(package_json) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    json.get("optionalDependencies")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.keys()
+                .filter(|k| k.starts_with("@openai/codex-"))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether a package directory contains an executable `codex` native binary
+/// (`<dir>/codex`, `<dir>/bin/codex`, or a shallow scan; `.exe` on Windows).
+fn pkg_dir_has_codex_binary(dir: &Path) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    for cand in [
+        dir.join("codex"),
+        dir.join("bin").join("codex"),
+        dir.join("codex.exe"),
+        dir.join("bin").join("codex.exe"),
+    ] {
+        if is_executable_file(&cand) {
+            return true;
+        }
+    }
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for ent in rd.flatten() {
+            let name = ent.file_name();
+            let name = name.to_string_lossy();
+            if (name == "codex" || name == "codex.exe") && is_executable_file(&ent.path()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Whether the legacy `<pkg>/vendor/<triple>/codex/codex` payload is present.
+fn vendor_dir_has_codex(vendor_dir: &Path) -> bool {
+    let Ok(rd) = std::fs::read_dir(vendor_dir) else {
+        return false;
+    };
+    for triple in rd.flatten() {
+        let tdir = triple.path();
+        if !tdir.is_dir() {
+            continue;
+        }
+        if pkg_dir_has_codex_binary(&tdir) || pkg_dir_has_codex_binary(&tdir.join("codex")) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Statically determine, from a `@openai/codex` package root, whether the
+/// native payload is present, provably missing, or indeterminate. Pure
+/// filesystem inspection (no process execution) so it's fully unit-testable
+/// against a fabricated `node_modules` layout.
+pub fn codex_vendor_status_at(pkg_root: &Path) -> CodexVendorStatus {
+    // Legacy layout: `<pkg>/vendor/<triple>/codex/codex`.
+    if vendor_dir_has_codex(&pkg_root.join("vendor")) {
+        return CodexVendorStatus::Present;
+    }
+    let Some(scope_dir) = pkg_root.parent() else {
+        return CodexVendorStatus::Unknown;
+    };
+    // Modern layout: per-platform optional dependency installed as a sibling
+    // `node_modules/@openai/codex-<...>`. Look up the EXACT declared names.
+    let opt_deps = read_codex_optional_deps(&pkg_root.join("package.json"));
+    if opt_deps.is_empty() {
+        // Unrecognized/undeclared layout — absence of certainty ⇒ no warning.
+        return CodexVendorStatus::Unknown;
+    }
+    for dep in &opt_deps {
+        let Some(short) = dep.strip_prefix("@openai/") else {
+            continue;
+        };
+        if pkg_dir_has_codex_binary(&scope_dir.join(short)) {
+            return CodexVendorStatus::Present;
+        }
+    }
+    // The launcher declares a native optional dep, none is installed with a
+    // binary, and there's no legacy vendor payload ⇒ provably missing.
+    CodexVendorStatus::Missing
+}
+
+/// Proactive static vendor check for a resolved `codex` binary path (GAP 2).
+/// Resolves symlinks (npm's global `codex` bin is a symlink into the package),
+/// confirms it's a Node launcher, finds the `@openai/codex` package root, and
+/// inspects the payload. Returns `Unknown` (⇒ no warning) for anything it can't
+/// prove — including a self-contained native codex.
+pub fn codex_static_vendor_hint(binary_path: &str) -> CodexVendorStatus {
+    let path = Path::new(binary_path);
+    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if !is_node_launcher(&real) {
+        return CodexVendorStatus::Unknown;
+    }
+    match openai_codex_pkg_root(&real) {
+        Some(root) => codex_vendor_status_at(&root),
+        None => CodexVendorStatus::Unknown,
     }
 }
 
@@ -1515,5 +1796,184 @@ mod tests {
         mgr.append_output("r", &big);
         let info = mgr.list_runs().into_iter().next().unwrap();
         assert!(info.output.len() <= OUTPUT_BUFFER_CAP + 2);
+    }
+
+    // --- Codex run-path diagnostics (GAP 1) ------------------------------
+
+    #[test]
+    fn run_failure_diagnostic_classifies_older_launcher_raw_enoent() {
+        // Canned stderr an older codex launcher streams to the run panel.
+        let out = "Error: spawn /opt/homebrew/lib/node_modules/@openai/codex/vendor/aarch64-apple-darwin/codex/codex ENOENT";
+        let diag = run_failure_diagnostic(out).expect("should classify");
+        assert_eq!(diag, CODEX_VENDOR_MISSING_DIAGNOSTIC);
+    }
+
+    #[test]
+    fn run_failure_diagnostic_classifies_newer_launcher_missing_optional_dep() {
+        let out = "node:internal/modules/cjs/loader: Missing optional dependency @openai/codex-darwin-arm64";
+        assert_eq!(
+            run_failure_diagnostic(out),
+            Some(CODEX_VENDOR_MISSING_DIAGNOSTIC.to_string())
+        );
+    }
+
+    #[test]
+    fn run_failure_diagnostic_ignores_ordinary_output() {
+        assert_eq!(run_failure_diagnostic("Applying edit to src/main.rs"), None);
+        // An unrelated ENOENT (not the codex vendor payload) is not our case.
+        assert_eq!(run_failure_diagnostic("Error: spawn git ENOENT"), None);
+    }
+
+    // --- Codex proactive vendor check (GAP 2) ----------------------------
+
+    /// Create an executable file with the given contents (exec bit on unix so
+    /// `is_executable_file` accepts it).
+    fn write_exec(path: &Path, contents: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, contents).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+
+    /// Fabricate a `node_modules/@openai/codex` launcher package. `platform_pkg`,
+    /// when set, becomes the declared optional dependency; `install_binary`
+    /// controls whether that per-platform package ships a native `codex`.
+    /// Returns (node_modules_root, launcher_js_path).
+    fn fake_codex_install(
+        root: &Path,
+        platform_pkg: Option<&str>,
+        install_binary: bool,
+    ) -> (PathBuf, PathBuf) {
+        let node_modules = root.join("node_modules");
+        let pkg = node_modules.join("@openai").join("codex");
+        let launcher = pkg.join("bin").join("codex.js");
+        write_exec(&launcher, "#!/usr/bin/env node\nconsole.log('launcher');\n");
+        let opt_deps = platform_pkg
+            .map(|p| format!("\"optionalDependencies\":{{\"{p}\":\"1.0.0\"}}"))
+            .unwrap_or_else(|| "\"optionalDependencies\":{}".to_string());
+        std::fs::write(
+            pkg.join("package.json"),
+            format!("{{\"name\":\"@openai/codex\",{opt_deps}}}"),
+        )
+        .unwrap();
+        if let (Some(p), true) = (platform_pkg, install_binary) {
+            let short = p.strip_prefix("@openai/").unwrap();
+            write_exec(
+                &node_modules
+                    .join("@openai")
+                    .join(short)
+                    .join("bin")
+                    .join("codex"),
+                "native binary",
+            );
+        }
+        (node_modules, launcher)
+    }
+
+    #[test]
+    fn openai_codex_pkg_root_found_from_launcher() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_nm, launcher) = fake_codex_install(dir.path(), None, false);
+        let root = openai_codex_pkg_root(&launcher).expect("pkg root");
+        assert!(root.ends_with("@openai/codex"));
+        // A path outside such a package resolves to None.
+        assert_eq!(
+            openai_codex_pkg_root(Path::new("/usr/local/bin/codex")),
+            None
+        );
+    }
+
+    #[test]
+    fn is_node_launcher_detects_node_modules_and_shebang() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_nm, launcher) = fake_codex_install(dir.path(), None, false);
+        // Inside a node_modules tree.
+        assert!(is_node_launcher(&launcher));
+        // Shebang detection outside node_modules.
+        let shebang = dir.path().join("codex");
+        write_exec(&shebang, "#!/usr/bin/env node\n// launcher\n");
+        assert!(is_node_launcher(&shebang));
+        // A self-contained native binary (no node shebang, not under node_modules).
+        let native = dir.path().join("native-codex");
+        write_exec(&native, "\x7fELF fake binary");
+        assert!(!is_node_launcher(&native));
+    }
+
+    #[test]
+    fn codex_vendor_status_present_via_optional_dep() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_nm, launcher) = fake_codex_install(
+            dir.path(),
+            Some("@openai/codex-darwin-arm64"),
+            true, // native binary IS installed
+        );
+        let root = openai_codex_pkg_root(&launcher).unwrap();
+        assert_eq!(codex_vendor_status_at(&root), CodexVendorStatus::Present);
+    }
+
+    #[test]
+    fn codex_vendor_status_missing_when_optional_dep_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_nm, launcher) = fake_codex_install(
+            dir.path(),
+            Some("@openai/codex-darwin-arm64"),
+            false, // declared but NOT installed — the real broken-install bug
+        );
+        let root = openai_codex_pkg_root(&launcher).unwrap();
+        assert_eq!(codex_vendor_status_at(&root), CodexVendorStatus::Missing);
+    }
+
+    #[test]
+    fn codex_vendor_status_unknown_without_declared_optional_deps() {
+        // No optionalDependencies declared and no vendor dir — we can't prove
+        // the payload is missing (a future in-package layout?), so no warning.
+        let dir = tempfile::tempdir().unwrap();
+        let (_nm, launcher) = fake_codex_install(dir.path(), None, false);
+        let root = openai_codex_pkg_root(&launcher).unwrap();
+        assert_eq!(codex_vendor_status_at(&root), CodexVendorStatus::Unknown);
+    }
+
+    #[test]
+    fn codex_vendor_status_present_via_legacy_vendor_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_nm, launcher) = fake_codex_install(dir.path(), None, false);
+        let root = openai_codex_pkg_root(&launcher).unwrap();
+        // Legacy `<pkg>/vendor/<triple>/codex/codex` payload present.
+        write_exec(
+            &root
+                .join("vendor")
+                .join("aarch64-apple-darwin")
+                .join("codex")
+                .join("codex"),
+            "native binary",
+        );
+        assert_eq!(codex_vendor_status_at(&root), CodexVendorStatus::Present);
+    }
+
+    #[test]
+    fn codex_static_vendor_hint_end_to_end_missing_and_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_nm, launcher) =
+            fake_codex_install(dir.path(), Some("@openai/codex-darwin-arm64"), false);
+        // End-to-end from the launcher path: provably missing.
+        assert_eq!(
+            codex_static_vendor_hint(&launcher.to_string_lossy()),
+            CodexVendorStatus::Missing
+        );
+        // A non-launcher native binary is Unknown (never warned on).
+        let native = dir.path().join("native-codex");
+        write_exec(&native, "\x7fELF fake binary");
+        assert_eq!(
+            codex_static_vendor_hint(&native.to_string_lossy()),
+            CodexVendorStatus::Unknown
+        );
+        // A nonexistent path is Unknown, never Missing.
+        assert_eq!(
+            codex_static_vendor_hint("/no/such/codex"),
+            CodexVendorStatus::Unknown
+        );
     }
 }

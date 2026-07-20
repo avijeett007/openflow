@@ -3,8 +3,8 @@
 Reusable [Claude Code skills](https://docs.anthropic.com/en/docs/claude-code) we use to build
 and ship OpenFlow itself — shared so you can use them too.
 
-| Skill | What it does | Proof it works | Credit |
-|---|---|---|---|
+| Skill                                         | What it does                                                                                                                                   | Proof it works                                                                   | Credit                                                 |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | [`scroll-film-studio`](./scroll-film-studio/) | Builds a cinematic scroll-film website: the whole hero is one continuous shot that plays as the visitor scrolls, then melts into your content. | [openflow.computer](https://openflow.computer) — our homepage was built with it. | [Jack Roberts](https://www.youtube.com/@Itssssss_Jack) |
 
 ## Installing a skill
