@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-24.04
     continue-on-error: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
