@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "自訂"
             },
             "defaultsError": "無法載入此代理類型的預設值：{{error}}"

@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "Özel"
             },
             "defaultsError": "Bu ajan türü için varsayılanlar yüklenemedi: {{error}}"

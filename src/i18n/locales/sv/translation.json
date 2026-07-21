@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "Anpassad"
             },
             "defaultsError": "Det gick inte att läsa in standardvärden för den här agenttypen: {{error}}"

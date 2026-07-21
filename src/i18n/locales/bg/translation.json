@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "По избор"
             },
             "defaultsError": "Настройките по подразбиране за този тип агент не можаха да бъдат заредени: {{error}}"

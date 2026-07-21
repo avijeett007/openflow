@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "사용자 지정"
             },
             "defaultsError": "이 에이전트 유형의 기본값을 불러올 수 없습니다: {{error}}"

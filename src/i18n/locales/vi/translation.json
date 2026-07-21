@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "Tùy chỉnh"
             },
             "defaultsError": "Không thể tải các giá trị mặc định cho loại tác nhân này: {{error}}"

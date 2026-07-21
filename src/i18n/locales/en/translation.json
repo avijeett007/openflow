@@ -764,6 +764,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "Custom"
             },
             "defaultsError": "Couldn't load defaults for this agent type: {{error}}"
