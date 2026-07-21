@@ -180,12 +180,26 @@ jobs:
       # updater's *minisign* key: with them set (and createUpdaterArtifacts=true)
       # the bundler emits the updater archives AND a `.sig` next to each one.
       #
-      # uploadUpdaterJson is OFF on purpose: each matrix job only knows its own
-      # platform, so letting tauri-action write latest.json would have all three
-      # jobs clobber it down to a single platform. The `publish` job assembles a
-      # correct multi-platform latest.json from every job's signatures instead.
+      # includeUpdaterJson defaults to false, which is what we want: each matrix
+      # job only knows its own platform, so letting tauri-action write
+      # latest.json would have all three jobs clobber it down to a single
+      # platform. The `publish` job assembles a correct multi-platform
+      # latest.json from every job's signatures instead, and uploads the
+      # per-arch archives + `.sig` under deterministic names (macOS archives are
+      # otherwise all named `OpenFlow.app.tar.gz` and would collide across the
+      # two mac jobs).
+      #
+      # NOTE: this step used to also pass `uploadUpdaterJson: false` and
+      # `uploadUpdaterSignatures: false`. Neither input has ever existed on
+      # tauri-action (verified against action.yml back to v0.5.0) — GitHub
+      # Actions silently drops unrecognized `with:` inputs, so they were always
+      # no-ops. A more recent v0.6.x picked up an explicit
+      # "Unexpected input(s)" warning annotation for this, which is what
+      # surfaced on the v0.15.2 build (on all three platforms, including the
+      # two that succeeded — this warning alone never failed a build). Removed
+      # them here since they did nothing; behavior is unchanged.
       - name: Build with Tauri
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@1ddc7b49b13c3038297360482fcb3e058764d7c9 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -195,12 +209,6 @@ jobs:
           releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseDraft: true
           prerelease: false
-          # Both OFF: the `publish` job owns the updater assets. It uploads the
-          # per-arch archives + `.sig` under deterministic names (macOS archives
-          # are otherwise all named `OpenFlow.app.tar.gz` and would collide across
-          # the two mac jobs) and writes the multi-platform latest.json.
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: false
           args: ${{ matrix.args }}
 
       # How the Intel .app links ONNX Runtime is NOT fixed — it depends on what
