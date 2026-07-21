@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "カスタム"
             },
             "defaultsError": "このエージェントの種類の既定値を読み込めませんでした: {{error}}"

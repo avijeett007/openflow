@@ -137,6 +137,7 @@ pub enum AgentCliType {
     Codex,
     Openclaw,
     Hermes,
+    Kimi,
     Custom,
 }
 
@@ -182,6 +183,7 @@ pub fn default_cli_binary_name(cli_type: AgentCliType) -> Option<&'static str> {
         AgentCliType::Codex => Some("codex"),
         AgentCliType::Openclaw => Some("openclaw"),
         AgentCliType::Hermes => Some("hermes"),
+        AgentCliType::Kimi => Some("kimi"),
         AgentCliType::Custom => None,
     }
 }
@@ -193,6 +195,21 @@ pub fn default_cli_binary_name(cli_type: AgentCliType) -> Option<&'static str> {
 /// interactive permission prompt (git is the safety net, per DESIGN §9). The
 /// instruction is delivered on stdin (no arg-length limit). codex/openclaw/
 /// hermes are best-effort (binaries not installed here — see BLOCKERS).
+///
+/// Kimi Code's flags are LIVE-VERIFIED against `kimi-code` 0.28.1: `-p/--prompt`
+/// takes the instruction as an ARGUMENT value (not stdin), so `prompt_via` is
+/// `Arg` with a literal `{prompt}` token. IMPORTANT gotcha found only by
+/// running the real binary (undocumented in `kimi --help`): `-p`/`--prompt`
+/// CANNOT be combined with `-y`/`--yolo` or `--auto` — the CLI hard-errors with
+/// `error: Cannot combine --prompt with --yolo` (or `--auto`) before ever
+/// reaching the model. So, unlike Claude's `acceptEdits`, the Kimi template
+/// deliberately carries NO auto-approve flag; one-shot `-p` mode already runs
+/// non-interactively end to end. Output format is `text` (not `stream-json`):
+/// Kimi's stream-json schema is an OpenAI-style chat-message shape (`Assistant`
+/// message, `tool_calls`, `Tool` message) that doesn't match the Claude-shaped
+/// `{"type": "system"|"assistant"|"user"|"result"}` events
+/// `parseAgentOutput.ts` recognizes, so `text` renders as clean human-readable
+/// output via the raw-output fallback instead of unparsed JSON lines.
 pub fn default_cli_template(cli_type: AgentCliType) -> (String, PromptDelivery) {
     match cli_type {
         AgentCliType::Claude => (
@@ -205,6 +222,12 @@ pub fn default_cli_template(cli_type: AgentCliType) -> (String, PromptDelivery) 
         // Best-effort placeholders until the binaries are available to verify.
         AgentCliType::Openclaw => ("run {prompt}".to_string(), PromptDelivery::Arg),
         AgentCliType::Hermes => ("run {prompt}".to_string(), PromptDelivery::Arg),
+        // See the doc comment above: no --yolo/--auto — combining either with
+        // -p is a hard CLI usage error, live-verified against kimi-code 0.28.1.
+        AgentCliType::Kimi => (
+            "-p {prompt} --output-format text".to_string(),
+            PromptDelivery::Arg,
+        ),
         AgentCliType::Custom => (String::new(), PromptDelivery::Stdin),
     }
 }
@@ -2193,6 +2216,19 @@ mod tests {
             Some("claude")
         );
         assert_eq!(default_cli_binary_name(AgentCliType::Custom), None);
+    }
+
+    #[test]
+    fn kimi_default_template_matches_live_verified_flags() {
+        // Live-verified against kimi-code 0.28.1: `-p`/`--prompt` cannot be
+        // combined with `-y`/`--yolo` or `--auto` (hard CLI usage error), so the
+        // default template carries no auto-approve flag.
+        let (template, via) = default_cli_template(AgentCliType::Kimi);
+        assert_eq!(template, "-p {prompt} --output-format text");
+        assert!(!template.contains("--yolo"));
+        assert!(!template.contains("--auto"));
+        assert_eq!(via, PromptDelivery::Arg);
+        assert_eq!(default_cli_binary_name(AgentCliType::Kimi), Some("kimi"));
     }
 
     #[test]

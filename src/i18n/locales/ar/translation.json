@@ -578,6 +578,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "مخصّص"
             },
             "defaultsError": "تعذّر تحميل الإعدادات الافتراضية لهذا النوع من الوكلاء: {{error}}"

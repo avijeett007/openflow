@@ -1027,13 +1027,16 @@ async setHotkeyOverlayEnabled(enabled: boolean) : Promise<Result<null, string>> 
 },
 /**
  * Resolve a CLI agent's binary path (`which`-style). Searches, in order: the
- * process PATH, then an explicit baseline of tool dirs (Homebrew on either
- * arch, `~/.local/bin`, bun/cargo/volta/deno, every nvm node version) that a
- * GUI-launched app's stripped launchd PATH omits — this is why detection found
- * nothing on the user's installed app while `which` worked in Terminal. As a
- * final fallback it consults the user's login shell (`<shell> -lc 'command -v
- * <name>'`) so custom profile PATHs (rbenv/asdf/fnm) resolve exactly as in
- * their Terminal. Returns the absolute path, or an error if not found.
+ * process PATH, then an explicit baseline of tool dirs that a GUI-launched
+ * app's stripped PATH omits — on macOS Homebrew on either arch, `~/.local/bin`,
+ * bun/cargo/volta/deno, every nvm node version (this is why detection found
+ * nothing on the user's installed app while `which` worked in Terminal); on
+ * Windows `%APPDATA%\npm`, `%LOCALAPPDATA%\Programs`, bun/volta/cargo/scoop
+ * and `%ProgramFiles%\nodejs`, probing PATHEXT-style candidate names
+ * (`claude.cmd` etc.). As a final fallback it consults the user's login shell
+ * (`<shell> -lc 'command -v <name>'`; `where.exe` on Windows) so custom
+ * profile PATHs (rbenv/asdf/fnm) resolve exactly as in their Terminal.
+ * Returns the absolute path, or an error if not found.
  */
 async detectAgentBinary(cliType: AgentCliType) : Promise<Result<string, string>> {
     try {
@@ -1563,7 +1566,7 @@ hint: AgentBinaryHint | null }
  * invocation template (see `default_command_template_for`). `Custom` is a
  * fully user-defined template for any other binary.
  */
-export type AgentCliType = "claude" | "codex" | "openclaw" | "hermes" | "custom"
+export type AgentCliType = "claude" | "codex" | "openclaw" | "hermes" | "kimi" | "custom"
 /**
  * A Flow OS agent: dictation routed through a persona LLM before injection.
  * Each agent has its own global hotkey (via a seeded `ShortcutBinding` keyed

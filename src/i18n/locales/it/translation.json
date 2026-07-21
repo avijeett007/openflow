@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "Personalizzato"
             },
             "defaultsError": "Impossibile caricare i valori predefiniti per questo tipo di agente: {{error}}"

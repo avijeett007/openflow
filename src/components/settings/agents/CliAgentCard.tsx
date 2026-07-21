@@ -38,6 +38,7 @@ const CLI_TYPES: AgentCliType[] = [
   "codex",
   "openclaw",
   "hermes",
+  "kimi",
   "custom",
 ];
 
@@ -327,6 +328,10 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
           placeholder={t("settings.agents.card.name.placeholder")}
           className="flex-1 min-w-0 font-semibold"
           aria-label={t("settings.agents.card.name.label")}
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          autoComplete="off"
         />
         <AgentInlineToggle
           checked={agent.enabled ?? true}
@@ -387,6 +392,10 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
               placeholder={t("settings.agents.card.cli.binaryPath.placeholder")}
               className="flex-1 min-w-0"
               aria-label={t("settings.agents.card.cli.binaryPath.label")}
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              autoComplete="off"
             />
             <Button
               type="button"
@@ -536,6 +545,18 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
                   "settings.agents.card.cli.commandTemplate.placeholder",
                 )}
                 className="w-full font-mono"
+                // Hardening against macOS text substitution: a hand-typed
+                // `--yolo` was silently mangled into an em-dash ("—yolo") by
+                // WebKit's smart-dashes substitution, which the CLI then
+                // rejected as an unknown command. autoCorrect/autoComplete
+                // "off" disable WebKit's substitution behavior (smart
+                // quotes/dashes, autocomplete) on this field; the prefilled
+                // per-type template (see handleCliTypeChange) means most users
+                // never hand-type flags here at all.
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                autoComplete="off"
               />
             </SettingContainer>
           </div>

@@ -772,6 +772,13 @@ fn parse_semver_key(name: &str) -> Vec<u64> {
 /// the user profile, and `%ProgramFiles%\nodejs` — all resolved from injected
 /// env vars, never hardcoded drives. Pure + testable: `env` is an injected
 /// lookup and the filesystem-derived `nvm` dirs come from the caller.
+///
+/// `.kimi-code/bin` is Kimi Code CLI's own install location — LIVE-VERIFIED
+/// against its official installer (`curl -fsSL
+/// https://code.kimi.com/kimi-code/install.sh | bash`), which drops a
+/// self-contained native binary at `$HOME/.kimi-code/bin/kimi` and only adds it
+/// to PATH via the user's shell rc file (`.bash_profile`/`.zshrc`), which a
+/// GUI-launched app never sources.
 pub fn baseline_bin_dirs(
     windows: bool,
     env: &impl Fn(&str) -> Option<String>,
@@ -807,6 +814,7 @@ pub fn baseline_bin_dirs(
             for sub in [
                 ".local/bin",       // native installers (incl. Claude Code native)
                 ".claude/local",    // Claude Code local install
+                ".kimi-code/bin",   // Kimi Code CLI native install
                 ".bun/bin",         // Bun global bins
                 ".cargo/bin",       // Rust/cargo
                 ".volta/bin",       // Volta-managed node tools
@@ -1313,6 +1321,7 @@ fn cli_type_label(t: AgentCliType) -> &'static str {
         AgentCliType::Codex => "codex",
         AgentCliType::Openclaw => "openclaw",
         AgentCliType::Hermes => "hermes",
+        AgentCliType::Kimi => "kimi",
         AgentCliType::Custom => "custom",
     }
 }
@@ -1353,6 +1362,31 @@ mod tests {
             PromptDelivery::Arg,
         );
         assert_eq!(argv, vec!["exec", "--json", "do the thing"]);
+    }
+
+    #[test]
+    fn build_argv_kimi_template_delivers_prompt_as_single_arg() {
+        // Regression test for the exact bug diagnosed from the user's report:
+        // Kimi's `-p, --prompt <prompt>` takes the instruction as ONE argv
+        // element. A multi-word instruction like "list all the files" must
+        // reach argv as a single element right after `-p`, never tokenized into
+        // three separate args (which is what produced Kimi's
+        // `option '-p, --prompt <prompt>' argument missing` — the instruction
+        // had actually been delivered on stdin, per-word, not as this arg at
+        // all). This exercises the real default Kimi template end to end.
+        let argv = build_argv(
+            "-p {prompt} --output-format text",
+            "/tmp/proj",
+            "list all the files",
+            PromptDelivery::Arg,
+        );
+        assert_eq!(
+            argv,
+            vec!["-p", "list all the files", "--output-format", "text"]
+        );
+        // Explicitly: the prompt is ONE element, not split on its spaces.
+        assert_eq!(argv.len(), 4);
+        assert_eq!(argv[1], "list all the files");
     }
 
     #[test]
@@ -1435,6 +1469,9 @@ mod tests {
         assert!(dirs.contains(&"/Users/me/.cargo/bin".to_string()));
         assert!(dirs.contains(&"/Users/me/.volta/bin".to_string()));
         assert!(dirs.contains(&"/Users/me/.nvm/current/bin".to_string()));
+        // Kimi Code CLI's own install location (its installer only updates a
+        // shell rc file, which a GUI-launched app never sources).
+        assert!(dirs.contains(&"/Users/me/.kimi-code/bin".to_string()));
         // Both arch Homebrew prefixes + system dirs.
         assert!(dirs.contains(&"/opt/homebrew/bin".to_string()));
         assert!(dirs.contains(&"/usr/local/bin".to_string()));

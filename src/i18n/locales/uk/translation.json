@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "Власний"
             },
             "defaultsError": "Не вдалося завантажити типові значення для цього типу агента: {{error}}"

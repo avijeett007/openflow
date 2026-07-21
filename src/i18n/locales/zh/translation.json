@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "自定义"
             },
             "defaultsError": "无法加载此智能体类型的默认设置：{{error}}"

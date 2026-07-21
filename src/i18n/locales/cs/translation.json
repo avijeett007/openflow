@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "Vlastní"
             },
             "defaultsError": "Nepodařilo se načíst výchozí hodnoty pro tento typ agenta: {{error}}"

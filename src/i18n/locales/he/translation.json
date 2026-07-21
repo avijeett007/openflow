@@ -599,6 +599,7 @@
               "codex": "Codex",
               "openclaw": "OpenClaw",
               "hermes": "Hermes",
+              "kimi": "Kimi Code",
               "custom": "מותאם אישית"
             },
             "defaultsError": "לא ניתן לטעון את ברירות המחדל עבור סוג סוכן זה: {{error}}"
