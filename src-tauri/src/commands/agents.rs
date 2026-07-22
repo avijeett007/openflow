@@ -210,6 +210,11 @@ mod tests {
             project_path: String::new(),
             output_sinks: vec![AgentOutputSink::Panel],
             prompt_via: PromptDelivery::Stdin,
+            remote_url: String::new(),
+            remote_endpoint: String::new(),
+            remote_card_name: String::new(),
+            remote_card_version: String::new(),
+            remote_streaming: false,
         }
     }
 

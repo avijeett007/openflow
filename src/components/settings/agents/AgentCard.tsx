@@ -20,6 +20,7 @@ import { AgentApiKeyField } from "./AgentApiKeyField";
 import { AgentTestPanel } from "./AgentTestPanel";
 import { AgentInlineToggle } from "./AgentInlineToggle";
 import { CliAgentCard } from "./CliAgentCard";
+import { RemoteAgentCard } from "./RemoteAgentCard";
 
 interface AgentCardProps {
   agent: AgentDefinition;
@@ -37,6 +38,14 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, providers }) => {
   // increment-1 agents.
   if (agent.kind === "cli") {
     return <CliAgentCard agent={agent} />;
+  }
+
+  // Remote (A2A) agents (increment 3) render their own card — the prompt-agent
+  // fields below don't apply. Like `cli`, `kind` defaults to "prompt" for every
+  // agent stored before this discriminator existed, so this never affects
+  // increment-1 agents.
+  if (agent.kind === "remote") {
+    return <RemoteAgentCard agent={agent} />;
   }
 
   const [pending, setPending] = useState<Record<string, boolean>>({});
