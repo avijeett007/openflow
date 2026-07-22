@@ -193,8 +193,8 @@ pub fn default_cli_binary_name(cli_type: AgentCliType) -> Option<&'static str> {
 /// --verbose` runs headless and streams line-delimited JSON; `acceptEdits`
 /// auto-accepts file edits so the agent can actually modify the repo without an
 /// interactive permission prompt (git is the safety net, per DESIGN §9). The
-/// instruction is delivered on stdin (no arg-length limit). codex/openclaw/
-/// hermes are best-effort (binaries not installed here — see BLOCKERS).
+/// instruction is delivered on stdin (no arg-length limit). Codex is
+/// best-effort (binary not installed here — see BLOCKERS).
 ///
 /// Kimi Code's flags are LIVE-VERIFIED against `kimi-code` 0.28.1: `-p/--prompt`
 /// takes the instruction as an ARGUMENT value (not stdin), so `prompt_via` is
@@ -210,6 +210,48 @@ pub fn default_cli_binary_name(cli_type: AgentCliType) -> Option<&'static str> {
 /// `{"type": "system"|"assistant"|"user"|"result"}` events
 /// `parseAgentOutput.ts` recognizes, so `text` renders as clean human-readable
 /// output via the raw-output fallback instead of unparsed JSON lines.
+///
+/// OpenClaw's flags are LIVE-VERIFIED against `openclaw` 2026.7.1-2 (installed
+/// via `npm install -g openclaw@latest`; requires Node >=22.22.3<23,
+/// >=24.15.0<25, or >=25.9.0 — the CLI hard-refuses to start otherwise with an
+/// actionable nvm hint, a gotcha only found by actually launching it).
+/// OpenClaw is architecturally a persistent messaging-channel gateway/daemon,
+/// not a one-shot project CLI like Claude/Codex/Kimi: `openclaw agent --local`
+/// is its closest headless equivalent (embedded run, no Gateway process
+/// required) but it addresses a **named agent identity** (`--agent <id>`),
+/// not an arbitrary `{cwd}` — `openclaw agent --help` has no `--dir`/`--cwd`
+/// flag at all. Every fresh install already has a default identity named
+/// `main` (confirmed via `openclaw agents list` → `main (default)`,
+/// workspace `~/.openclaw/workspace`, with zero onboarding run), so the
+/// default template hardcodes `--agent main`. The instruction is delivered via
+/// `-m/--message` as an ARGUMENT. Running
+/// `openclaw agent --local --agent main --message {prompt}` reaches a real
+/// `ProviderAuthError: No API key found for provider "openai"` — past argument
+/// parsing, proving the invocation is correct; full completion needs the
+/// user's own provider credentials (`openclaw agents add`/`openclaw
+/// configure`). No `--json`: its `--json` schema is
+/// `{payloads, meta, deliveryStatus}`, not the Claude-shaped events
+/// `parseAgentOutput.ts` recognizes, so plain stdout text is the safer default
+/// (same reasoning as Kimi's `text` choice) — and since the run never got past
+/// the auth error, no successful `--json` payload could be captured to
+/// consider parser support anyway.
+///
+/// Hermes Agent's flags are LIVE-VERIFIED against `hermes` v0.19.0 (installed
+/// via the official installer,
+/// `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+/// -s -- --skip-setup --skip-browser --non-interactive`). `-z/--oneshot
+/// PROMPT` is documented as the purest headless mode: "send a single prompt
+/// and print ONLY the final response text to stdout... approvals are
+/// auto-bypassed" — so `prompt_via` is `Arg`. `--yolo` (bypass dangerous-
+/// command approval prompts) was checked for the same `-p`+`--auto` trap Kimi
+/// hit: unlike Kimi, `-z {prompt} --yolo` and `-z {prompt}` alone both reach
+/// the IDENTICAL clean error (`No inference provider configured...`) —
+/// confirming no usage-error conflict — so `--yolo` is kept for
+/// defense-in-depth parity with Claude's `acceptEdits` (git remains the safety
+/// net). `-z` already respects the process's `{cwd}` (loads `AGENTS.md` from
+/// the CWD as documented), so no `{cwd}` token is needed in the template.
+/// Output is plain final-response text by design (no JSON/stream mode exists
+/// for `-z`), a clean fit for the raw-output fallback.
 pub fn default_cli_template(cli_type: AgentCliType) -> (String, PromptDelivery) {
     match cli_type {
         AgentCliType::Claude => (
@@ -219,9 +261,17 @@ pub fn default_cli_template(cli_type: AgentCliType) -> (String, PromptDelivery) 
         // Codex CLI: `codex exec` is the non-interactive mode; `--json` streams
         // JSONL. The prompt is passed as the trailing positional arg.
         AgentCliType::Codex => ("exec --json {prompt}".to_string(), PromptDelivery::Arg),
-        // Best-effort placeholders until the binaries are available to verify.
-        AgentCliType::Openclaw => ("run {prompt}".to_string(), PromptDelivery::Arg),
-        AgentCliType::Hermes => ("run {prompt}".to_string(), PromptDelivery::Arg),
+        // See the doc comment above: live-verified against openclaw 2026.7.1-2.
+        // `--agent main` addresses the default identity every fresh install
+        // already has; no `--json` (its schema doesn't match parseAgentOutput.ts).
+        AgentCliType::Openclaw => (
+            "agent --local --agent main --message {prompt}".to_string(),
+            PromptDelivery::Arg,
+        ),
+        // See the doc comment above: live-verified against hermes v0.19.0.
+        // `-z` is the documented purest one-shot mode (final text only,
+        // approvals auto-bypassed); `--yolo` verified to NOT conflict with it.
+        AgentCliType::Hermes => ("-z {prompt} --yolo".to_string(), PromptDelivery::Arg),
         // See the doc comment above: no --yolo/--auto — combining either with
         // -p is a hard CLI usage error, live-verified against kimi-code 0.28.1.
         AgentCliType::Kimi => (
@@ -2229,6 +2279,39 @@ mod tests {
         assert!(!template.contains("--auto"));
         assert_eq!(via, PromptDelivery::Arg);
         assert_eq!(default_cli_binary_name(AgentCliType::Kimi), Some("kimi"));
+    }
+
+    #[test]
+    fn openclaw_default_template_matches_live_verified_flags() {
+        // Live-verified against openclaw 2026.7.1-2: `openclaw agent --help`
+        // has no `--dir`/`--cwd` flag — it addresses a named `--agent`
+        // identity, and every fresh install already has one named `main`
+        // (confirmed via `openclaw agents list`). `--local` runs the embedded
+        // agent without a Gateway process; `-m/--message` is the prompt arg.
+        let (template, via) = default_cli_template(AgentCliType::Openclaw);
+        assert_eq!(template, "agent --local --agent main --message {prompt}");
+        assert_eq!(via, PromptDelivery::Arg);
+        assert_eq!(
+            default_cli_binary_name(AgentCliType::Openclaw),
+            Some("openclaw")
+        );
+    }
+
+    #[test]
+    fn hermes_default_template_matches_live_verified_flags() {
+        // Live-verified against hermes v0.19.0: `-z/--oneshot` is the
+        // documented purest headless mode (final response text only,
+        // approvals auto-bypassed). `--yolo` was checked for the same
+        // `-p`+`--auto` trap Kimi hit and found NOT to conflict: `-z {prompt}
+        // --yolo` reaches the identical clean auth/config error as `-z
+        // {prompt}` alone.
+        let (template, via) = default_cli_template(AgentCliType::Hermes);
+        assert_eq!(template, "-z {prompt} --yolo");
+        assert_eq!(via, PromptDelivery::Arg);
+        assert_eq!(
+            default_cli_binary_name(AgentCliType::Hermes),
+            Some("hermes")
+        );
     }
 
     #[test]
