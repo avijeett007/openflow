@@ -54,7 +54,7 @@ rdev = { git = "https://github.com/rustdesk-org/rdev" }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 cpal = "0.16.0"
 anyhow = "1.0.95"
-rubato = "0.16.2"
+rubato = "4.0.0"
 hound = "3.5.1"
 log = "0.4.25"
 env_filter = "0.1.0"
