@@ -37,6 +37,23 @@ use transcribe_rs::{
 
 const STREAM_PERF_LOG_INTERVAL: Duration = Duration::from_secs(5);
 const STREAM_FINALIZE_REPLY_TIMEOUT: Duration = Duration::from_secs(30);
+/// Maximum time a transcribe/stream call blocks waiting for an in-progress model
+/// load before giving up. Loads can legitimately take tens of seconds on slow
+/// disks or large GGUFs, so the cap is generous — its only job is to make sure a
+/// wedged loader (e.g. a panicked native loader) can never block a caller here
+/// forever, which previously hung the whole app.
+const MODEL_LOAD_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Extract a human-readable message from a `catch_unwind` panic payload.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ModelStateEvent {
@@ -688,33 +705,66 @@ impl TranscriptionManager {
         Ok(())
     }
 
+    /// Emit a `loading_failed` model-state event so the frontend can toast the
+    /// underlying error. Used by failure paths that bypass `load_model`'s own
+    /// emit (notably a panicked native loader).
+    fn emit_load_failed(&self, model_id: &str, error: &str) {
+        let model_name = self.model_manager.get_model_info(model_id).map(|m| m.name);
+        let _ = self.app_handle.emit(
+            "model-state-changed",
+            ModelStateEvent {
+                event_type: "loading_failed".to_string(),
+                model_id: Some(model_id.to_string()),
+                model_name,
+                error: Some(error.to_string()),
+            },
+        );
+    }
+
     /// Kicks off the model loading in a background thread if it's not already loaded
     pub fn initiate_model_load(&self) {
-        let mut is_loading = self.is_loading.lock().unwrap();
-        if *is_loading {
+        // Atomically claim the loading slot. The returned RAII guard clears
+        // `is_loading` and wakes condvar waiters on drop — including when the
+        // spawned thread panics inside a native loader — so a failed load can
+        // never leave the flag stuck true (which used to permanently wedge
+        // reloads and hang every waiting transcribe/stream call).
+        let Some(guard) = self.try_start_loading() else {
             return;
-        }
+        };
 
         let reload_pending = self.reload_model_on_next_use.load(Ordering::Acquire);
         if !reload_pending && self.is_model_loaded() {
-            return;
+            return; // `guard` drops here, releasing the slot.
         }
 
-        *is_loading = true;
         let self_clone = self.clone();
         thread::spawn(move || {
+            // Move the guard into the thread so the slot is released on every
+            // exit path (return, error, or panic during unwind).
+            let _guard = guard;
             if reload_pending {
                 self_clone
                     .reload_model_on_next_use
                     .store(false, Ordering::Release);
             }
             let settings = get_settings(&self_clone.app_handle);
-            if let Err(e) = self_clone.load_model(&settings.selected_model) {
-                error!("Failed to load model: {}", e);
+            let model_id = settings.selected_model.clone();
+            // Native whisper/GGML/Metal/ONNX loaders can panic (not just Err);
+            // catch it so we can log the payload and surface a UI toast instead
+            // of silently losing the failure to a dead thread.
+            match catch_unwind(AssertUnwindSafe(|| self_clone.load_model(&model_id))) {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    // load_model already emitted `loading_failed` for this path.
+                    error!("Failed to load model: {}", e);
+                }
+                Err(panic_payload) => {
+                    let msg = panic_message(panic_payload.as_ref());
+                    error!("Model load panicked: {}", msg);
+                    self_clone
+                        .emit_load_failed(&model_id, &format!("Model load panicked: {}", msg));
+                }
             }
-            let mut is_loading = self_clone.is_loading.lock().unwrap();
-            *is_loading = false;
-            self_clone.loading_condvar.notify_all();
         });
     }
 
@@ -789,11 +839,38 @@ impl TranscriptionManager {
         };
 
         // Wait for any in-progress model load to finish (start_stream races the
-        // background load kicked off when recording starts).
+        // background load kicked off when recording starts) — bounded so a
+        // wedged loader can't strand this worker (and its held router/lease)
+        // forever. On timeout, fall back to batch transcription.
         {
+            let deadline = Instant::now() + MODEL_LOAD_WAIT_TIMEOUT;
             let mut is_loading = self.is_loading.lock().unwrap();
+            let mut timed_out = false;
             while *is_loading {
-                is_loading = self.loading_condvar.wait(is_loading).unwrap();
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    timed_out = true;
+                    break;
+                };
+                let (guard, wait_res) = self
+                    .loading_condvar
+                    .wait_timeout(is_loading, remaining)
+                    .unwrap();
+                is_loading = guard;
+                if wait_res.timed_out() && *is_loading {
+                    timed_out = true;
+                    break;
+                }
+            }
+            drop(is_loading);
+            if timed_out {
+                warn!(
+                    "Live preview: timed out after {:?} waiting for model load; \
+                     falling back to batch transcription",
+                    MODEL_LOAD_WAIT_TIMEOUT
+                );
+                self.router.clear();
+                drain_until_finalize(rx);
+                return;
             }
         }
 
@@ -1052,6 +1129,19 @@ impl TranscriptionManager {
             Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(None),
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 self.stream_active.store(false, Ordering::Release);
+                // The worker may be wedged in a native finalize and still holding
+                // the engine lease (the engine is taken out of the mutex while
+                // leased). Left set, the lease makes is_model_loaded() report
+                // "loaded" forever even though the engine mutex is empty, so
+                // initiate_model_load early-returns and never reloads — every
+                // later dictation then fails with "model not loaded". Force-clear
+                // the lease/worker tokens and the router so the next use reloads a
+                // fresh engine. If the stuck worker ever returns, its
+                // StreamWorkerGuard CAS is now a no-op and return_engine's id
+                // check drops the stale engine.
+                self.active_engine_lease.store(0, Ordering::Release);
+                self.active_stream_worker.store(0, Ordering::Release);
+                self.router.clear();
                 return Err(anyhow::anyhow!(
                     "Timed out waiting {:?} for live transcription to finalize",
                     STREAM_FINALIZE_REPLY_TIMEOUT
@@ -1117,10 +1207,28 @@ impl TranscriptionManager {
 
         // Check if model is loaded, if not try to load it
         {
-            // If the model is loading, wait for it to complete.
+            // If the model is loading, wait for it to complete — but with a hard
+            // cap so a wedged/panicked loader can't block dictation forever.
+            let deadline = Instant::now() + MODEL_LOAD_WAIT_TIMEOUT;
             let mut is_loading = self.is_loading.lock().unwrap();
             while *is_loading {
-                is_loading = self.loading_condvar.wait(is_loading).unwrap();
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    return Err(anyhow::anyhow!(
+                        "Model load timed out after {:?}; model unavailable.",
+                        MODEL_LOAD_WAIT_TIMEOUT
+                    ));
+                };
+                let (guard, wait_res) = self
+                    .loading_condvar
+                    .wait_timeout(is_loading, remaining)
+                    .unwrap();
+                is_loading = guard;
+                if wait_res.timed_out() && *is_loading {
+                    return Err(anyhow::anyhow!(
+                        "Model load timed out after {:?}; model unavailable.",
+                        MODEL_LOAD_WAIT_TIMEOUT
+                    ));
+                }
             }
 
             let engine_guard = self.lock_engine();
