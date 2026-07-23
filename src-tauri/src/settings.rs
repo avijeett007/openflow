@@ -1,4 +1,4 @@
-use log::{debug, warn};
+use log::{debug, error, warn};
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
@@ -512,6 +512,11 @@ pub enum OverlayStyle {
     Live,
 }
 
+// serde's `snake_case` renames `Min2` -> "min2" (no underscore before a digit),
+// which is exactly what the frontend `<select>` sends, so this fork is NOT
+// affected by upstream Handy#1068 (backend expecting "min_2"). The generated
+// bindings.ts shows "min_2" because specta uses a different snake_case, but the
+// wire/store value is "min2" — see the round-trip test below.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelUnloadTimeout {
@@ -1590,11 +1595,36 @@ impl AppSettings {
     }
 }
 
+/// Open the settings store, retrying once before giving up. The store is a file
+/// on disk and its open can fail transiently under I/O pressure or a momentary
+/// lock — and this runs on many threads (the idle watcher included), so a panic
+/// here would take down an unrelated worker. Callers must degrade gracefully
+/// (default settings for reads, skip the write) when this returns `None`.
+fn open_settings_store<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+) -> Option<std::sync::Arc<tauri_plugin_store::Store<R>>> {
+    let path = crate::portable::store_path(SETTINGS_STORE_PATH);
+    match app.store(path.clone()) {
+        Ok(store) => Some(store),
+        Err(e) => {
+            warn!("Failed to open settings store ({e}); retrying once");
+            match app.store(path) {
+                Ok(store) => Some(store),
+                Err(e) => {
+                    error!("Failed to open settings store after retry: {e}");
+                    None
+                }
+            }
+        }
+    }
+}
+
 pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
     // Initialize store
-    let store = app
-        .store(crate::portable::store_path(SETTINGS_STORE_PATH))
-        .expect("Failed to initialize store");
+    let Some(store) = open_settings_store(app) else {
+        error!("Settings store unavailable; using default settings for this session");
+        return get_default_settings();
+    };
 
     let mut settings = if let Some(settings_value) = store.get("settings") {
         // Parse the entire settings object
@@ -1638,9 +1668,9 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
 }
 
 pub fn get_settings(app: &AppHandle) -> AppSettings {
-    let store = app
-        .store(crate::portable::store_path(SETTINGS_STORE_PATH))
-        .expect("Failed to initialize store");
+    let Some(store) = open_settings_store(app) else {
+        return get_default_settings();
+    };
 
     // Settings reads also persist one-time migrations. Migration helpers are
     // idempotent, so this converges after the first read of an older store.
@@ -1766,9 +1796,10 @@ fn apply_settings_migrations(
 }
 
 pub fn write_settings(app: &AppHandle, settings: AppSettings) {
-    let store = app
-        .store(crate::portable::store_path(SETTINGS_STORE_PATH))
-        .expect("Failed to initialize store");
+    let Some(store) = open_settings_store(app) else {
+        error!("Settings store unavailable; skipping settings write");
+        return;
+    };
 
     store.set("settings", serde_json::to_value(&settings).unwrap());
 }
@@ -1915,6 +1946,33 @@ mod tests {
 
         assert!(apply_settings_migrations(&mut settings, &raw));
         assert_eq!(settings.overlay_style, OverlayStyle::None);
+    }
+
+    #[test]
+    fn model_unload_timeout_roundtrips_frontend_spelling() {
+        // Regression guard for upstream Handy#1068 (backend expected "min_2"
+        // while the frontend sent "min2"). This fork's serde snake_case renames
+        // to "min2" — exactly what the ModelUnloadTimeout `<select>` sends — so a
+        // timeout selection deserializes and round-trips without silently acting
+        // as `never`. (The "min_2" in bindings.ts is a specta type-gen quirk, not
+        // the wire value.)
+        for (wire, expected) in [
+            ("min2", ModelUnloadTimeout::Min2),
+            ("min5", ModelUnloadTimeout::Min5),
+            ("min10", ModelUnloadTimeout::Min10),
+            ("min15", ModelUnloadTimeout::Min15),
+            ("hour1", ModelUnloadTimeout::Hour1),
+            ("sec15", ModelUnloadTimeout::Sec15),
+        ] {
+            let parsed: ModelUnloadTimeout = serde_json::from_value(serde_json::json!(wire))
+                .unwrap_or_else(|e| panic!("frontend spelling {wire} should parse: {e}"));
+            assert_eq!(parsed, expected);
+            // Serializes back to the same string the frontend sends.
+            assert_eq!(
+                serde_json::to_value(parsed).unwrap(),
+                serde_json::json!(wire)
+            );
+        }
     }
 
     #[test]
