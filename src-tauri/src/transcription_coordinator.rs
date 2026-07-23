@@ -9,6 +9,14 @@ use tauri::{AppHandle, Manager};
 
 const DEBOUNCE: Duration = Duration::from_millis(30);
 
+/// Safety cap on the `Processing` stage. The async transcribe/paste pipeline
+/// always sends `ProcessingFinished` when it completes (via a `FinishGuard` that
+/// fires even on panic), so `Processing` should be transient. If that signal is
+/// ever lost, `Processing` would stick and silently swallow every later hotkey
+/// press. After this generous cap, a fresh press force-resets to `Idle` and is
+/// honored, so the pipeline can never wedge permanently.
+const PROCESSING_WATCHDOG: Duration = Duration::from_secs(180);
+
 /// Commands processed sequentially by the coordinator thread.
 enum Command {
     Input {
@@ -75,6 +83,8 @@ impl TranscriptionCoordinator {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let mut stage = Stage::Idle;
                 let mut last_press: Option<Instant> = None;
+                // When the pipeline entered Processing, for the watchdog below.
+                let mut processing_since: Option<Instant> = None;
 
                 while let Ok(cmd) = rx.recv() {
                     match cmd {
@@ -102,6 +112,7 @@ impl TranscriptionCoordinator {
                                     && matches!(&stage, Stage::Recording(id) if id == &binding_id)
                                 {
                                     stop(&app, &mut stage, &binding_id, &hotkey_string);
+                                    processing_since = Some(Instant::now());
                                 }
                             } else if is_pressed {
                                 match &stage {
@@ -110,6 +121,23 @@ impl TranscriptionCoordinator {
                                     }
                                     Stage::Recording(id) if id == &binding_id => {
                                         stop(&app, &mut stage, &binding_id, &hotkey_string);
+                                        processing_since = Some(Instant::now());
+                                    }
+                                    // Watchdog: if Processing has stuck past the cap
+                                    // (a lost ProcessingFinished), force back to Idle
+                                    // and honor this press instead of ignoring it
+                                    // forever.
+                                    _ if matches!(stage, Stage::Processing)
+                                        && processing_since
+                                            .is_some_and(|t| t.elapsed() > PROCESSING_WATCHDOG) =>
+                                    {
+                                        warn!(
+                                            "Processing stuck >{PROCESSING_WATCHDOG:?}; \
+                                             force-resetting to Idle and honoring press for '{binding_id}'"
+                                        );
+                                        processing_since = None;
+                                        stage = Stage::Idle;
+                                        start(&app, &mut stage, &binding_id, &hotkey_string);
                                     }
                                     _ => {
                                         debug!("Ignoring press for '{binding_id}': pipeline busy")
@@ -129,6 +157,7 @@ impl TranscriptionCoordinator {
                         }
                         Command::ProcessingFinished => {
                             stage = Stage::Idle;
+                            processing_since = None;
                         }
                     }
                 }
