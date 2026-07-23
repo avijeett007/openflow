@@ -1906,6 +1906,15 @@ fn resolve_device_index(index: usize) -> Result<(Backend, i32)> {
 /// which is exactly what silently broke hands-free. CPU there runs ~7x realtime
 /// and works end-to-end. Apple-silicon Macs keep Metal via `Auto`, and an
 /// explicit `Gpu`/Metal selection is still honored below.
+///
+/// As of transcribe-cpp 0.1.3, the library itself gates Metal on an Apple7
+/// simdgroup-matrix capability check and falls back to CPU internally for
+/// unsupported Metal devices (cjpais/Handy#1626) — most Intel Macs (which
+/// expose only Intel iGPU / AMD dGPU Metal devices) should now be caught by
+/// that gate before ever reaching a failing load. This `#[cfg]` override is
+/// kept anyway as a belt-and-braces second layer: it is cheap, and it still
+/// protects any Intel-Mac configuration the upstream capability probe
+/// doesn't catch (or a future transcribe-cpp regression in that check).
 fn select_transcribe_backend(setting: TranscribeAcceleratorSetting) -> Backend {
     match setting {
         TranscribeAcceleratorSetting::Cpu => Backend::Cpu,
