@@ -944,7 +944,7 @@ impl TranscriptionManager {
         };
 
         if !supports_streaming {
-            self.return_engine(engine, &model_id);
+            self.return_leased_engine(engine, &model_id, worker_id);
             self.router.clear();
             drain_until_finalize(rx);
             return;
@@ -1080,17 +1080,35 @@ impl TranscriptionManager {
             // failed); drain so the finalize handshake still completes and the
             // caller falls back to batch transcription. Return the engine first
             // so the fallback can immediately use it.
-            self.return_engine(engine, &model_id);
+            self.return_leased_engine(engine, &model_id, worker_id);
             drain_until_finalize(rx);
             return;
         }
 
-        self.return_engine(engine, &model_id);
+        self.return_leased_engine(engine, &model_id, worker_id);
         if let (Some(reply), Some(result)) = (finalize_reply, finalize_result) {
             let _ = reply.send(result);
         }
         // `_worker` drops here, clearing this worker's active/lease flags after
         // the engine has been returned to the pool.
+    }
+
+    /// Return a stream worker's leased engine, but only if the worker still
+    /// holds the lease. After a finalize timeout force-clears the lease (see
+    /// `finalize_stream`), a late-recovering worker must NOT reinject its stale
+    /// engine — `return_engine`'s model-id check alone can't catch that (the
+    /// selected model is often unchanged), so the reinjection would overwrite a
+    /// freshly loaded engine or race a newer worker's lease.
+    fn return_leased_engine(&self, engine: LoadedEngine, expected_model_id: &str, worker_id: u64) {
+        if self.active_engine_lease.load(Ordering::Acquire) != worker_id {
+            debug!(
+                "Stream worker {} no longer holds the engine lease (finalize timeout \
+                 force-clear or reassignment); dropping stale engine (was '{}')",
+                worker_id, expected_model_id
+            );
+            return; // `engine` drops here, freeing its resources.
+        }
+        self.return_engine(engine, expected_model_id);
     }
 
     /// Return the leased engine to the mutex, unless the model was switched or
@@ -1137,8 +1155,8 @@ impl TranscriptionManager {
                 // later dictation then fails with "model not loaded". Force-clear
                 // the lease/worker tokens and the router so the next use reloads a
                 // fresh engine. If the stuck worker ever returns, its
-                // StreamWorkerGuard CAS is now a no-op and return_engine's id
-                // check drops the stale engine.
+                // StreamWorkerGuard CAS is now a no-op and
+                // return_leased_engine's lease check drops the stale engine.
                 self.active_engine_lease.store(0, Ordering::Release);
                 self.active_stream_worker.store(0, Ordering::Release);
                 self.router.clear();
