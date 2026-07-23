@@ -332,7 +332,13 @@ impl AudioRecorder {
         if let Some(tx) = &self.cmd_tx {
             tx.send(Cmd::Stop(resp_tx))?;
         }
-        Ok(resp_rx.recv()?) // wait for the samples
+        // Bounded wait: if the worker never replies (wedged), fail instead of
+        // blocking the caller forever. 10s is far beyond a normal stop.
+        resp_rx.recv_timeout(Duration::from_secs(10)).map_err(|e| {
+            Box::new(Error::other(format!(
+                "Timed out waiting for recorder to return samples: {e}"
+            ))) as Box<dyn std::error::Error>
+        })
     }
 
     /// Begin always-open wake-word monitoring. Orthogonal to `start()`: a manual

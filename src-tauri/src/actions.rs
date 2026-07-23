@@ -1843,7 +1843,23 @@ impl ShortcutAction for TranscribeAction {
                             // surfaced instead — the worker may still hold the engine,
                             // so a batch fallback would contend with it.
                             Ok(Some(text)) if !text.trim().is_empty() => Ok(text),
-                            Ok(_) => tm.transcribe(samples),
+                            // Run the (blocking, CPU/GPU-bound) batch transcription
+                            // on a blocking thread so it never parks a Tokio worker
+                            // — a synchronous call here previously blocked the async
+                            // runtime for the whole transcription.
+                            Ok(_) => {
+                                let tm_batch = Arc::clone(&tm);
+                                match tauri::async_runtime::spawn_blocking(move || {
+                                    tm_batch.transcribe(samples)
+                                })
+                                .await
+                                {
+                                    Ok(res) => res,
+                                    Err(e) => {
+                                        Err(anyhow::anyhow!("Transcription task panicked: {e}"))
+                                    }
+                                }
+                            }
                             Err(err) => Err(err),
                         }
                     };
