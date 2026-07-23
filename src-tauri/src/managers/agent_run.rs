@@ -779,6 +779,16 @@ fn parse_semver_key(name: &str) -> Vec<u64> {
 /// self-contained native binary at `$HOME/.kimi-code/bin/kimi` and only adds it
 /// to PATH via the user's shell rc file (`.bash_profile`/`.zshrc`), which a
 /// GUI-launched app never sources.
+///
+/// `.openclaw/bin` is one of OpenClaw's own install locations — LIVE-VERIFIED:
+/// its `install-cli.sh` variant writes the wrapper to `<prefix>/bin/openclaw`
+/// with a default prefix of `~/.openclaw`. (A plain `npm install -g openclaw`,
+/// used for this PR's live verification, instead lands in npm's global bin —
+/// already covered by `.local/bin`/Homebrew/`STATIC_BASELINE_DIRS` below — but
+/// the dedicated-prefix installer path is not, so it's added defensively.)
+/// Hermes needs no new entry: its installer (LIVE-VERIFIED,
+/// `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`)
+/// symlinks to `~/.local/bin/hermes`, already in this list.
 pub fn baseline_bin_dirs(
     windows: bool,
     env: &impl Fn(&str) -> Option<String>,
@@ -812,9 +822,10 @@ pub fn baseline_bin_dirs(
         if let Some(home) = get("HOME") {
             // Common per-user install locations that a stripped launchd PATH omits.
             for sub in [
-                ".local/bin",       // native installers (incl. Claude Code native)
+                ".local/bin",       // native installers (incl. Claude Code native, Hermes)
                 ".claude/local",    // Claude Code local install
                 ".kimi-code/bin",   // Kimi Code CLI native install
+                ".openclaw/bin",    // OpenClaw install-cli.sh default prefix
                 ".bun/bin",         // Bun global bins
                 ".cargo/bin",       // Rust/cargo
                 ".volta/bin",       // Volta-managed node tools
@@ -1390,6 +1401,48 @@ mod tests {
     }
 
     #[test]
+    fn build_argv_openclaw_template_delivers_prompt_as_single_arg() {
+        // Regression test for the verified default OpenClaw template:
+        // `-m/--message` takes the instruction as ONE argv element. A
+        // multi-word instruction must reach argv as a single element right
+        // after `--message`, never re-split on its spaces.
+        let argv = build_argv(
+            "agent --local --agent main --message {prompt}",
+            "/tmp/proj",
+            "list all the files",
+            PromptDelivery::Arg,
+        );
+        assert_eq!(
+            argv,
+            vec![
+                "agent",
+                "--local",
+                "--agent",
+                "main",
+                "--message",
+                "list all the files"
+            ]
+        );
+        assert_eq!(argv.len(), 6);
+        assert_eq!(argv[5], "list all the files");
+    }
+
+    #[test]
+    fn build_argv_hermes_template_delivers_prompt_as_single_arg() {
+        // Regression test for the verified default Hermes template: `-z`
+        // takes the instruction as ONE argv element right after it.
+        let argv = build_argv(
+            "-z {prompt} --yolo",
+            "/tmp/proj",
+            "list all the files",
+            PromptDelivery::Arg,
+        );
+        assert_eq!(argv, vec!["-z", "list all the files", "--yolo"]);
+        assert_eq!(argv.len(), 3);
+        assert_eq!(argv[1], "list all the files");
+    }
+
+    #[test]
     fn build_argv_stdin_drops_bare_prompt_but_keeps_other_args() {
         let argv = build_argv("run {prompt} --flag", "/x", "hi", PromptDelivery::Stdin);
         assert_eq!(argv, vec!["run", "--flag"]);
@@ -1472,6 +1525,8 @@ mod tests {
         // Kimi Code CLI's own install location (its installer only updates a
         // shell rc file, which a GUI-launched app never sources).
         assert!(dirs.contains(&"/Users/me/.kimi-code/bin".to_string()));
+        // OpenClaw's install-cli.sh default prefix (`~/.openclaw/bin`).
+        assert!(dirs.contains(&"/Users/me/.openclaw/bin".to_string()));
         // Both arch Homebrew prefixes + system dirs.
         assert!(dirs.contains(&"/opt/homebrew/bin".to_string()));
         assert!(dirs.contains(&"/usr/local/bin".to_string()));
