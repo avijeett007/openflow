@@ -7,5 +7,6 @@ pub mod meeting;
 pub mod model;
 pub mod model_capabilities;
 pub mod service_sync;
+pub mod session_slots;
 pub mod transcription;
 pub mod wake_word;
