@@ -1293,6 +1293,12 @@
         }
       }
     },
+    "sessionPicker": {
+      "title": "Resume a session",
+      "hint": "1–9 resume · 0 new · Esc clear",
+      "empty": "No saved sessions yet — this run starts a new one.",
+      "newSession": "New session"
+    },
     "hotkeyOverlay": {
       "title": "Hotkeys",
       "empty": "No hotkeys configured yet.",

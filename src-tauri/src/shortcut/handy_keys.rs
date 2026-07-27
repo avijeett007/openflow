@@ -70,6 +70,10 @@ pub struct HandyKeysState {
     recording_binding_id: Mutex<Option<String>>,
     /// Flag to stop recording loop
     recording_running: Arc<AtomicBool>,
+    /// Session hotkeys: listener capturing 0-9/Esc while an agent recording runs.
+    session_digit_listener: Mutex<Option<KeyboardListener>>,
+    /// Flag to stop the session-digit capture loop.
+    session_digit_running: Arc<AtomicBool>,
 }
 
 /// Key event sent to frontend during recording mode
@@ -103,6 +107,8 @@ impl HandyKeysState {
             is_recording: AtomicBool::new(false),
             recording_binding_id: Mutex::new(None),
             recording_running: Arc::new(AtomicBool::new(false)),
+            session_digit_listener: Mutex::new(None),
+            session_digit_running: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -468,6 +474,88 @@ pub fn init_shortcuts(app: &AppHandle) -> Result<(), String> {
 
     info!("handy-keys shortcuts initialized");
     Ok(())
+}
+
+/// Map a captured key name to a session selection: `Some(Some(0..=9))` for a
+/// digit, `Some(None)` for Esc (clear), `None` for any other key (ignored).
+/// Tolerates the few forms handy-keys may stringify number keys as.
+fn key_to_selection(k: &str) -> Option<Option<u8>> {
+    match k {
+        "escape" | "esc" => Some(None),
+        "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" => {
+            k.parse::<u8>().ok().map(Some)
+        }
+        _ => k
+            .strip_prefix("num")
+            .or_else(|| k.strip_prefix("digit"))
+            .filter(|r| r.len() == 1 && r.chars().all(|c| c.is_ascii_digit()))
+            .and_then(|r| r.parse::<u8>().ok())
+            .map(Some),
+    }
+}
+
+/// Session hotkeys: start capturing 0-9/Esc via an on-demand listener (mirrors
+/// the recording-listener pattern). Passive monitor — teardown drops the listener.
+pub fn start_session_digit_capture(app: &AppHandle) {
+    let Some(state) = app.try_state::<HandyKeysState>() else {
+        return;
+    };
+    let listener = match KeyboardListener::new() {
+        Ok(l) => l,
+        Err(e) => {
+            error!("Failed to create session digit listener: {}", e);
+            return;
+        }
+    };
+    if let Ok(mut slot) = state.session_digit_listener.lock() {
+        *slot = Some(listener);
+    }
+    state.session_digit_running.store(true, Ordering::SeqCst);
+
+    let app_clone = app.clone();
+    let running = Arc::clone(&state.session_digit_running);
+    thread::spawn(move || session_digit_loop(app_clone, running));
+    debug!("Started handy-keys session digit capture");
+}
+
+/// Read key events while capture is live; translate digit/Esc into a selection.
+fn session_digit_loop(app: AppHandle, running: Arc<AtomicBool>) {
+    while running.load(Ordering::SeqCst) {
+        let event = {
+            let state = match app.try_state::<HandyKeysState>() {
+                Some(s) => s,
+                None => break,
+            };
+            let listener = state.session_digit_listener.lock().ok();
+            listener.as_ref().and_then(|l| l.as_ref()?.try_recv())
+        };
+        if let Some(key_event) = event {
+            if key_event.is_key_down {
+                if let Some(name) = key_event.key.map(|k| k.to_string().to_lowercase()) {
+                    if let Some(selection) = key_to_selection(&name) {
+                        crate::shortcut::session_digits::set_pending_session_selection(
+                            &app, selection,
+                        );
+                    }
+                }
+            }
+        } else {
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+    debug!("Session digit loop ended");
+}
+
+/// Session hotkeys: stop capture and drop the listener.
+pub fn stop_session_digit_capture(app: &AppHandle) {
+    let Some(state) = app.try_state::<HandyKeysState>() else {
+        return;
+    };
+    state.session_digit_running.store(false, Ordering::SeqCst);
+    if let Ok(mut slot) = state.session_digit_listener.lock() {
+        *slot = None;
+    }
+    debug!("Stopped handy-keys session digit capture");
 }
 
 /// Register the cancel shortcut (called when recording starts)

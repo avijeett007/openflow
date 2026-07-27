@@ -952,6 +952,12 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub hotkey_overlay_enabled: bool,
 
+    /// Session hotkeys: show the session picker + capture digit selections during
+    /// an agent recording. Default ON; turning it off restores the exact
+    /// pre-feature experience (no picker, no digit capture — always a new session).
+    #[serde(default = "default_true")]
+    pub session_picker_enabled: bool,
+
     // ---- OpenFlow Meetings (M1) ----
     /// Master switch for the meetings feature (capture + on-device transcription).
     /// Additive & fully defaultable; when false the detector never runs and manual
@@ -1583,6 +1589,7 @@ pub fn get_default_settings() -> AppSettings {
         default_ai_mode_id: None,
         basic_filler_filter: false,
         hotkey_overlay_enabled: true,
+        session_picker_enabled: true,
         meetings_enabled: true,
         meeting_auto_detect: true,
         meeting_app_allowlist: default_meeting_app_allowlist(),

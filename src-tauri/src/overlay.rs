@@ -513,6 +513,128 @@ pub fn hide_hotkey_overlay(app_handle: &AppHandle) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Session hotkeys: the session-picker overlay (same recipe as the cheat-sheet;
+// a separate window label "session_picker", reusing RecordingOverlayPanel).
+// ---------------------------------------------------------------------------
+
+const SESSION_PICKER_WIDTH: f64 = 440.0;
+const SESSION_PICKER_HEIGHT: f64 = 360.0;
+/// Auto-hide backstop if a stop/hide event is somehow missed (defensive).
+const SESSION_PICKER_FAILSAFE_SECS: u64 = 60;
+static SESSION_PICKER_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// Create the session-picker overlay window, hidden by default (non-macOS).
+#[cfg(not(target_os = "macos"))]
+pub fn create_session_picker_overlay(app_handle: &AppHandle) {
+    let mut builder = WebviewWindowBuilder::new(
+        app_handle,
+        "session_picker",
+        tauri::WebviewUrl::App("src/overlay/session-picker.html".into()),
+    )
+    .title("Session picker")
+    .resizable(false)
+    .inner_size(SESSION_PICKER_WIDTH, SESSION_PICKER_HEIGHT)
+    .shadow(false)
+    .maximizable(false)
+    .minimizable(false)
+    .closable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .transparent(true)
+    .focusable(false)
+    .focused(false)
+    .visible(false);
+
+    if let Some(data_dir) = crate::portable::data_dir() {
+        builder = builder.data_directory(data_dir.join("webview"));
+    }
+
+    match builder.build() {
+        Ok(_) => debug!("Session picker overlay window created (hidden)"),
+        Err(e) => debug!("Failed to create session picker overlay window: {}", e),
+    }
+}
+
+/// Create the session-picker overlay panel, hidden by default (macOS).
+#[cfg(target_os = "macos")]
+pub fn create_session_picker_overlay(app_handle: &AppHandle) {
+    if let Some((x, y)) =
+        calculate_centered_position(app_handle, SESSION_PICKER_WIDTH, SESSION_PICKER_HEIGHT)
+    {
+        match PanelBuilder::<_, RecordingOverlayPanel>::new(app_handle, "session_picker")
+            .url(WebviewUrl::App("src/overlay/session-picker.html".into()))
+            .title("Session picker")
+            .position(tauri::Position::Logical(tauri::LogicalPosition { x, y }))
+            .level(PanelLevel::Status)
+            .size(tauri::Size::Logical(tauri::LogicalSize {
+                width: SESSION_PICKER_WIDTH,
+                height: SESSION_PICKER_HEIGHT,
+            }))
+            .has_shadow(false)
+            .transparent(true)
+            .no_activate(true)
+            .corner_radius(0.0)
+            .style_mask(StyleMask::empty().borderless().nonactivating_panel())
+            .with_window(|w| w.decorations(false).transparent(true).focusable(false))
+            .collection_behavior(
+                CollectionBehavior::new()
+                    .can_join_all_spaces()
+                    .full_screen_auxiliary(),
+            )
+            .build()
+        {
+            Ok(panel) => {
+                panel.hide();
+            }
+            Err(e) => {
+                log::error!("Failed to create session picker panel: {}", e);
+            }
+        }
+    }
+}
+
+/// Show the session picker for `agent_id`. The webview fetches the agent's slots
+/// via the `get_session_slots` command on this event. Arms a failsafe auto-hide.
+pub fn show_session_picker_overlay(app_handle: &AppHandle, agent_id: &str) {
+    if let Some(window) = app_handle.get_webview_window("session_picker") {
+        if let Some((x, y)) =
+            calculate_centered_position(app_handle, SESSION_PICKER_WIDTH, SESSION_PICKER_HEIGHT)
+        {
+            let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+        }
+        let _ = window.show();
+
+        #[cfg(target_os = "windows")]
+        force_overlay_topmost(&window);
+
+        let _ = window.emit("session-overlay-show", agent_id.to_string());
+
+        let generation = SESSION_PICKER_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+        let app = app_handle.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(SESSION_PICKER_FAILSAFE_SECS));
+            if SESSION_PICKER_GEN.load(Ordering::SeqCst) == generation {
+                hide_session_picker_overlay(&app);
+            }
+        });
+    }
+}
+
+/// Hide the session picker (recording stop / cancel / failsafe).
+pub fn hide_session_picker_overlay(app_handle: &AppHandle) {
+    SESSION_PICKER_GEN.fetch_add(1, Ordering::SeqCst);
+    if let Some(window) = app_handle.get_webview_window("session_picker") {
+        let _ = window.emit("session-overlay-hide", ());
+        let window_clone = window.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(180));
+            let _ = window_clone.hide();
+        });
+    }
+}
+
 fn show_overlay_state(app_handle: &AppHandle, state: &str) {
     // Whether the overlay shows at all is governed by overlay_style; position
     // only chooses Top vs Bottom placement.

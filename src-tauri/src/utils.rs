@@ -20,6 +20,12 @@ pub fn cancel_current_operation(app: &AppHandle) {
     // Unregister the cancel shortcut asynchronously
     shortcut::unregister_cancel_shortcut(app);
 
+    // Session hotkeys: tear down digit capture, drop any pending selection (a
+    // cancelled recording must not resume anything), and hide the picker overlay.
+    shortcut::session_digits::stop_capture(app);
+    shortcut::session_digits::clear_pending_session_selection();
+    hide_session_picker_overlay(app);
+
     // Cancel any ongoing recording
     let audio_manager = app.state::<Arc<AudioRecordingManager>>();
     let recording_was_active = audio_manager.is_recording();

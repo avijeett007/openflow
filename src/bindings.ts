@@ -1493,6 +1493,39 @@ async downloadDiarizationModels() : Promise<Result<null, string>> {
 }
 },
 /**
+ * Pinned slots for an agent (sorted by slot number). Empty if none.
+ */
+async getSessionSlots(agentId: string) : Promise<Result<SessionSlot[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_session_slots", { agentId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Forget a pinned slot, freeing its number for reuse.
+ */
+async clearSessionSlot(agentId: string, slot: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_session_slot", { agentId, slot }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Toggle the session picker feature (persisted in settings).
+ */
+async setSessionPickerEnabled(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_session_picker_enabled", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Pair this device with a self-hosted OpenFlow Service.
  * 
  * On `201`: store the returned `device_token` in the OS keyring, persist the URL,
@@ -1586,6 +1619,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 export const events = __makeEvents__<{
 agentRunOutput: AgentRunOutput,
 agentRunStatus: AgentRunStatus,
+agentSessionCaptured: AgentSessionCaptured,
 historyUpdatePayload: HistoryUpdatePayload,
 meetingDetected: MeetingDetected,
 meetingLevels: MeetingLevels,
@@ -1597,6 +1631,7 @@ streamTextEvent: StreamTextEvent
 }>({
 agentRunOutput: "agent-run-output",
 agentRunStatus: "agent-run-status",
+agentSessionCaptured: "agent-session-captured",
 historyUpdatePayload: "history-update-payload",
 meetingDetected: "meeting-detected",
 meetingLevels: "meeting-levels",
@@ -1751,6 +1786,11 @@ export type AgentRunOutput = { run_id: string; chunk: string }
  * Emitted when a run reaches a terminal status. Event name: `agent-run-status`.
  */
 export type AgentRunStatus = { run_id: string; status: RunStatus }
+/**
+ * Emitted when a **new** run's session id is captured and pinned to a slot.
+ * Event name: `agent-session-captured`.
+ */
+export type AgentSessionCaptured = { run_id: string; agent_id: string; slot: number; session_id: string }
 /**
  * Result of the agent "Test" action: the LLM's output plus how long it took.
  * Mirrors `BackendTestResult` / `test_cleanup_backend`.
@@ -1983,6 +2023,12 @@ basic_filler_filter?: boolean;
  * shows a panel of every configured shortcut.
  */
 hotkey_overlay_enabled?: boolean; 
+/**
+ * Session hotkeys: show the session picker + capture digit selections during
+ * an agent recording. Default ON; turning it off restores the exact
+ * pre-feature experience (no picker, no digit capture — always a new session).
+ */
+session_picker_enabled?: boolean; 
 /**
  * Master switch for the meetings feature (capture + on-device transcription).
  * Additive & fully defaultable; when false the detector never runs and manual
@@ -2333,6 +2379,34 @@ last_sync_at: number | null;
  * History rows not yet synced (informational).
  */
 pending_count: number | null }
+/**
+ * One pinned, resumable CLI-agent session.
+ */
+export type SessionSlot = { 
+/**
+ * Stable slot number, 1..=9. Never renumbered.
+ */
+slot: number; 
+/**
+ * The CLI's session/thread id used to resume.
+ */
+session_id: string; 
+/**
+ * Working directory the session was created in (resume must match it).
+ */
+project_path: string; 
+/**
+ * Human label — first ~48 chars of the first instruction.
+ */
+label: string; 
+/**
+ * RFC3339 UTC creation time.
+ */
+created_at: string; 
+/**
+ * RFC3339 UTC last-used time (updated on resume; drives LRU eviction).
+ */
+last_used_at: string }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "custom"
 /**

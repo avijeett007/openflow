@@ -5,7 +5,7 @@
 
 use log::{error, warn};
 use tauri::AppHandle;
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
 
 #[cfg(not(target_os = "linux"))]
 use crate::settings::get_settings;
@@ -164,6 +164,62 @@ pub fn unregister_shortcut(app: &AppHandle, binding: ShortcutBinding) -> Result<
     })?;
 
     Ok(())
+}
+
+/// Session hotkeys: the digit/Esc keys captured while an agent recording is live.
+/// Bare (unmodified) keys, so registering them consumes the keypress globally —
+/// exactly the "swallow while recording" behavior the design wants.
+const SESSION_DIGIT_KEYS: [(Code, Option<u8>); 11] = [
+    (Code::Digit0, Some(0)),
+    (Code::Digit1, Some(1)),
+    (Code::Digit2, Some(2)),
+    (Code::Digit3, Some(3)),
+    (Code::Digit4, Some(4)),
+    (Code::Digit5, Some(5)),
+    (Code::Digit6, Some(6)),
+    (Code::Digit7, Some(7)),
+    (Code::Digit8, Some(8)),
+    (Code::Digit9, Some(9)),
+    (Code::Escape, None),
+];
+
+/// Temp-register `0`–`9` + `Esc` so each press records a session selection.
+pub fn start_session_digit_capture(app: &AppHandle) {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+        return;
+    }
+    #[cfg(not(target_os = "linux"))]
+    for (code, selection) in SESSION_DIGIT_KEYS {
+        let shortcut = Shortcut::new(None, code);
+        if app.global_shortcut().is_registered(shortcut) {
+            continue; // don't shadow an existing binding
+        }
+        let sel = selection;
+        if let Err(e) = app
+            .global_shortcut()
+            .on_shortcut(shortcut, move |app_handle, _scut, event| {
+                if event.state == ShortcutState::Pressed {
+                    crate::shortcut::session_digits::set_pending_session_selection(app_handle, sel);
+                }
+            })
+        {
+            error!("Failed to register session digit shortcut: {e}");
+        }
+    }
+}
+
+/// Unregister the digit/Esc capture (recording stop / cancel / failsafe).
+pub fn stop_session_digit_capture(app: &AppHandle) {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = app;
+    }
+    #[cfg(not(target_os = "linux"))]
+    for (code, _) in SESSION_DIGIT_KEYS {
+        let _ = app.global_shortcut().unregister(Shortcut::new(None, code));
+    }
 }
 
 /// Register the cancel shortcut (called when recording starts)

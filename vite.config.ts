@@ -72,6 +72,7 @@ export default defineConfig(async () => ({
         main: resolve(__dirname, "index.html"),
         overlay: resolve(__dirname, "src/overlay/index.html"),
         hotkeys: resolve(__dirname, "src/overlay/hotkeys.html"),
+        sessionPicker: resolve(__dirname, "src/overlay/session-picker.html"),
       },
     },
   },

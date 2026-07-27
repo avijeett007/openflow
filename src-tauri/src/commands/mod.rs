@@ -8,6 +8,7 @@ pub mod history;
 pub mod meetings;
 pub mod models;
 pub mod service;
+pub mod sessions;
 pub mod transcription;
 
 use crate::settings::{get_settings, write_settings, AppSettings, LogLevel};

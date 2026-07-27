@@ -355,6 +355,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Phase D2: create the hotkey cheat-sheet overlay window (hidden by default).
     // A separate window from the recording overlay so their states never collide.
     utils::create_hotkey_overlay(app_handle);
+    utils::create_session_picker_overlay(app_handle);
 
     // Start the hands-free wake-word listener if enabled. Its loop drives the
     // shared recorder only when idle and loads the local STT model on demand, so
@@ -763,6 +764,9 @@ pub fn run(cli_args: CliArgs) {
             commands::meetings::set_meetings_diarization_provisional,
             commands::meetings::get_diarization_models_status,
             commands::meetings::download_diarization_models,
+            commands::sessions::get_session_slots,
+            commands::sessions::clear_session_slot,
+            commands::sessions::set_session_picker_enabled,
             commands::service::pair_service,
             commands::service::unpair_service,
             commands::service::service_status,

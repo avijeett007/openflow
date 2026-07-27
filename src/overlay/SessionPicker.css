@@ -1,0 +1,164 @@
+/* Session hotkeys: picker overlay — mirrors HotkeyOverlay.css, theme-aware,
+   rendered in its own transparent webview (label "session_picker"). */
+
+.sp-stage {
+  --sp-bg: rgba(252, 252, 253, 0.92);
+  --sp-border: rgba(0, 0, 0, 0.08);
+  --sp-shadow: rgba(15, 23, 42, 0.18);
+  --sp-title: #0f172a;
+  --sp-hint: #64748b;
+  --sp-name: #1e293b;
+  --sp-proj: #7c5cff;
+  --sp-age: #94a3b8;
+  --sp-key-bg: rgba(15, 23, 42, 0.06);
+  --sp-key-border: rgba(15, 23, 42, 0.12);
+  --sp-key-text: #334155;
+  --sp-sel-bg: rgba(124, 92, 255, 0.14);
+  --sp-empty: #94a3b8;
+
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 12px;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  opacity: 0;
+  transform: scale(0.98);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+  pointer-events: none;
+}
+
+.sp-stage.show {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .sp-stage {
+    --sp-bg: rgba(17, 20, 27, 0.94);
+    --sp-border: rgba(255, 255, 255, 0.08);
+    --sp-shadow: rgba(0, 0, 0, 0.45);
+    --sp-title: #f1f5f9;
+    --sp-hint: #94a3b8;
+    --sp-name: #e2e8f0;
+    --sp-proj: #a996ff;
+    --sp-age: #64748b;
+    --sp-key-bg: rgba(255, 255, 255, 0.07);
+    --sp-key-border: rgba(255, 255, 255, 0.14);
+    --sp-key-text: #cbd5e1;
+    --sp-sel-bg: rgba(124, 92, 255, 0.22);
+    --sp-empty: #64748b;
+  }
+}
+
+.sp-card {
+  width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--sp-bg);
+  border: 1px solid var(--sp-border);
+  border-radius: 16px;
+  box-shadow: 0 18px 48px var(--sp-shadow);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  overflow: hidden;
+}
+
+.sp-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 10px;
+  flex: 0 0 auto;
+}
+
+.sp-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--sp-title);
+}
+
+.sp-hint {
+  font-size: 11px;
+  color: var(--sp-hint);
+}
+
+.sp-body {
+  padding: 0 12px 12px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  scrollbar-width: thin;
+}
+
+.sp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 8px;
+}
+
+.sp-row.sel {
+  background: var(--sp-sel-bg);
+}
+
+.sp-new {
+  margin-top: 4px;
+  opacity: 0.9;
+}
+
+.sp-key {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--sp-key-text);
+  background: var(--sp-key-bg);
+  border: 1px solid var(--sp-key-border);
+  border-radius: 6px;
+  padding: 4px 7px;
+  min-width: 10px;
+  text-align: center;
+  flex: 0 0 auto;
+}
+
+.sp-proj {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sp-proj);
+  flex: 0 0 auto;
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sp-label {
+  font-size: 13px;
+  color: var(--sp-name);
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sp-age {
+  font-size: 11px;
+  color: var(--sp-age);
+  flex: 0 0 auto;
+}
+
+.sp-empty {
+  padding: 20px 8px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--sp-empty);
+}

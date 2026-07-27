@@ -53,6 +53,58 @@ pub trait ShortcutAction: Send + Sync {
     fn stop(&self, app: &AppHandle, binding_id: &str, shortcut_str: &str);
 }
 
+/// True when a hotkey binding drives a session-capable CLI agent and the session
+/// picker is enabled — the gate for arming digit capture + the picker overlay.
+fn binding_is_session_agent(app: &AppHandle, binding_id: &str) -> bool {
+    use crate::managers::session_adapter::supports_sessions;
+    use crate::settings::AgentKind;
+    let settings = get_settings(app);
+    if !settings.session_picker_enabled {
+        return false;
+    }
+    let Some(agent_id) = binding_id.strip_prefix("agent:") else {
+        return false;
+    };
+    settings.agents.iter().any(|a| {
+        a.id == agent_id
+            && a.enabled
+            && a.kind == AgentKind::Cli
+            && a.cli_type.map(supports_sessions).unwrap_or(false)
+    })
+}
+
+/// Resolve the pending digit selection into a resume session id for `agent`.
+/// `None` = new session (today's behavior). A slot must exist AND match the
+/// agent's current project (greyed slots are not selectable). `0` forces new —
+/// which for OpenClaw means a caller-generated UUID (its ids are caller-chosen).
+fn resolve_resume_session_id(
+    app: &AppHandle,
+    agent: &crate::settings::AgentDefinition,
+) -> Option<String> {
+    use crate::managers::session_slots::SessionSlotState;
+    use crate::settings::AgentCliType;
+    let selection = crate::shortcut::session_digits::take_pending_session_selection()?;
+    match selection {
+        0 => {
+            if agent.cli_type == Some(AgentCliType::Openclaw) {
+                Some(uuid::Uuid::new_v4().to_string())
+            } else {
+                None
+            }
+        }
+        slot @ 1..=9 => {
+            let state = app.try_state::<Arc<SessionSlotState>>()?;
+            let store = state.store.lock().ok()?;
+            let entry = store.resolve(&agent.id, slot)?;
+            if entry.project_path != agent.project_path {
+                return None; // greyed-out (project mismatch)
+            }
+            Some(entry.session_id.clone())
+        }
+        _ => None,
+    }
+}
+
 // Transcribe Action
 struct TranscribeAction {
     post_process: bool,
@@ -1329,9 +1381,10 @@ pub(crate) async fn finish_dictation(
                     agent.id
                 );
             } else if let Some(mgr) = ah.try_state::<Arc<AgentRunManager>>() {
-                // resume_session_id is wired to the session-picker selection in a
-                // later task; None here = today's behavior (always a new session).
-                let run_id = mgr.inner().start(&ah, agent.clone(), instruction, None);
+                // Resolve the digit-quasimode selection (if any) into a resume
+                // session id. None = today's behavior (a new session).
+                let resume = resolve_resume_session_id(&ah, agent);
+                let run_id = mgr.inner().start(&ah, agent.clone(), instruction, resume);
                 debug!(
                     "Started CLI agent run '{}' for agent '{}' (project: '{}')",
                     run_id, agent.id, agent.project_path
@@ -1665,6 +1718,14 @@ impl ShortcutAction for TranscribeAction {
         if recording_error.is_none() {
             // Dynamically register the cancel shortcut in a separate task to avoid deadlock
             shortcut::register_cancel_shortcut(app);
+            // Session hotkeys: for a session-capable CLI-agent binding, arm digit
+            // capture + show the picker overlay. Inert for every other binding.
+            if binding_is_session_agent(app, &binding_id) {
+                shortcut::session_digits::start_capture(app);
+                if let Some(agent_id) = binding_id.strip_prefix("agent:") {
+                    utils::show_session_picker_overlay(app, agent_id);
+                }
+            }
         } else {
             // Starting failed (for example due to blocked microphone permissions).
             // Revert UI state so we don't stay stuck in the recording overlay.
@@ -1698,6 +1759,11 @@ impl ShortcutAction for TranscribeAction {
     fn stop(&self, app: &AppHandle, binding_id: &str, _shortcut_str: &str) {
         // Unregister the cancel shortcut when transcription stops
         shortcut::unregister_cancel_shortcut(app);
+        // Session hotkeys: always tear down digit capture + hide the overlay on
+        // stop (idempotent — no-op when capture was never armed). The pending
+        // selection stays set until the transcript is dispatched to the agent.
+        shortcut::session_digits::stop_capture(app);
+        utils::hide_session_picker_overlay(app);
 
         let stop_time = Instant::now();
         debug!("TranscribeAction::stop called for binding: {}", binding_id);
