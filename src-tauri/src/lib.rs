@@ -217,6 +217,13 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(meeting_manager.clone());
     app_handle.manage(service_sync_manager.clone());
 
+    // Session hotkeys: pinned CLI-agent session slots, persisted alongside settings.
+    let session_slots_path = crate::portable::resolve_app_data(app_handle, "agent_sessions.json")
+        .unwrap_or_else(|_| std::path::PathBuf::from("agent_sessions.json"));
+    app_handle.manage(Arc::new(managers::session_slots::SessionSlotState::new(
+        session_slots_path,
+    )));
+
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
     // after permissions are confirmed (on macOS) or after onboarding completes.
@@ -770,6 +777,7 @@ pub fn run(cli_args: CliArgs) {
             managers::transcription::StreamPhaseEvent,
             managers::agent_run::AgentRunOutput,
             managers::agent_run::AgentRunStatus,
+            managers::agent_run::AgentSessionCaptured,
             managers::meeting::MeetingDetected,
             managers::meeting::MeetingState,
             managers::meeting::MeetingSegmentEvent,

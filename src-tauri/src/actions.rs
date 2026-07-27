@@ -1329,7 +1329,9 @@ pub(crate) async fn finish_dictation(
                     agent.id
                 );
             } else if let Some(mgr) = ah.try_state::<Arc<AgentRunManager>>() {
-                let run_id = mgr.inner().start(&ah, agent.clone(), instruction);
+                // resume_session_id is wired to the session-picker selection in a
+                // later task; None here = today's behavior (always a new session).
+                let run_id = mgr.inner().start(&ah, agent.clone(), instruction, None);
                 debug!(
                     "Started CLI agent run '{}' for agent '{}' (project: '{}')",
                     run_id, agent.id, agent.project_path

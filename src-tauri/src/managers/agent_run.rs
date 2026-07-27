@@ -14,20 +14,22 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-use crate::settings::{AgentCliType, AgentDefinition, AgentOutputSink, PromptDelivery};
+use crate::managers::session_adapter::{extract_session_id, resume_argv, supports_sessions};
+use crate::managers::session_slots::SessionSlotState;
+use crate::settings::{AgentCliType, AgentDefinition, AgentKind, AgentOutputSink, PromptDelivery};
 
 /// Cap on the rolling per-run output buffer. Enough to keep a useful tail for
 /// the panel and the written file, bounded so a chatty run can't grow memory
@@ -64,6 +66,28 @@ pub struct AgentRunOutput {
 pub struct AgentRunStatus {
     pub run_id: String,
     pub status: RunStatus,
+}
+
+/// Emitted when a **new** run's session id is captured and pinned to a slot.
+/// Event name: `agent-session-captured`.
+#[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
+pub struct AgentSessionCaptured {
+    pub run_id: String,
+    pub agent_id: String,
+    pub slot: u8,
+    pub session_id: String,
+}
+
+/// Per-run context for capturing a new session id from the streamed output.
+/// Shared (`Arc`) across the stdout+stderr readers; the `captured` flag makes the
+/// first matching line across either stream win exactly once.
+struct SessionCaptureCtx {
+    cli: AgentCliType,
+    agent_id: String,
+    project_path: String,
+    label: String,
+    run_id: String,
+    captured: AtomicBool,
 }
 
 /// A snapshot of a run for the frontend (`list_agent_runs`).
@@ -250,11 +274,12 @@ impl AgentRunManager {
         app: &AppHandle,
         agent: AgentDefinition,
         instruction: String,
+        resume_session_id: Option<String>,
     ) -> String {
         let run_id = self.next_run_id();
 
         let cwd = resolve_cwd(app, &agent.project_path);
-        let argv = build_argv(
+        let mut argv = build_argv(
             &agent.command_template,
             &cwd.to_string_lossy(),
             &instruction,
@@ -263,6 +288,39 @@ impl AgentRunManager {
         let stdin_input = match agent.prompt_via {
             PromptDelivery::Stdin => Some(instruction.clone()),
             PromptDelivery::Arg => None,
+        };
+
+        // Session hotkeys: either resume an existing session (rewrite argv + touch
+        // the slot) or, for a fresh run of a session-capable CLI agent, arm capture
+        // of the new session id from the streamed output. Both paths are inert for
+        // Prompt agents, Custom CLIs, and any agent with no `cli_type` — so the core
+        // run behavior is byte-for-byte unchanged when the feature isn't in play.
+        let session_capture: Option<Arc<SessionCaptureCtx>> = match (
+            &resume_session_id,
+            agent.kind,
+            agent.cli_type,
+        ) {
+            (Some(id), _, Some(cli)) if supports_sessions(cli) => {
+                argv = resume_argv(cli, argv, id);
+                if let Some(state) = app.try_state::<Arc<SessionSlotState>>() {
+                    if let Ok(mut store) = state.store.lock() {
+                        store.touch_by_session_id(&agent.id, id, Utc::now());
+                        let _ = store.save(&state.path);
+                    }
+                }
+                None
+            }
+            (None, AgentKind::Cli, Some(cli)) if supports_sessions(cli) => {
+                Some(Arc::new(SessionCaptureCtx {
+                    cli,
+                    agent_id: agent.id.clone(),
+                    project_path: agent.project_path.clone(),
+                    label: instruction.chars().take(48).collect(),
+                    run_id: run_id.clone(),
+                    captured: AtomicBool::new(false),
+                }))
+            }
+            _ => None,
         };
 
         let (kill_tx, kill_rx) = mpsc::unbounded_channel::<()>();
@@ -303,6 +361,7 @@ impl AgentRunManager {
                     cwd,
                     stdin_input,
                     kill_rx,
+                    session_capture,
                 )
                 .await;
         });
@@ -321,6 +380,7 @@ impl AgentRunManager {
         cwd: PathBuf,
         stdin_input: Option<String>,
         mut kill_rx: mpsc::UnboundedReceiver<()>,
+        session_capture: Option<Arc<SessionCaptureCtx>>,
     ) {
         let started = std::time::Instant::now();
 
@@ -391,6 +451,8 @@ impl AgentRunManager {
                 Arc::clone(&self),
                 app.clone(),
                 run_id.clone(),
+                false,
+                session_capture.clone(),
             )));
         }
         if let Some(stderr) = child.stderr.take() {
@@ -399,6 +461,8 @@ impl AgentRunManager {
                 Arc::clone(&self),
                 app.clone(),
                 run_id.clone(),
+                true,
+                session_capture.clone(),
             )));
         }
 
@@ -524,9 +588,22 @@ async fn stream_lines<R: AsyncRead + Unpin>(
     manager: Arc<AgentRunManager>,
     app: AppHandle,
     run_id: String,
+    is_stderr: bool,
+    session_capture: Option<Arc<SessionCaptureCtx>>,
 ) {
     let mut lines = BufReader::new(reader).lines();
     while let Ok(Some(line)) = lines.next_line().await {
+        // Scan for a new run's session id BEFORE moving `line` into the event.
+        // First match across stdout+stderr wins exactly once (CAS on `captured`).
+        if let Some(ctx) = &session_capture {
+            if !ctx.captured.load(Ordering::Relaxed) {
+                if let Some(sid) = extract_session_id(ctx.cli, &line, is_stderr) {
+                    if !ctx.captured.swap(true, Ordering::SeqCst) {
+                        capture_session(&app, ctx, sid);
+                    }
+                }
+            }
+        }
         manager.append_output(&run_id, &line);
         let _ = AgentRunOutput {
             run_id: run_id.clone(),
@@ -534,6 +611,35 @@ async fn stream_lines<R: AsyncRead + Unpin>(
         }
         .emit(&app);
     }
+}
+
+/// Assign the captured session id to a pinned slot, persist, and notify the UI.
+/// Best-effort: any failure degrades to today's behavior (no slot, no event).
+fn capture_session(app: &AppHandle, ctx: &SessionCaptureCtx, session_id: String) {
+    let Some(state) = app.try_state::<Arc<SessionSlotState>>() else {
+        return;
+    };
+    let slot = {
+        let Ok(mut store) = state.store.lock() else {
+            return;
+        };
+        let slot = store.assign(
+            &ctx.agent_id,
+            &session_id,
+            &ctx.project_path,
+            &ctx.label,
+            Utc::now(),
+        );
+        let _ = store.save(&state.path);
+        slot
+    };
+    let _ = AgentSessionCaptured {
+        run_id: ctx.run_id.clone(),
+        agent_id: ctx.agent_id.clone(),
+        slot,
+        session_id,
+    }
+    .emit(app);
 }
 
 /// SIGTERM, then a SIGKILL backstop after a grace period (mirrors Agent OS's
@@ -1341,6 +1447,26 @@ fn cli_type_label(t: AgentCliType) -> &'static str {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+
+    #[test]
+    fn claude_argv_with_resume_appends_flag_after_template() {
+        // Session hotkeys: resume composes build_argv → resume_argv, keeping the
+        // stdin template intact and appending --resume <id> at the end.
+        let argv = build_argv(
+            "-p --output-format stream-json --verbose --permission-mode acceptEdits",
+            "/tmp/proj",
+            "follow up",
+            PromptDelivery::Stdin,
+        );
+        let argv = crate::managers::session_adapter::resume_argv(
+            AgentCliType::Claude,
+            argv,
+            "sid-1",
+        );
+        assert!(argv.ends_with(&["--resume".to_string(), "sid-1".to_string()]));
+        // template order preserved ahead of the resume flag
+        assert_eq!(argv[0], "-p");
+    }
 
     #[test]
     fn build_argv_stdin_drops_prompt_token_and_substitutes_cwd() {

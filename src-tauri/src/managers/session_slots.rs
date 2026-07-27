@@ -11,7 +11,8 @@
 //! inject a clock (fixed timestamps in tests, `Utc::now()` in production).
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,24 @@ use specta::Type;
 
 /// Maximum pinned slots per agent.
 pub const MAX_SLOTS: u8 = 9;
+
+/// Tauri-managed holder: the loaded store plus where it persists. Loaded once at
+/// startup; guarded by a `Mutex` because runs (streaming tasks) and commands both
+/// mutate it.
+pub struct SessionSlotState {
+    pub store: Mutex<SlotStore>,
+    pub path: PathBuf,
+}
+
+impl SessionSlotState {
+    /// Load the store from `path` (empty if missing/corrupt) and wrap it.
+    pub fn new(path: PathBuf) -> Self {
+        SessionSlotState {
+            store: Mutex::new(SlotStore::load(&path)),
+            path,
+        }
+    }
+}
 
 /// One pinned, resumable CLI-agent session.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq)]
@@ -132,6 +151,20 @@ impl SlotStore {
             .get(agent_id)?
             .iter()
             .find(|s| s.slot == slot)
+    }
+
+    /// Mark the slot holding `session_id` used now (resume path). Returns the slot
+    /// number if found. Updates `last_used_at` only.
+    pub fn touch_by_session_id(
+        &mut self,
+        agent_id: &str,
+        session_id: &str,
+        now: DateTime<Utc>,
+    ) -> Option<u8> {
+        let entries = self.agents.get_mut(agent_id)?;
+        let e = entries.iter_mut().find(|s| s.session_id == session_id)?;
+        e.last_used_at = now.to_rfc3339();
+        Some(e.slot)
     }
 
     /// Mark a slot used now (resume). Updates `last_used_at` only.
