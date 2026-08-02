@@ -558,11 +558,19 @@ jobs:
       # downloadable dmg — the artifact users actually double-click — IS stapled
       # here, exactly as before.
       #
-      # The submit is wrapped in an exponential-backoff RETRY loop. Apple's
-      # notary service periodically returns HTTP 5xx / "try again later"; that
-      # transient error (not any fault of ours) failed the v0.15.5 release twice
-      # with no retry. We retry ONLY transient errors and fail FAST on a genuine
-      # rejection (status Invalid/Rejected), surfacing Apple's log.
+      # The dmg is submitted to Apple's notary service ONCE (async, --no-wait)
+      # and then we PATIENTLY POLL that same submission id until it reaches a
+      # terminal status or a generous ~180-minute budget elapses. This replaces
+      # the old submit-with-`--wait --timeout 30m` retry loop, which on the
+      # v0.15.6 release timed out at 30m (Apple's notary on this new membership
+      # takes 30-90+ minutes to finish) and then RE-SUBMITTED a fresh copy on
+      # each attempt — queueing 5 separate submissions per arch, flooding
+      # Apple's queue while never waiting out any single one (several of those
+      # abandoned submissions were in fact Accepted minutes after CI gave up).
+      # We now retry only the one-shot submit call on genuine network/5xx
+      # failures; on a transient error from the poll we RE-POLL the same id
+      # (never re-submit). A real rejection (status Invalid/Rejected) fails
+      # FAST with Apple's log; Apple-side latency is reported as latency.
       #
       # No-op (skipped entirely) when Apple signing is disabled. On tag builds,
       # re-uploads the now-stapled dmg over whatever this job already uploaded.
@@ -611,60 +619,112 @@ jobs:
             exit 1
           fi
 
-          # Retry policy: 5 attempts, backoff 30s -> 60s -> 120s -> 240s
-          # (capped at 480s). Retry transient Apple errors only; fail fast on a
-          # real rejection.
-          MAX_ATTEMPTS=5
-          DELAY=30
-          attempt=1
-          while :; do
-            echo "notarytool submit — attempt ${attempt}/${MAX_ATTEMPTS} for $(basename "$DMG")"
-            set +e
-            OUT="$(xcrun notarytool submit "$DMG" "${AUTH[@]}" --wait --timeout 30m 2>&1)"
-            RC=$?
-            set -e
-            echo "$OUT"
+          # ---------------------------------------------------------------
+          # Submit ONCE (async), then poll THAT submission. Never re-submit on
+          # a wait timeout — Apple's notary can take 30-90+ min on a new
+          # membership, and re-submitting just floods the queue (the v0.15.6
+          # bug this step replaces).
+          # ---------------------------------------------------------------
 
-            if [ "$RC" -eq 0 ] && grep -q "status: Accepted" <<<"$OUT"; then
-              echo "Notarization Accepted."
+          # (1) Submit once, --no-wait, JSON out -> parse the submission id.
+          #     ONLY this one-shot submit is retried, and ONLY on a genuine
+          #     network / HTTP-5xx failure of the submit call itself.
+          SUBMIT_TRIES=3
+          SUBMIT_DELAY=15
+          SUB_ID=""
+          submit_try=1
+          while :; do
+            echo "notarytool submit (async) — try ${submit_try}/${SUBMIT_TRIES} for $(basename "$DMG")"
+            set +e
+            SUBMIT_OUT="$(xcrun notarytool submit "$DMG" "${AUTH[@]}" --no-wait --output-format json 2>&1)"
+            SUBMIT_RC=$?
+            set -e
+            if [ "$SUBMIT_RC" -eq 0 ]; then
+              SUB_ID="$(jq -r '.id // empty' <<<"$SUBMIT_OUT" 2>/dev/null || true)"
+            fi
+            if [ -n "$SUB_ID" ]; then
+              echo "Submitted. Submission id: ${SUB_ID}"
               break
             fi
-
-            # Genuine rejection (e.g. unsigned nested binary, bad entitlement):
-            # do NOT retry — surface Apple's log and fail immediately.
-            if grep -Eq "status: (Invalid|Rejected)" <<<"$OUT"; then
-              SUB_ID="$(grep -Eo 'id: [0-9a-f-]{36}' <<<"$OUT" | head -n1 | awk '{print $2}')"
-              echo "::error::Notarization was REJECTED by Apple (status Invalid/Rejected) — not transient, not retrying. Submission id: ${SUB_ID:-unknown}"
-              if [ -n "${SUB_ID:-}" ]; then
-                echo "----- notarytool log ${SUB_ID} -----"
-                xcrun notarytool log "$SUB_ID" "${AUTH[@]}" || true
-              fi
+            # No id parsed -> the submit call itself failed. Retry only on a
+            # recognized transient signature; anything else (e.g. bad creds)
+            # fails fast rather than burning retries and masking it.
+            echo "$SUBMIT_OUT"
+            if ! grep -Eiq 'HTTP status code: 5[0-9][0-9]|try again|temporarily unavailable|timed out|timeout|could not connect|connection (reset|refused|error|closed)|network is unreachable|unable to connect|service unavailable|internal server error|bad gateway|gateway timeout' <<<"$SUBMIT_OUT"; then
+              echo "::error::notarytool submit failed with a non-transient error (not a network/5xx blip) — not retrying. See output above." >&2
               exit 1
             fi
-
-            # Retry only on a recognized TRANSIENT signature (HTTP 5xx / timeout
-            # / connection / "try again later"). An unrecognized error (e.g. bad
-            # credentials) fails fast instead of burning retries and masking it.
-            if ! grep -Eiq 'HTTP status code: 5[0-9][0-9]|try again|temporarily unavailable|timed out|timeout|could not connect|connection (reset|refused|error|closed)|network is unreachable|unable to connect|service unavailable|internal server error|bad gateway|gateway timeout' <<<"$OUT"; then
-              echo "::error::Notarization failed with a non-transient, non-rejection error — not retrying (see output above)." >&2
+            if [ "$submit_try" -ge "$SUBMIT_TRIES" ]; then
+              echo "::error::notarytool submit failed after ${SUBMIT_TRIES} attempts against a transient network/5xx error — could not even queue the submission. Re-run later." >&2
               exit 1
             fi
-
-            if [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
-              echo "::error::Notarization still failing after ${MAX_ATTEMPTS} attempts against Apple's notary service (transient 5xx/timeout). Failing so the release is not shipped un-notarized." >&2
-              exit 1
-            fi
-
-            echo "::warning::Transient Apple notary error on attempt ${attempt}/${MAX_ATTEMPTS}; retrying in ${DELAY}s"
-            sleep "$DELAY"
-            attempt=$((attempt + 1))
-            DELAY=$((DELAY * 2))
-            [ "$DELAY" -gt 480 ] && DELAY=480
+            echo "::warning::Transient network/5xx error submitting (try ${submit_try}/${SUBMIT_TRIES}); retrying in ${SUBMIT_DELAY}s"
+            sleep "$SUBMIT_DELAY"
+            submit_try=$((submit_try + 1))
+            SUBMIT_DELAY=$((SUBMIT_DELAY * 2))
           done
 
+          # (2) Poll THAT submission id until terminal or the budget elapses.
+          #     Budget ~180 min, poll every 60s. Each arch is its own job, so
+          #     budgets never sum and stay well under GitHub's 6h job cap.
+          POLL_INTERVAL=60
+          BUDGET_SECONDS=$((180 * 60))
+          START_TS=$(date +%s)
+          while :; do
+            set +e
+            INFO_OUT="$(xcrun notarytool info "$SUB_ID" "${AUTH[@]}" --output-format json 2>&1)"
+            INFO_RC=$?
+            set -e
+
+            STATUS=""
+            if [ "$INFO_RC" -eq 0 ]; then
+              STATUS="$(jq -r '.status // empty' <<<"$INFO_OUT" 2>/dev/null || true)"
+            fi
+
+            ELAPSED=$(($(date +%s) - START_TS))
+
+            case "$STATUS" in
+              Accepted)
+                echo "Notarization Accepted (submission ${SUB_ID}) after ${ELAPSED}s."
+                break
+                ;;
+              Invalid | Rejected)
+                echo "::error::Notarization REJECTED by Apple (status ${STATUS}) for submission ${SUB_ID} — a real signing/entitlement problem, NOT latency. Failing fast (no retry)."
+                echo "----- notarytool log ${SUB_ID} -----"
+                xcrun notarytool log "$SUB_ID" "${AUTH[@]}" || true
+                exit 1
+                ;;
+              "In Progress")
+                : # still notarizing on Apple's side — keep polling below.
+                ;;
+              *)
+                # Empty/unknown status => the info poll itself hit a transient
+                # network/5xx blip (or an unrecognized transient). Do NOT
+                # re-submit — sleep and re-poll the SAME id below. Bail only on
+                # a clearly non-transient error signature.
+                echo "$INFO_OUT"
+                if ! grep -Eiq 'HTTP status code: 5[0-9][0-9]|try again|temporarily unavailable|timed out|timeout|could not connect|connection (reset|refused|error|closed)|network is unreachable|unable to connect|service unavailable|internal server error|bad gateway|gateway timeout' <<<"$INFO_OUT"; then
+                  echo "::error::notarytool info for ${SUB_ID} returned a non-transient error and no readable status — not a network blip. See output above." >&2
+                  exit 1
+                fi
+                echo "::warning::Transient network/5xx error polling submission ${SUB_ID}; re-polling the SAME submission (never re-submitting)."
+                ;;
+            esac
+
+            if [ "$ELAPSED" -ge "$BUDGET_SECONDS" ]; then
+              echo "::error::Apple notary did not return a terminal status within $((BUDGET_SECONDS / 60))m; submission ${SUB_ID} is still In Progress — Apple-side latency, not a build failure. Re-run the release later (this submission may well complete on Apple's side)." >&2
+              exit 1
+            fi
+
+            echo "Submission ${SUB_ID}: status=${STATUS:-<none>}, elapsed=${ELAPSED}s / budget=${BUDGET_SECONDS}s — polling again in ${POLL_INTERVAL}s"
+            sleep "$POLL_INTERVAL"
+          done
+
+          # (3) Accepted -> staple the offline ticket, then sanity-check it.
           echo "Stapling $DMG"
           xcrun stapler staple "$DMG"
-          spctl -a -vvv -t install "$DMG" || echo "::warning::spctl assessment on the stapled dmg did not report success (informational, non-fatal — notarytool --wait already gated on Accepted)"
+          xcrun stapler validate "$DMG"
+          spctl -a -vvv -t install "$DMG" || echo "::warning::spctl assessment on the stapled dmg did not report success (informational, non-fatal — polling already gated on status Accepted)"
 
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             gh release upload "${GITHUB_REF#refs/tags/}" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
