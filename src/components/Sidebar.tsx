@@ -16,6 +16,7 @@ import {
   BookA,
   Radar,
   Video,
+  Cloud,
 } from "lucide-react";
 import { useSettings } from "../hooks/useSettings";
 import openflowLogo from "../assets/openflow-logo.png";
@@ -35,6 +36,7 @@ import {
   AgentRunsSettings,
   MissionControlSettings,
   MeetingsSettings,
+  ServiceSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -167,6 +169,13 @@ export const SECTIONS_CONFIG = {
     group: "meetings",
   },
   // --- System ---
+  service: {
+    labelKey: "sidebar.service",
+    icon: Cloud,
+    component: ServiceSettings,
+    enabled: () => true,
+    group: "system",
+  },
   handsFree: {
     labelKey: "sidebar.handsFree",
     icon: Ear,
