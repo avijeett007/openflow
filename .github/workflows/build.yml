@@ -6,17 +6,21 @@ name: "Build"
 #
 #   1. test    Runs the Rust test suite and a frontend typecheck/build as a gate.
 #              Nothing builds or ships unless this passes.
-#   2. build   Builds UNSIGNED / ad-hoc installers for all three targets. On a
-#              `v*` tag it uploads them to a *draft* GitHub Release; on manual
-#              dispatch it only uploads run artifacts.
+#   2. build   Builds installers for all three targets. On a `v*` tag it uploads
+#              them to a *draft* GitHub Release; on manual dispatch it only
+#              uploads run artifacts.
 #   3. publish On a `v*` tag, once every platform has built successfully, flips
 #              the draft Release to PUBLISHED so the download links go live. If
 #              any build fails the release stays a draft (nothing half-shipped).
 #
-# No Apple Developer cert, notarization, or Windows Authenticode is used — the
-# pipeline runs with zero signing credentials. See SIGNING.md (kept in the parent
-# project root, not in the repo) for the step-by-step process to sign locally
-# once Apple/Windows certificates are available.
+# macOS signing is CONDITIONAL on the `APPLE_CERTIFICATE` repo secret (see the
+# "Configure Apple code signing" step below). Until that secret exists, both
+# macOS jobs build UNSIGNED / ad-hoc (`codesign -s -`) exactly as before this
+# was wired up — nothing here changes that path. Once the Apple Developer ID
+# secrets are added (see SIGNING.md, kept in the parent project root, not in
+# this repo), the same jobs sign with the Developer ID identity, apply the
+# hardened runtime, notarize, and staple — automatically, on the next `v*` tag.
+# Windows Authenticode signing is not wired up (see SIGNING.md Part B).
 #
 # Triggers:
 #   - workflow_dispatch : manual test + build, uploads installers as run artifacts.
@@ -173,6 +177,116 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
+      # Apple Developer ID signing + notarization is CONDITIONAL on the
+      # `APPLE_CERTIFICATE` secret existing — this step is the single gate for
+      # the whole macOS signing story. When the secret is absent, this step
+      # only sets APPLE_SIGNING_ENABLED=false and returns; it exports NOTHING
+      # else, so every APPLE_* env var tauri-bundler reads (APPLE_CERTIFICATE,
+      # APPLE_SIGNING_IDENTITY, ...) is genuinely ABSENT from the process
+      # environment for every later step in this job — not set-to-empty. That
+      # distinction is load-bearing: tauri-bundler reads these with Rust's
+      # `env::var_os(...)`, which returns `Some("")` for a set-but-empty var and
+      # takes the "configured" code path anyway (verified against
+      # tauri-bundler's `sign::keychain()` and tauri-cli's `APPLE_SIGNING_IDENTITY`
+      # handling — an empty-but-set value would override tauri.conf.json's
+      # ad-hoc "-" with "" and break codesign). So secrets are only ever
+      # forwarded inside the `if` below via $GITHUB_ENV, never unconditionally
+      # in a step's `env:` block. When absent: `keychain()` falls through to
+      # the ad-hoc "-" identity from tauri.conf.json exactly as it does today,
+      # and `notarize_auth()` returns MissingCredentials, which is logged as a
+      # warning and skipped — byte-for-byte the same pipeline as before this
+      # step existed.
+      #
+      # When present, this step ALSO imports the certificate into its own
+      # long-lived keychain (APPLE_KEYCHAIN_PATH) for the manual `codesign` /
+      # `notarytool` calls later in this job ("Bundle ONNX Runtime..." and
+      # "Notarize and staple macOS DMG" below) — tauri-bundler's own keychain
+      # import (triggered by APPLE_CERTIFICATE, used inside "Build with
+      # Tauri") is DELETED the moment that step's process exits (see
+      # tauri-macos-sign's `Keychain`'s `Drop` impl), so it can't be reused.
+      - name: Configure Apple code signing (macOS, conditional)
+        if: contains(matrix.platform, 'macos')
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "APPLE_SIGNING_ENABLED=false" >> "$GITHUB_ENV"
+            echo "No APPLE_CERTIFICATE secret set — building unsigned/ad-hoc, unchanged from before."
+            exit 0
+          fi
+
+          echo "APPLE_SIGNING_ENABLED=true" >> "$GITHUB_ENV"
+
+          # Forward a var into GITHUB_ENV using the heredoc form (safe for any
+          # content, including the multi-line base64 .p12) instead of
+          # interpolating ${{ secrets.* }} into the script or assignment.
+          forward() {
+            local name="$1" value="$2"
+            {
+              echo "${name}<<__OPENFLOW_EOF_${name}__"
+              printf '%s\n' "$value"
+              echo "__OPENFLOW_EOF_${name}__"
+            } >> "$GITHUB_ENV"
+          }
+
+          # Vars tauri-bundler itself reads during "Build with Tauri".
+          forward APPLE_CERTIFICATE "$APPLE_CERTIFICATE"
+          forward APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
+          forward APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY"
+
+          # Notarization credentials: App Store Connect API key preferred
+          # (headless, no 2FA); Apple ID + app-specific password as fallback.
+          if [ -n "$APPLE_API_KEY" ]; then
+            echo "Notarization: App Store Connect API key"
+            forward APPLE_API_KEY "$APPLE_API_KEY"
+            forward APPLE_API_ISSUER "$APPLE_API_ISSUER"
+            mkdir -p "$RUNNER_TEMP/private_keys"
+            KEY_PATH="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+            printf '%s' "$APPLE_API_KEY_P8" > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          elif [ -n "$APPLE_ID" ]; then
+            echo "Notarization: Apple ID + app-specific password (fallback)"
+            forward APPLE_ID "$APPLE_ID"
+            forward APPLE_PASSWORD "$APPLE_PASSWORD"
+            forward APPLE_TEAM_ID "$APPLE_TEAM_ID"
+          else
+            echo "::warning::APPLE_CERTIFICATE is set but no notarization credentials were found (neither APPLE_API_KEY nor APPLE_ID). The app will be Developer-ID signed but NOT notarized — Gatekeeper will still warn on other Macs."
+          fi
+
+          # Our OWN long-lived keychain for the manual codesign/notarytool
+          # calls later in this job (see comment above the step name).
+          KEYCHAIN_PATH="$RUNNER_TEMP/openflow-signing.keychain-db"
+          KEYCHAIN_PW="$(openssl rand -base64 32)"
+          CERT_B64="$RUNNER_TEMP/apple-cert.p12.b64"
+          CERT_PATH="$RUNNER_TEMP/apple-cert.p12"
+          printf '%s' "$APPLE_CERTIFICATE" > "$CERT_B64"
+          openssl base64 -d -A -in "$CERT_B64" -out "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PW" "$KEYCHAIN_PATH"
+          EXISTING_KEYCHAINS="$(security list-keychains -d user | tr -d '"')"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $EXISTING_KEYCHAINS
+          rm -f "$CERT_B64" "$CERT_PATH"
+
+          echo "APPLE_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
       # tauri-action runs `bun run tauri build` and bundles the app. On tag builds
       # it creates/uploads to a DRAFT GitHub Release (published later by the
       # `publish` job once all platforms succeed). The Apple/Windows code-signing
@@ -290,9 +404,23 @@ jobs:
             chmod u+w "$FW"
             install_name_tool -id "$DEST_ID" "$FW"
             install_name_tool -change "$CUR" "$DEST_ID" "$BIN"
-            codesign --force -s - "$FW"
-            # Entitlements already carry disable-library-validation for the ad-hoc sig.
-            codesign --force -s - --entitlements "$ENTITLEMENTS" "$APP"
+
+            # Re-signing is unavoidable here: the dylib copy + install_name_tool
+            # rewrite invalidate any prior signature. Same identity + options
+            # tauri-bundler would use: ad-hoc "-" when Apple signing is
+            # disabled (unchanged from before this PR), or Developer ID +
+            # hardened runtime from our own keychain (see "Configure Apple
+            # code signing" step) when enabled — an ad-hoc-signed nested
+            # dylib inside a hardened-runtime app is exactly what
+            # notarization rejects, so both must match when enabled.
+            if [ "${APPLE_SIGNING_ENABLED:-false}" = "true" ]; then
+              CODESIGN_ARGS=(-s "$APPLE_SIGNING_IDENTITY" --keychain "$APPLE_KEYCHAIN_PATH" --options runtime)
+            else
+              CODESIGN_ARGS=(-s -)
+            fi
+            codesign --force "${CODESIGN_ARGS[@]}" "$FW"
+            # Entitlements already carry disable-library-validation for the ad-hoc/Developer-ID sig.
+            codesign --force "${CODESIGN_ARGS[@]}" --entitlements "$ENTITLEMENTS" "$APP"
             codesign --verify --deep --strict "$APP"
             # Hard-verify: @executable_path present AND no absolute brew path remains.
             POST="$(otool -L "$BIN" | grep -i onnxruntime || true)"
@@ -303,6 +431,26 @@ jobs:
               echo "ERROR: an absolute brew onnxruntime path still remains: $POST" >&2; exit 1
             fi
             [ -f "$FW" ] || { echo "ERROR: $FW missing after bundling" >&2; exit 1; }
+
+            # The re-sign above invalidated any notarization ticket
+            # tauri-bundler may have attached during "Build with Tauri" (the
+            # binary's CDHash changed). Re-notarize + re-staple the .app
+            # BEFORE it gets tarred for the updater below, so the
+            # OTA-delivered app is itself stapled.
+            if [ "${APPLE_SIGNING_ENABLED:-false}" = "true" ]; then
+              echo "Re-notarizing + re-stapling .app after ONNX re-sign"
+              ZIP="$(mktemp -u "${RUNNER_TEMP:-/tmp}/openflow-notarize-XXXXXX").zip"
+              ditto -c -k --keepParent "$APP" "$ZIP"
+              if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+                xcrun notarytool submit "$ZIP" --key "$APPLE_API_KEY_PATH" \
+                  --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
+              else
+                xcrun notarytool submit "$ZIP" --apple-id "$APPLE_ID" \
+                  --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+              fi
+              rm -f "$ZIP"
+              xcrun stapler staple "$APP"
+            fi
           fi
 
           # 3. The .app changed (case a/b): rebuild the dmg AND regenerate + re-sign
@@ -315,6 +463,16 @@ jobs:
           ditto "$APP" "$STAGE/OpenFlow.app"
           ln -s /Applications "$STAGE/Applications"
           hdiutil create -volname "OpenFlow" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          # This freshly-built dmg has no signature at all (unchanged from
+          # before this PR) unless Apple signing is enabled, in which case
+          # sign it with the Developer ID identity so it matches what
+          # tauri-bundler's own dmg.rs would produce. Notarization + stapling
+          # of the FINAL dmg (this one, or the untouched case-b/c dmg) happens
+          # in the separate "Notarize and staple macOS DMG" step below, which
+          # runs for both macOS legs after every dmg mutation is done.
+          if [ "${APPLE_SIGNING_ENABLED:-false}" = "true" ]; then
+            codesign --force -s "$APPLE_SIGNING_IDENTITY" --keychain "$APPLE_KEYCHAIN_PATH" "$DMG"
+          fi
           ls -lh "$DMG"
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             gh release upload "${GITHUB_REF#refs/tags/}" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
@@ -375,6 +533,46 @@ jobs:
               exit 1
               ;;
           esac
+
+      # Notarize + staple the FINAL dmg for both macOS legs. tauri-bundler
+      # itself only code-signs the dmg (see tauri-bundler's macos/dmg/mod.rs —
+      # it never calls notarytool), and for the Intel leg the dmg above may
+      # have been entirely rebuilt outside tauri, so this runs as one
+      # standalone step AFTER every dmg mutation, for both matrix legs.
+      # No-op (skipped entirely) when Apple signing is disabled. On tag
+      # builds, re-uploads the now-stapled dmg over whatever this job already
+      # uploaded to the draft release (tauri-action's original dmg, and for
+      # the Intel leg's case a/b the rebuilt-but-unstapled one, are both
+      # superseded by this one).
+      - name: Notarize and staple macOS DMG
+        if: contains(matrix.platform, 'macos') && env.APPLE_SIGNING_ENABLED == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          shopt -s nullglob
+          DMGS=("$DMG_DIR"/*.dmg)
+          shopt -u nullglob
+          [ "${#DMGS[@]}" -eq 1 ] || { echo "ERROR: expected one dmg in $DMG_DIR, found ${#DMGS[@]}" >&2; ls -la "$DMG_DIR" >&2 || true; exit 1; }
+          DMG="${DMGS[0]}"
+
+          echo "Notarizing $DMG"
+          if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+            xcrun notarytool submit "$DMG" --key "$APPLE_API_KEY_PATH" \
+              --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
+          else
+            xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" \
+              --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          fi
+          echo "Stapling $DMG"
+          xcrun stapler staple "$DMG"
+          spctl -a -vvv -t install "$DMG" || echo "::warning::spctl assessment on the stapled dmg did not report success (informational, non-fatal — notarytool --wait already gated on Accepted)"
+
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            gh release upload "${GITHUB_REF#refs/tags/}" "$DMG" --clobber --repo "$GITHUB_REPOSITORY"
+          fi
 
       # Always upload the installers as workflow run artifacts (for both manual
       # dispatch and tag builds). macOS -> .dmg, Windows -> .exe (NSIS) + .msi.
