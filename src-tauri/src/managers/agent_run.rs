@@ -27,7 +27,8 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-use crate::settings::{AgentCliType, AgentDefinition, AgentOutputSink, PromptDelivery};
+use crate::a2a::{self, A2aTransport, HttpA2aTransport, RemoteOutcome};
+use crate::settings::{AgentCliType, AgentDefinition, AgentKind, AgentOutputSink, PromptDelivery};
 
 /// Cap on the rolling per-run output buffer. Enough to keep a useful tail for
 /// the panel and the written file, bounded so a chatty run can't grow memory
@@ -291,21 +292,36 @@ impl AgentRunManager {
         let binary = agent.binary_path.clone();
         let run_id_task = run_id.clone();
 
-        // Detached task: spawn, stream, finalize. Uses the app's async runtime.
-        tauri::async_runtime::spawn(async move {
-            manager
-                .drive_run(
-                    app,
-                    run_id_task,
-                    agent,
-                    binary,
-                    argv,
-                    cwd,
-                    stdin_input,
-                    kill_rx,
-                )
-                .await;
-        });
+        // Detached task: drive to completion, stream, finalize. Uses the app's
+        // async runtime. The driver seam: a `Remote` (A2A) agent takes the
+        // RemoteDriver; every other kind takes the CLI subprocess driver. The
+        // registry entry, run_id and kill wiring above are identical for both —
+        // the run panel (which only subscribes to the two events) needs nothing.
+        match agent.kind {
+            AgentKind::Remote => {
+                tauri::async_runtime::spawn(async move {
+                    manager
+                        .drive_remote_run(app, run_id_task, agent, instruction, kill_rx)
+                        .await;
+                });
+            }
+            _ => {
+                tauri::async_runtime::spawn(async move {
+                    manager
+                        .drive_run(
+                            app,
+                            run_id_task,
+                            agent,
+                            binary,
+                            argv,
+                            cwd,
+                            stdin_input,
+                            kill_rx,
+                        )
+                        .await;
+                });
+            }
+        }
 
         run_id
     }
@@ -448,6 +464,131 @@ impl AgentRunManager {
         }
 
         self.finalize(&app, &run_id, &agent, status, started).await;
+    }
+
+    /// Drive a **remote (A2A) agent** run behind the SAME run seam as
+    /// `drive_run`: it reuses `append_output` / the `AgentRunOutput` event /
+    /// `finalize` / the kill channel / `AgentRunStatus` verbatim, so the run
+    /// panel needs zero changes. The protocol itself lives in `crate::a2a`
+    /// (`run_remote_protocol`), which is unit-tested against a mock transport
+    /// with no network — this method is the thin glue (endpoint resolution,
+    /// header line, live-output plumbing, status mapping).
+    async fn drive_remote_run(
+        self: Arc<Self>,
+        app: AppHandle,
+        run_id: String,
+        agent: AgentDefinition,
+        instruction: String,
+        mut kill_rx: mpsc::UnboundedReceiver<()>,
+    ) {
+        let started = std::time::Instant::now();
+        let transport = HttpA2aTransport::new();
+        // Per-agent bearer token from the OS keyring (scope "agent", account =
+        // agent id). Never in the settings store; absent for a public agent.
+        let token = crate::keychain::get_api_key("agent", &agent.id);
+
+        // 1. Resolve the JSON-RPC endpoint. Cached on the agent after a UI card
+        //    fetch; if empty we attempt one fetch+resolve here, and a failure is
+        //    an actionable Failed (raw English in the stream, like CLI output).
+        let endpoint = match self
+            .resolve_remote_endpoint(&transport, &agent, token.clone())
+            .await
+        {
+            Ok(ep) => ep,
+            Err(e) => {
+                self.emit_line(&app, &run_id, &e);
+                self.finalize(
+                    &app,
+                    &run_id,
+                    &agent,
+                    RunStatus::Failed { error: e },
+                    started,
+                )
+                .await;
+                return;
+            }
+        };
+
+        // 2. Header line so the panel shows where this is going.
+        let name = if agent.remote_card_name.trim().is_empty() {
+            agent.remote_url.clone()
+        } else {
+            agent.remote_card_name.clone()
+        };
+        self.emit_line(&app, &run_id, &format!("→ {name} @ {endpoint}"));
+
+        // 3. Run the protocol, streaming each new text chunk live into the panel.
+        let manager = Arc::clone(&self);
+        let app_out = app.clone();
+        let run_id_out = run_id.clone();
+        let mut on_output = move |chunk: &str| {
+            manager.append_output(&run_id_out, chunk);
+            let _ = AgentRunOutput {
+                run_id: run_id_out.clone(),
+                chunk: chunk.to_string(),
+            }
+            .emit(&app_out);
+        };
+
+        let outcome = a2a::run_remote_protocol(
+            &transport,
+            &endpoint,
+            token,
+            &instruction,
+            agent.remote_streaming,
+            &mut kill_rx,
+            &mut on_output,
+            a2a::POLL_INTERVAL,
+            a2a::POLL_CAP,
+        )
+        .await;
+        drop(on_output);
+
+        let status = match outcome {
+            RemoteOutcome::Finished => RunStatus::Finished { code: 0 },
+            RemoteOutcome::Failed(error) => RunStatus::Failed { error },
+            RemoteOutcome::Stopped => RunStatus::Stopped,
+        };
+        self.finalize(&app, &run_id, &agent, status, started).await;
+    }
+
+    /// Resolve a remote agent's JSON-RPC endpoint: the cached `remote_endpoint`
+    /// when present, otherwise one card fetch+resolve (with an actionable error
+    /// pointing the user at the settings "Fetch card" button).
+    async fn resolve_remote_endpoint<T: A2aTransport>(
+        &self,
+        transport: &T,
+        agent: &AgentDefinition,
+        token: Option<String>,
+    ) -> Result<String, String> {
+        if !agent.remote_endpoint.trim().is_empty() {
+            return Ok(agent.remote_endpoint.clone());
+        }
+        if agent.remote_url.trim().is_empty() {
+            return Err(
+                "This remote agent has no URL. Open its settings, enter the \
+                        agent URL, and Fetch the card first."
+                    .to_string(),
+            );
+        }
+        let url = a2a::well_known_card_url(&agent.remote_url);
+        let card_json = transport.fetch_card(url, token).await.map_err(|e| {
+            format!("Couldn't fetch the agent card ({e}). Fetch the agent card in settings first.")
+        })?;
+        let card = a2a::parse_agent_card(&card_json)?;
+        card.select_jsonrpc_endpoint()
+    }
+
+    /// Append a plain line to the run buffer AND emit it as an `agent-run-output`
+    /// event (the header line and remote-driver error lines flow through here —
+    /// like CLI subprocess output, the remote stream is raw, un-i18n'd text).
+    fn emit_line(&self, app: &AppHandle, run_id: &str, line: &str) {
+        self.append_output(run_id, line);
+        let _ = AgentRunOutput {
+            run_id: run_id.to_string(),
+            chunk: line.to_string(),
+        }
+        .emit(app);
     }
 
     /// Set the terminal status, emit `agent-run-status`, and run the output sinks.

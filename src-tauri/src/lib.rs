@@ -1,3 +1,4 @@
+mod a2a;
 mod actions;
 mod active_app;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -695,6 +696,8 @@ pub fn run(cli_args: CliArgs) {
             commands::agents::update_agent,
             commands::agents::delete_agent,
             commands::agents::test_agent,
+            commands::remote_agents::fetch_remote_agent_card,
+            commands::remote_agents::test_remote_agent,
             commands::ai_modes::create_ai_mode,
             commands::ai_modes::update_ai_mode,
             commands::ai_modes::delete_ai_mode,
