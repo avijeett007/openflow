@@ -1,6 +1,6 @@
 [package]
 name = "openflow"
-version = "0.15.6"
+version = "0.15.7"
 description = "OpenFlow"
 authors = ["cjpais", "OpenFlow"]
 edition = "2021"
