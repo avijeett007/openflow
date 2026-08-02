@@ -245,22 +245,34 @@ jobs:
           forward APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
           forward APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY"
 
-          # Notarization credentials: App Store Connect API key preferred
-          # (headless, no 2FA); Apple ID + app-specific password as fallback.
+          # Notarization is DELIBERATELY NOT wired up here. We forward the
+          # SIGNING vars above (so `tauri build` still Developer-ID signs +
+          # applies the hardened runtime, byte-for-byte as before), but we do
+          # NOT forward any notarization credential (APPLE_API_KEY /
+          # APPLE_API_ISSUER / APPLE_API_KEY_P8 / APPLE_ID / APPLE_PASSWORD /
+          # APPLE_TEAM_ID) into $GITHUB_ENV. With none of those present, Tauri's
+          # bundler takes the `notarize_auth() -> MissingCredentials` path and
+          # SKIPS its inline notarization (logs a warning), exactly as it does on
+          # an unsigned build. That is intentional: Tauri's inline notarization
+          # is a single, un-retryable Apple call made from deep inside
+          # `tauri build`, so one transient Apple notary 5xx ("please try again
+          # later") failed the whole v0.15.5 release with no way to retry.
+          #
+          # Notarization is instead performed ONCE, on the final .dmg, in the
+          # dedicated "Notarize and staple macOS DMG" step below — which wraps
+          # `notarytool submit` in an exponential-backoff retry loop that retries
+          # transient Apple errors and fails fast on genuine rejections. Apple's
+          # notary service notarizes every nested code object inside the
+          # submitted .dmg (the .app and its dylibs), so the .app's CDHash is
+          # registered as notarized; the byte-identical .app copy shipped in the
+          # updater `.app.tar.gz` therefore passes Gatekeeper's online check too.
+          # That dedicated step receives the notarization secrets via its own
+          # `env:` block (not $GITHUB_ENV), so they are scoped to it alone and can
+          # never leak into the `tauri build` environment.
           if [ -n "$APPLE_API_KEY" ]; then
-            echo "Notarization: App Store Connect API key"
-            forward APPLE_API_KEY "$APPLE_API_KEY"
-            forward APPLE_API_ISSUER "$APPLE_API_ISSUER"
-            mkdir -p "$RUNNER_TEMP/private_keys"
-            KEY_PATH="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
-            printf '%s' "$APPLE_API_KEY_P8" > "$KEY_PATH"
-            chmod 600 "$KEY_PATH"
-            echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+            echo "Notarization (deferred to the DMG step, with retry): App Store Connect API key"
           elif [ -n "$APPLE_ID" ]; then
-            echo "Notarization: Apple ID + app-specific password (fallback)"
-            forward APPLE_ID "$APPLE_ID"
-            forward APPLE_PASSWORD "$APPLE_PASSWORD"
-            forward APPLE_TEAM_ID "$APPLE_TEAM_ID"
+            echo "Notarization (deferred to the DMG step, with retry): Apple ID + app-specific password (fallback)"
           else
             echo "::warning::APPLE_CERTIFICATE is set but no notarization credentials were found (neither APPLE_API_KEY nor APPLE_ID). The app will be Developer-ID signed but NOT notarized — Gatekeeper will still warn on other Macs."
           fi
@@ -432,25 +444,17 @@ jobs:
             fi
             [ -f "$FW" ] || { echo "ERROR: $FW missing after bundling" >&2; exit 1; }
 
-            # The re-sign above invalidated any notarization ticket
-            # tauri-bundler may have attached during "Build with Tauri" (the
-            # binary's CDHash changed). Re-notarize + re-staple the .app
-            # BEFORE it gets tarred for the updater below, so the
-            # OTA-delivered app is itself stapled.
-            if [ "${APPLE_SIGNING_ENABLED:-false}" = "true" ]; then
-              echo "Re-notarizing + re-stapling .app after ONNX re-sign"
-              ZIP="$(mktemp -u "${RUNNER_TEMP:-/tmp}/openflow-notarize-XXXXXX").zip"
-              ditto -c -k --keepParent "$APP" "$ZIP"
-              if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
-                xcrun notarytool submit "$ZIP" --key "$APPLE_API_KEY_PATH" \
-                  --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
-              else
-                xcrun notarytool submit "$ZIP" --apple-id "$APPLE_ID" \
-                  --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-              fi
-              rm -f "$ZIP"
-              xcrun stapler staple "$APP"
-            fi
+            # The re-sign above changed the .app's CDHash, so it must be
+            # notarized AFTER this point — but we no longer do it inline here.
+            # Notarization is done once, on the FINAL .dmg, in the dedicated
+            # "Notarize and staple macOS DMG" step (with a retry/backoff loop).
+            # Apple notarizes every nested code object inside a submitted .dmg,
+            # so this re-signed .app's CDHash — identical in the rebuilt .dmg and
+            # in the updater `.app.tar.gz` below (both are copies of this exact
+            # signed bundle) — is registered as notarized and passes Gatekeeper's
+            # online check. Doing it once, on the .dmg, is what makes the retry
+            # loop possible; the previous inline `.app` notarytool call here was
+            # un-retryable and was a second Apple call that could fail a release.
           fi
 
           # 3. The .app changed (case a/b): rebuild the dmg AND regenerate + re-sign
@@ -534,23 +538,54 @@ jobs:
               ;;
           esac
 
-      # Notarize + staple the FINAL dmg for both macOS legs. tauri-bundler
-      # itself only code-signs the dmg (see tauri-bundler's macos/dmg/mod.rs —
-      # it never calls notarytool), and for the Intel leg the dmg above may
-      # have been entirely rebuilt outside tauri, so this runs as one
-      # standalone step AFTER every dmg mutation, for both matrix legs.
-      # No-op (skipped entirely) when Apple signing is disabled. On tag
-      # builds, re-uploads the now-stapled dmg over whatever this job already
-      # uploaded to the draft release (tauri-action's original dmg, and for
-      # the Intel leg's case a/b the rebuilt-but-unstapled one, are both
-      # superseded by this one).
+      # Notarize + staple the FINAL dmg for both macOS legs. This is now the
+      # SINGLE notarization point for the whole macOS build: Tauri no longer
+      # notarizes inline (the "Configure Apple code signing" step deliberately
+      # withholds the notarization creds from `tauri build`), and the Intel
+      # "Bundle ONNX" step no longer re-notarizes the .app. tauri-bundler only
+      # code-signs the dmg (see macos/dmg/mod.rs — it never calls notarytool),
+      # and for the Intel leg the dmg may have been rebuilt outside tauri, so
+      # this runs as one standalone step AFTER every dmg mutation, for both legs.
+      #
+      # Apple's notary service notarizes every nested code object inside the
+      # submitted dmg (the .app and its dylibs), so notarizing the dmg here
+      # registers the .app's CDHash as notarized — and the byte-identical .app
+      # copy shipped in the updater `.app.tar.gz` therefore passes Gatekeeper's
+      # online check. The standalone updater .app is no longer individually
+      # STAPLED (an offline ticket) as it was when Tauri notarized inline; that
+      # is immaterial for OTA updates, which write the bundle without a
+      # quarantine attribute so Gatekeeper does no notarization gate on it. The
+      # downloadable dmg — the artifact users actually double-click — IS stapled
+      # here, exactly as before.
+      #
+      # The submit is wrapped in an exponential-backoff RETRY loop. Apple's
+      # notary service periodically returns HTTP 5xx / "try again later"; that
+      # transient error (not any fault of ours) failed the v0.15.5 release twice
+      # with no retry. We retry ONLY transient errors and fail FAST on a genuine
+      # rejection (status Invalid/Rejected), surfacing Apple's log.
+      #
+      # No-op (skipped entirely) when Apple signing is disabled. On tag builds,
+      # re-uploads the now-stapled dmg over whatever this job already uploaded.
       - name: Notarize and staple macOS DMG
         if: contains(matrix.platform, 'macos') && env.APPLE_SIGNING_ENABLED == 'true'
         shell: bash
+        # Notarization creds live ONLY on this step (never in $GITHUB_ENV), so
+        # they cannot reach `tauri build` and re-enable inline notarization.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          set -euxo pipefail
+          # Intentionally NOT `set -x`: this step handles the notary secrets
+          # (.p8 / app-specific password) and tracing would echo them. GitHub
+          # masks registered secrets, but we avoid the risk entirely. `pipefail`
+          # still surfaces failures inside pipes.
+          set -euo pipefail
+
           DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
           shopt -s nullglob
           DMGS=("$DMG_DIR"/*.dmg)
@@ -558,14 +593,75 @@ jobs:
           [ "${#DMGS[@]}" -eq 1 ] || { echo "ERROR: expected one dmg in $DMG_DIR, found ${#DMGS[@]}" >&2; ls -la "$DMG_DIR" >&2 || true; exit 1; }
           DMG="${DMGS[0]}"
 
-          echo "Notarizing $DMG"
-          if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
-            xcrun notarytool submit "$DMG" --key "$APPLE_API_KEY_PATH" \
-              --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
+          # Build notarytool auth args. App Store Connect API key preferred
+          # (headless, no 2FA); Apple ID + app-specific password as fallback.
+          AUTH=()
+          if [ -n "${APPLE_API_KEY:-}" ]; then
+            mkdir -p "$RUNNER_TEMP/private_keys"
+            KEY_PATH="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+            printf '%s' "$APPLE_API_KEY_P8" > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            AUTH=(--key "$KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER")
+            echo "Notarization auth: App Store Connect API key"
+          elif [ -n "${APPLE_ID:-}" ]; then
+            AUTH=(--apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID")
+            echo "Notarization auth: Apple ID + app-specific password (fallback)"
           else
-            xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" \
-              --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+            echo "::error::APPLE_SIGNING_ENABLED is true but no notarization credentials are present (neither APPLE_API_KEY nor APPLE_ID)." >&2
+            exit 1
           fi
+
+          # Retry policy: 5 attempts, backoff 30s -> 60s -> 120s -> 240s
+          # (capped at 480s). Retry transient Apple errors only; fail fast on a
+          # real rejection.
+          MAX_ATTEMPTS=5
+          DELAY=30
+          attempt=1
+          while :; do
+            echo "notarytool submit — attempt ${attempt}/${MAX_ATTEMPTS} for $(basename "$DMG")"
+            set +e
+            OUT="$(xcrun notarytool submit "$DMG" "${AUTH[@]}" --wait --timeout 30m 2>&1)"
+            RC=$?
+            set -e
+            echo "$OUT"
+
+            if [ "$RC" -eq 0 ] && grep -q "status: Accepted" <<<"$OUT"; then
+              echo "Notarization Accepted."
+              break
+            fi
+
+            # Genuine rejection (e.g. unsigned nested binary, bad entitlement):
+            # do NOT retry — surface Apple's log and fail immediately.
+            if grep -Eq "status: (Invalid|Rejected)" <<<"$OUT"; then
+              SUB_ID="$(grep -Eo 'id: [0-9a-f-]{36}' <<<"$OUT" | head -n1 | awk '{print $2}')"
+              echo "::error::Notarization was REJECTED by Apple (status Invalid/Rejected) — not transient, not retrying. Submission id: ${SUB_ID:-unknown}"
+              if [ -n "${SUB_ID:-}" ]; then
+                echo "----- notarytool log ${SUB_ID} -----"
+                xcrun notarytool log "$SUB_ID" "${AUTH[@]}" || true
+              fi
+              exit 1
+            fi
+
+            # Retry only on a recognized TRANSIENT signature (HTTP 5xx / timeout
+            # / connection / "try again later"). An unrecognized error (e.g. bad
+            # credentials) fails fast instead of burning retries and masking it.
+            if ! grep -Eiq 'HTTP status code: 5[0-9][0-9]|try again|temporarily unavailable|timed out|timeout|could not connect|connection (reset|refused|error|closed)|network is unreachable|unable to connect|service unavailable|internal server error|bad gateway|gateway timeout' <<<"$OUT"; then
+              echo "::error::Notarization failed with a non-transient, non-rejection error — not retrying (see output above)." >&2
+              exit 1
+            fi
+
+            if [ "$attempt" -ge "$MAX_ATTEMPTS" ]; then
+              echo "::error::Notarization still failing after ${MAX_ATTEMPTS} attempts against Apple's notary service (transient 5xx/timeout). Failing so the release is not shipped un-notarized." >&2
+              exit 1
+            fi
+
+            echo "::warning::Transient Apple notary error on attempt ${attempt}/${MAX_ATTEMPTS}; retrying in ${DELAY}s"
+            sleep "$DELAY"
+            attempt=$((attempt + 1))
+            DELAY=$((DELAY * 2))
+            [ "$DELAY" -gt 480 ] && DELAY=480
+          done
+
           echo "Stapling $DMG"
           xcrun stapler staple "$DMG"
           spctl -a -vvv -t install "$DMG" || echo "::warning::spctl assessment on the stapled dmg did not report success (informational, non-fatal — notarytool --wait already gated on Accepted)"
