@@ -22,7 +22,7 @@ use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -347,6 +347,48 @@ async fn send_close_courtesy<T: AcpTransport>(
 /// tested with a dummy entry, no real process required.
 type PendingKill = Box<dyn (FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send>>) + Send>;
 
+/// Cleans up a `pending_children` entry if `spawn_session`'s future is DROPPED
+/// mid-handshake (its task cancelled) rather than returning. Without this, that
+/// entry — and its child — would sit in the map until quit; repeated
+/// cancellation would grow the map unbounded.
+///
+/// Every explicit exit path (`Ok`, handshake failure) disarms this and does its
+/// own awaited cleanup, so this only ever fires on cancellation. `Drop` can't
+/// await, so it takes the registered `PendingKill` out and detaches it onto the
+/// runtime — the SIGTERM→SIGKILL ladder still runs, just not inline.
+struct PendingSpawnGuard<'a> {
+    manager: &'a AcpSessionManager,
+    pending_id: u64,
+    armed: bool,
+}
+
+impl PendingSpawnGuard<'_> {
+    /// Hand responsibility for the entry back to `spawn_session`/`acquire`.
+    /// Note this does NOT remove the entry: on the success path it must stay
+    /// registered until `acquire` has promoted the session into `sessions`, so
+    /// the child is never invisible to both registries at once.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for PendingSpawnGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let kill = self
+            .manager
+            .pending_children
+            .lock()
+            .unwrap()
+            .remove(&self.pending_id);
+        if let Some(kill) = kill {
+            tauri::async_runtime::spawn(kill());
+        }
+    }
+}
+
 /// Registry of warm ACP sessions, keyed by `agent_id`: at most one live
 /// session per agent. A project-path change or a dead child invalidates it
 /// (`should_reuse`, `is_alive`) rather than silently reusing state rooted in
@@ -374,6 +416,24 @@ pub struct AcpSessionManager {
     /// bounded (~4.5s) regardless of how wide the handshake budget is.
     pending_children: Mutex<HashMap<u64, PendingKill>>,
     next_pending_id: AtomicU64,
+    /// Latched by `shutdown_all` before it drains `pending_children`, and
+    /// checked by `register_pending_child` immediately AFTER its insert.
+    ///
+    /// This closes the one orphan window the registry cannot close by
+    /// construction: an `acquire` whose `cmd.spawn()` lands *after*
+    /// `shutdown_all` has already drained registers into a map nobody reads
+    /// again, and promotes into `sessions` after the snapshot. That is a
+    /// start-after-the-pass problem, not a visibility problem — and the window
+    /// is real, because tokio's worker threads stay live for the whole ~4.5s
+    /// teardown while the main thread sits in `block_on` (`lib.rs`,
+    /// `RunEvent::Exit`).
+    ///
+    /// Check-AFTER-insert (never before the spawn) is what makes it race-free:
+    /// if the check sees the flag clear, the flag was still clear after our
+    /// insert was visible, so `shutdown_all`'s drain necessarily happens later
+    /// and sees us; if it sees the flag set, we kill our own child. Every
+    /// child is therefore reached by exactly one of the two paths.
+    shutting_down: AtomicBool,
 }
 
 impl Default for AcpSessionManager {
@@ -389,7 +449,46 @@ impl AcpSessionManager {
             spawn_locks: Mutex::new(HashMap::new()),
             pending_children: Mutex::new(HashMap::new()),
             next_pending_id: AtomicU64::new(1),
+            shutting_down: AtomicBool::new(false),
         }
+    }
+
+    /// Register a freshly spawned child's teardown action in
+    /// `pending_children`, unless app shutdown has already begun.
+    ///
+    /// The insert is unconditional and synchronous — the caller must call this
+    /// with no `.await` between `cmd.spawn()` and here, so the child is never
+    /// invisible to `shutdown_all`. The `shutting_down` check comes AFTER the
+    /// insert on purpose (see that field's doc comment for why the reverse
+    /// order would still race).
+    ///
+    /// On `Err` the child has already been killed — either by us here, or by a
+    /// `shutdown_all` drain that got to the entry first (in which case `remove`
+    /// finds nothing and that drain owns the kill). Either way nothing is left
+    /// registered and nothing is left running, and the caller must not use the
+    /// child further.
+    async fn register_pending_child(
+        &self,
+        kill: PendingKill,
+        agent_name: &str,
+    ) -> Result<u64, String> {
+        let pending_id = self.next_pending_id.fetch_add(1, Ordering::SeqCst);
+        self.pending_children
+            .lock()
+            .unwrap()
+            .insert(pending_id, kill);
+
+        if self.shutting_down.load(Ordering::SeqCst) {
+            let ours = self.pending_children.lock().unwrap().remove(&pending_id);
+            if let Some(kill) = ours {
+                kill().await;
+            }
+            return Err(format!(
+                "OpenFlow is shutting down — did not start a new ACP session for '{agent_name}'. \
+                 This is not a problem with the agent; trigger it again after the app restarts."
+            ));
+        }
+        Ok(pending_id)
     }
 
     /// Get-or-create the per-agent spawn lock used to serialize `acquire`.
@@ -494,7 +593,13 @@ impl AcpSessionManager {
     /// task-7-report.md's round-3 section). `pending_children` closes the
     /// same window without waiting for anything: a pending child is killed
     /// directly, not awaited to finish on its own.
+    ///
+    /// Latches `shutting_down` first, so a spawn that starts after the drain
+    /// below (the one window the registry cannot cover — see that field's doc
+    /// comment) kills its own child instead of orphaning it.
     pub async fn shutdown_all(&self) {
+        self.shutting_down.store(true, Ordering::SeqCst);
+
         let pending: Vec<PendingKill> = {
             let mut p = self.pending_children.lock().unwrap();
             p.drain().map(|(_, kill)| kill).collect()
@@ -557,17 +662,29 @@ impl AcpSessionManager {
             .stderr(Stdio::piped());
         apply_baseline_env(&mut cmd);
 
-        let child = cmd
+        let mut child = cmd
             .spawn()
             .map_err(|e| format!("Failed to spawn ACP agent '{binary}': {e}"))?;
+
+        // Take the pipes synchronously, off the still-OWNED `Child`, before it
+        // goes behind the shared mutex. This is not a style preference: once the
+        // child is shared with the pending-kill closure, `terminate_child`
+        // always reaches `Child::wait()`, and tokio's `wait()` does
+        // `drop(self.stdin.take())` — so a pending kill winning the mutex first
+        // would make `stdin.take()` here return `None`. Taking them here means
+        // there is no `.await` between the spawn and the registration below at
+        // all, which both deletes that panic window and makes registration
+        // strictly earlier.
+        let stdin = child.stdin.take().expect("stdin was piped");
+        let stdout = child.stdout.take().expect("stdout was piped");
+        let stderr = child.stderr.take();
         let child = Arc::new(tokio::sync::Mutex::new(child));
 
         // Register BEFORE anything below can yield to another task: from
         // this instant until either promotion (`acquire`, on success) or
         // removal in the `Err` arm below, `shutdown_all` can always find and
         // kill this child.
-        let pending_id = self.next_pending_id.fetch_add(1, Ordering::SeqCst);
-        {
+        let pending_id = {
             let child_for_kill = Arc::clone(&child);
             let kill: PendingKill = Box::new(move || {
                 Box::pin(async move {
@@ -575,20 +692,17 @@ impl AcpSessionManager {
                     terminate_child(&mut c).await;
                 })
             });
-            self.pending_children
-                .lock()
-                .unwrap()
-                .insert(pending_id, kill);
-        }
-
-        let (stdin, stdout, stderr) = {
-            let mut c = child.lock().await;
-            (
-                c.stdin.take().expect("stdin was piped"),
-                c.stdout.take().expect("stdout was piped"),
-                c.stderr.take(),
-            )
+            self.register_pending_child(kill, &agent.name).await?
         };
+        // From here on, every exit path must either promote this child
+        // (`acquire`) or remove-and-kill it. The guard covers the one path that
+        // isn't an explicit `return`: this future being dropped mid-handshake.
+        let mut pending_guard = PendingSpawnGuard {
+            manager: self,
+            pending_id,
+            armed: true,
+        };
+
         // Drain stderr so a chatty agent never blocks on a full pipe. There is
         // no run yet to attribute this to (a session outlives any one run);
         // log it for post-mortem diagnosis of a crash.
@@ -608,7 +722,11 @@ impl AcpSessionManager {
         // Bounded, in two phases — see `run_handshake`'s doc comment for why a
         // single budget doesn't work here (an `npx` cold install can dwarf
         // the handshake itself).
-        match run_handshake(&client, cwd, &agent.name).await {
+        let handshake = run_handshake(&client, cwd, &agent.name).await;
+        // Past the only `.await` that can be cancelled while this child is
+        // pending; both arms below clean up explicitly.
+        pending_guard.disarm();
+        match handshake {
             Ok(session_id) => Ok(Arc::new(LiveSession {
                 session_id,
                 agent_id: agent.id.clone(),
@@ -1085,6 +1203,164 @@ mod tests {
             assert!(
                 mgr.pending_children.lock().unwrap().is_empty(),
                 "shutdown_all must clear pending_children after killing everything in it"
+            );
+        });
+    }
+
+    /// Round-4, the one orphan window `pending_children` cannot close by
+    /// construction: a spawn that lands AFTER `shutdown_all` has already
+    /// drained registers into a map nobody reads again. That is a
+    /// start-after-the-pass problem, so the registry can't see it — the
+    /// `shutting_down` latch is what makes such a spawn kill its own child.
+    ///
+    /// Process-free on purpose: the FULL race (a real `npx` child spawning
+    /// on a tokio worker while the main thread sits in `block_on` at quit)
+    /// can't be faked, but the fix's OWN behavior is exactly this — latch set,
+    /// registration attempted, child killed — and that needs no process at all.
+    #[test]
+    fn a_spawn_that_registers_after_shutdown_began_kills_its_own_child() {
+        block_on(async {
+            let mgr = AcpSessionManager::new();
+            // The real thing, not a hand-set flag: this is the state the app
+            // is in from `RunEvent::Exit` onward.
+            mgr.shutdown_all().await;
+
+            let killed = Arc::new(AtomicBool::new(false));
+            let killed_in_kill = Arc::clone(&killed);
+            let kill: PendingKill = Box::new(move || {
+                Box::pin(async move {
+                    killed_in_kill.store(true, Ordering::SeqCst);
+                })
+            });
+
+            let result = mgr.register_pending_child(kill, "Claude Code").await;
+
+            assert!(
+                result.is_err(),
+                "a spawn starting after shutdown began must not be allowed to proceed"
+            );
+            assert!(
+                killed.load(Ordering::SeqCst),
+                "a child spawned after shutdown_all's drain must be killed by its own spawn — \
+                 nothing will ever read pending_children again, so this is its only chance"
+            );
+            assert!(
+                mgr.pending_children.lock().unwrap().is_empty(),
+                "the rejected spawn must not leave its entry behind in pending_children"
+            );
+            let msg = result.unwrap_err();
+            assert!(
+                msg.contains("shutting down"),
+                "the error must read as an app shutdown, not as a real spawn failure, \
+                 or the run panel will blame the agent: {msg}"
+            );
+        });
+    }
+
+    /// Control case for the test above: without it, that one would still pass
+    /// if `register_pending_child` rejected unconditionally.
+    #[test]
+    fn register_pending_child_registers_normally_before_shutdown_begins() {
+        block_on(async {
+            let mgr = AcpSessionManager::new();
+            let killed = Arc::new(AtomicBool::new(false));
+            let killed_in_kill = Arc::clone(&killed);
+            let kill: PendingKill = Box::new(move || {
+                Box::pin(async move {
+                    killed_in_kill.store(true, Ordering::SeqCst);
+                })
+            });
+
+            let id = mgr
+                .register_pending_child(kill, "Claude Code")
+                .await
+                .expect("registration must succeed while the app is running normally");
+
+            assert!(
+                !killed.load(Ordering::SeqCst),
+                "a normal spawn's child must not be killed by its own registration"
+            );
+            assert!(
+                mgr.pending_children.lock().unwrap().contains_key(&id),
+                "a normal spawn must stay reachable via pending_children until it is promoted"
+            );
+        });
+    }
+
+    /// Round-4 minor: a cancelled `spawn_session` future used to leave its
+    /// `pending_children` entry (and child) behind until quit, so repeated
+    /// cancellation grew the map unbounded.
+    #[test]
+    fn dropping_an_armed_pending_spawn_guard_removes_and_kills_its_entry() {
+        block_on(async {
+            let mgr = AcpSessionManager::new();
+            let taken = Arc::new(AtomicBool::new(false));
+            let taken_in_kill = Arc::clone(&taken);
+            // Flips OUTSIDE the async block, so it records that the guard
+            // actually invoked the kill action — the returned future is
+            // detached onto the runtime by `Drop`, so awaiting it here would
+            // be racy.
+            let kill: PendingKill = Box::new(move || {
+                taken_in_kill.store(true, Ordering::SeqCst);
+                Box::pin(async {})
+            });
+            let id = mgr
+                .register_pending_child(kill, "Claude Code")
+                .await
+                .unwrap();
+
+            drop(PendingSpawnGuard {
+                manager: &mgr,
+                pending_id: id,
+                armed: true,
+            });
+
+            assert!(
+                mgr.pending_children.lock().unwrap().is_empty(),
+                "a cancelled spawn must not leave its pending_children entry behind"
+            );
+            assert!(
+                taken.load(Ordering::SeqCst),
+                "the cancelled spawn's child must still be killed, not just forgotten — \
+                 dropping the entry without killing would turn a late reap into a true orphan"
+            );
+        });
+    }
+
+    /// The success path depends on `disarm` NOT removing the entry: `acquire`
+    /// removes it only after promoting the session into `sessions`, so the
+    /// child is never invisible to both registries at once.
+    #[test]
+    fn a_disarmed_pending_spawn_guard_leaves_its_entry_registered() {
+        block_on(async {
+            let mgr = AcpSessionManager::new();
+            let taken = Arc::new(AtomicBool::new(false));
+            let taken_in_kill = Arc::clone(&taken);
+            let kill: PendingKill = Box::new(move || {
+                taken_in_kill.store(true, Ordering::SeqCst);
+                Box::pin(async {})
+            });
+            let id = mgr
+                .register_pending_child(kill, "Claude Code")
+                .await
+                .unwrap();
+
+            let mut guard = PendingSpawnGuard {
+                manager: &mgr,
+                pending_id: id,
+                armed: true,
+            };
+            guard.disarm();
+            drop(guard);
+
+            assert!(
+                mgr.pending_children.lock().unwrap().contains_key(&id),
+                "disarming must hand the entry back, not drop it — removing it here would \
+                 reopen the window where a spawned child is in neither registry"
+            );
+            assert!(
+                !taken.load(Ordering::SeqCst),
+                "a disarmed guard must not kill the child it handed back"
             );
         });
     }
