@@ -39,20 +39,29 @@ use crate::acp::protocol::{
 use crate::managers::agent_run::{apply_baseline_env, spawn_plan, terminate_child};
 use crate::settings::{default_acp_template, AgentDefinition};
 
-/// Cap on the `initialize` → `session/new` handshake. A misconfigured ACP
-/// template (e.g. resolving to an interactive CLI that blocks reading stdin
-/// to EOF rather than speaking JSON-RPC) must fail loudly rather than hang
-/// `acquire()` — and, with it, the child it spawned — forever. 30s is
-/// generous; `claude-agent-acp`'s real handshake takes low single-digit
-/// seconds.
+/// Cap on receiving the FIRST response from the agent (the `initialize`
+/// reply). Deliberately generous: for `npx`-launched adapters (Claude, Codex)
+/// this window can include a cold `npx -y` install of the whole adapter +
+/// its dependency tree on a fresh npm cache, BEFORE the process ever speaks a
+/// JSON-RPC byte — plausibly tens of seconds on a slow or throttled
+/// connection, not the "low single-digit seconds" a warm cache sees. Once the
+/// agent has answered `initialize`, it is alive and speaking the protocol, so
+/// the rest of the handshake uses the much tighter `HANDSHAKE_TIMEOUT`.
+const COLD_START_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Cap on the REST of the handshake (`session/new`) once `initialize` has
+/// already answered. By then any cold install is long done and the process is
+/// warm, so this only needs to cover the protocol round trip itself — a
+/// misconfigured template that answers `initialize` but never finishes
+/// `session/new` must still fail loudly rather than hang `acquire()` forever.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Cap on waiting for a `session/close` reply before falling through to the
-/// SIGTERM→SIGKILL ladder. This is a courtesy, not a guarantee — the ladder is
-/// the real backstop — but `close()` runs on the app's exit path
-/// (`shutdown_all` from `RunEvent::Exit`, via `block_on` on the main thread),
-/// so an agent that stops draining its stdin must not be able to hang app
-/// quit.
+/// Cap on waiting for the `session/close` SEND to complete (not a reply — ACP
+/// defines no reply wait here) before falling through to the SIGTERM→SIGKILL
+/// ladder. This is a courtesy, not a guarantee — the ladder is the real
+/// backstop — but `close()` runs on the app's exit path (`shutdown_all` from
+/// `RunEvent::Exit`, via `block_on` on the main thread), so an agent that
+/// stops draining its stdin must not be able to hang app quit.
 const CLOSE_COURTESY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A warm session may only be reused for the exact cwd it was created with: the
@@ -291,23 +300,35 @@ impl LiveSession {
     }
 
     /// `session/close`, then the existing SIGTERM→SIGKILL stop ladder.
-    /// `session/close` is a courtesy, bounded by `CLOSE_COURTESY_TIMEOUT` —
-    /// `StdioTransport::send` does a blocking `write_all` on the child's
-    /// stdin, which never resolves if the agent is alive but has stopped
-    /// draining it, and this runs on the app's exit path
-    /// (`shutdown_all`→`block_on`, main thread). `terminate_child` is the
-    /// actual guarantee and always runs regardless of how `send_request`
-    /// above resolves.
+    /// `terminate_child` is the actual guarantee and always runs regardless
+    /// of how `send_close_courtesy` resolves — see its doc comment.
     async fn close(&self) {
-        let _ = tokio::time::timeout(
-            CLOSE_COURTESY_TIMEOUT,
-            self.client
-                .send_request("session/close", json!({ "sessionId": self.session_id })),
-        )
-        .await;
+        send_close_courtesy(&self.client, &self.session_id, CLOSE_COURTESY_TIMEOUT).await;
         let mut child = self.child.lock().await;
         terminate_child(&mut child).await;
     }
+}
+
+/// Send `session/close`, bounded by `timeout`. This is a courtesy, not a
+/// guarantee — `StdioTransport::send` does a blocking `write_all` on the
+/// child's stdin, which never resolves if the agent is alive but has stopped
+/// draining it, and `close()` runs on the app's exit path (`shutdown_all`
+/// from `RunEvent::Exit`, via `block_on` on the main thread) — so the send is
+/// bounded and its outcome (success, error, or timeout) is ignored either
+/// way; `terminate_child` right after is the real guarantee. `timeout` is a
+/// parameter (production always passes `CLOSE_COURTESY_TIMEOUT`) so this is
+/// testable with a short duration against a transport whose `send` never
+/// resolves, without waiting out the real 2s budget or spawning a process.
+async fn send_close_courtesy<T: AcpTransport>(
+    client: &AcpClient<T>,
+    session_id: &str,
+    timeout: Duration,
+) {
+    let _ = tokio::time::timeout(
+        timeout,
+        client.send_request("session/close", json!({ "sessionId": session_id })),
+    )
+    .await;
 }
 
 /// Registry of warm ACP sessions, keyed by `agent_id`: at most one live
@@ -429,10 +450,30 @@ impl AcpSessionManager {
     /// Close every live session. Called from the app's exit handler so no
     /// child is ever left running after OpenFlow quits.
     pub async fn shutdown_all(&self) {
+        // Take EVERY known agent's spawn lock before snapshotting `sessions`.
+        // `acquire` holds its agent's spawn lock for its entire
+        // check-then-spawn-then-insert body (now up to `COLD_START_TIMEOUT`
+        // wide), so an `acquire` that was mid-spawn when shutdown began could
+        // otherwise insert its session into the registry AFTER our snapshot
+        // below — an orphan on quit, unobserved by this call. Waiting out
+        // every lock first guarantees any in-flight `acquire` has already
+        // either inserted (visible below) or failed (nothing to clean up)
+        // before we look.
+        let locks: Vec<Arc<tokio::sync::Mutex<()>>> = {
+            let spawn_locks = self.spawn_locks.lock().unwrap();
+            spawn_locks.values().cloned().collect()
+        };
+        let guards = futures_util::future::join_all(locks.iter().map(|l| l.lock())).await;
+
         let ids: Vec<String> = {
             let sessions = self.sessions.lock().unwrap();
             sessions.keys().cloned().collect()
         };
+        // Release before teardown: nothing else needs to be excluded once the
+        // snapshot above is taken, and holding these any longer would only
+        // needlessly block a brand-new `acquire` racing the very end of quit.
+        drop(guards);
+
         // This runs on the main thread via `block_on` in `RunEvent::Exit` —
         // serial teardown of N sessions would visibly delay app quit by
         // N × (up to CLOSE_COURTESY_TIMEOUT + terminate_child's grace period).
@@ -486,15 +527,13 @@ async fn spawn_session(agent: &AgentDefinition, cwd: &Path) -> Result<Arc<LiveSe
     let transport = StdioTransport::new(stdin, stdout);
     let client = AcpClient::new(transport);
 
-    // Bounded: a misresolved binary (e.g. an interactive CLI spawned instead
-    // of its ACP adapter — see `resolve_acp_binary`'s doc comment) never sends
-    // a JSON-RPC line back, and without this timeout `handshake` would await
-    // `client.pump()` forever, hanging `acquire()` and, with it, the spawned
-    // child (which — not yet registered anywhere — no `shutdown_all` could
-    // ever reach).
-    let handshake_result = tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake(&client, cwd)).await;
-    match handshake_result {
-        Ok(Ok(session_id)) => Ok(Arc::new(LiveSession {
+    // Bounded, in two phases — see `run_handshake`'s doc comment for why a
+    // single budget doesn't work here (an `npx` cold install can dwarf the
+    // handshake itself). Any failure past this point kills the child before
+    // returning — it isn't registered in `sessions` yet, so a bare `return`
+    // here would orphan it forever.
+    match run_handshake(&client, cwd, &agent.name).await {
+        Ok(session_id) => Ok(Arc::new(LiveSession {
             session_id,
             agent_id: agent.id.clone(),
             cwd: cwd.to_string_lossy().to_string(),
@@ -505,31 +544,44 @@ async fn spawn_session(agent: &AgentDefinition, cwd: &Path) -> Result<Arc<LiveSe
             turn_lock: tokio::sync::Mutex::new(()),
             session_override: Mutex::new(None),
         })),
-        Ok(Err(e)) => {
-            // The child isn't registered in `sessions` yet — if we return
-            // without killing it here, it is orphaned forever.
+        Err(e) => {
             terminate_child(&mut child).await;
             Err(e)
-        }
-        Err(_elapsed) => {
-            terminate_child(&mut child).await;
-            Err(format!(
-                "'{}' did not complete the ACP handshake within {}s. Check its ACP binary and \
-                 command template — it may not be speaking JSON-RPC.",
-                agent.name,
-                HANDSHAKE_TIMEOUT.as_secs()
-            ))
         }
     }
 }
 
-/// `initialize` then `session/new`, in one place so `spawn_session` has a
-/// single fallible step to wrap in orphan-cleanup. Generic over `T:
-/// AcpTransport` (rather than concretely `StdioTransport`) so this is
-/// directly testable against a scripted in-memory transport — no process
-/// spawn needed to prove the handshake's frame-handling logic.
-async fn handshake<T: AcpTransport>(client: &AcpClient<T>, cwd: &Path) -> Result<String, String> {
-    let init = do_initialize(client).await?;
+/// `initialize` then `session/new`, with a deliberately two-phase timeout
+/// budget rather than one flat one: `initialize` gets the generous
+/// `COLD_START_TIMEOUT` (an `npx -y`-launched adapter can spend most of that
+/// on a cold package install before ever speaking a byte); `session/new` gets
+/// the much tighter `HANDSHAKE_TIMEOUT` (by the time `initialize` has
+/// answered, the process is warm and any install is long done). The two
+/// resulting timeout errors are worded differently on purpose — "never
+/// started" (check the binary/template, or just wait out a slow first
+/// install) and "started but didn't finish" (it's alive and installed, but
+/// something about the protocol conversation itself is wrong) call for
+/// different user actions.
+///
+/// Generic over `T: AcpTransport` (rather than concretely `StdioTransport`)
+/// so this is directly testable against a scripted in-memory transport — no
+/// process spawn needed to prove the handshake's frame-handling logic.
+async fn run_handshake<T: AcpTransport>(
+    client: &AcpClient<T>,
+    cwd: &Path,
+    agent_name: &str,
+) -> Result<String, String> {
+    let init = match tokio::time::timeout(COLD_START_TIMEOUT, do_initialize(client)).await {
+        Ok(result) => result?,
+        Err(_elapsed) => {
+            return Err(format!(
+                "'{agent_name}' never responded to ACP initialize within {}s. If this is its \
+                 first launch, `npx` may still be installing the adapter — try again once that \
+                 finishes. Otherwise, check the resolved ACP binary and command template.",
+                COLD_START_TIMEOUT.as_secs()
+            ));
+        }
+    };
     if init.protocol_version != SUPPORTED_PROTOCOL_VERSION {
         return Err(format!(
             "This agent speaks ACP protocol version {}, but OpenFlow only supports version {SUPPORTED_PROTOCOL_VERSION}.",
@@ -541,7 +593,15 @@ async fn handshake<T: AcpTransport>(client: &AcpClient<T>, cwd: &Path) -> Result
             "This agent needs to be logged in first — run it once in a terminal.".to_string(),
         );
     }
-    do_session_new(client, cwd).await
+    match tokio::time::timeout(HANDSHAKE_TIMEOUT, do_session_new(client, cwd)).await {
+        Ok(result) => result,
+        Err(_elapsed) => Err(format!(
+            "'{agent_name}' answered ACP initialize but did not complete session/new within \
+             {}s. It started and is speaking the protocol, but something about the handshake \
+             itself is wrong.",
+            HANDSHAKE_TIMEOUT.as_secs()
+        )),
+    }
 }
 
 /// Reply "method not found" to an inbound request that arrives while we're
@@ -853,6 +913,38 @@ mod tests {
             assert!(
                 sent[1].contains(r#""id":"a1""#) && sent[1].contains("-32601"),
                 "must reply Method-not-found to the inbound request rather than drop it: {sent:?}"
+            );
+        });
+    }
+
+    /// A transport whose `send` never resolves — models an agent that is
+    /// alive but has stopped draining its stdin (the exact scenario
+    /// `send_close_courtesy`'s timeout exists for). `recv` never resolves
+    /// either, which is irrelevant here: this test only ever calls `send`.
+    struct HangingTransport;
+
+    impl AcpTransport for HangingTransport {
+        async fn send(&self, _line: String) -> Result<(), String> {
+            std::future::pending().await
+        }
+        async fn recv(&self) -> Option<String> {
+            std::future::pending().await
+        }
+    }
+
+    #[test]
+    fn close_courtesy_send_is_bounded_even_when_the_transport_never_resolves() {
+        block_on(async {
+            let client = AcpClient::new(HangingTransport);
+            let started = std::time::Instant::now();
+            // A tight timeout: proves the bound, not the real 2s production
+            // value (CLOSE_COURTESY_TIMEOUT), so this test stays fast.
+            send_close_courtesy(&client, "s1", Duration::from_millis(20)).await;
+            assert!(
+                started.elapsed() < Duration::from_secs(1),
+                "the courtesy send must return once its timeout elapses, not hang on a \
+                 transport that never resolves — took {:?}",
+                started.elapsed()
             );
         });
     }
