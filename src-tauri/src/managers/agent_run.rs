@@ -1432,14 +1432,29 @@ async fn run_acp_turn<S: AcpSessionOps>(
                         });
                     }
                     // A write abandoned mid-frame here leaves the stream unusable
-                    // (see `broken_stream`), so there is nothing to wait for:
-                    // collapse the grace and take `CancelTimedOut`, which is the
-                    // Stop-shaped outcome that ALSO drops the session. Returning
-                    // `Crashed` instead would report `Failed` for a run the user
-                    // deliberately stopped.
+                    // (see `broken_stream`), so there is nothing left to wait
+                    // for. Return DIRECTLY — do not collapse `cancel_deadline`
+                    // and re-enter the select hoping the timer arm wins. A
+                    // `sleep_until` whose deadline is already past still returns
+                    // `Pending` on its first poll (tokio only reports readiness
+                    // once the timer driver has been parked), while
+                    // `next_item()` is immediately `Ready` if the agent already
+                    // queued a frame — which is exactly the likely case here,
+                    // since an agent that stopped draining its stdin usually
+                    // keeps writing stdout. The pump arm would then take
+                    // `Ended`/`Failed`, both of which KEEP the session, carrying
+                    // the half-written `session/cancel` frame this branch exists
+                    // to get rid of.
+                    //
+                    // `CancelTimedOut` (rather than `Crashed`) because the user
+                    // deliberately pressed Stop: it is the Stop-shaped outcome
+                    // (`RunStatus::Stopped`) that ALSO sets `drop_session`.
+                    // Everything this branch owes has already happened above —
+                    // every parked prompt answered and its `PermissionResolved`
+                    // emitted — so returning here loses nothing.
                     if let Some(e) = write_failed {
                         log::warn!("acp: {e} — ending the session rather than reusing it");
-                        cancel_deadline = Some(tokio::time::Instant::now());
+                        return TurnOutcome::CancelTimedOut;
                     }
                 }
             }
@@ -3929,6 +3944,51 @@ mod tests {
             "a turn that abandoned a write mid-frame must NOT leave its session warm"
         );
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn a_failed_cancel_write_drops_the_session_even_with_a_frame_already_in_flight() {
+        // The race the previous mechanism lost every single time. Collapsing the
+        // cancel deadline and re-entering `select!` does NOT reliably take the
+        // timer arm: a `sleep_until` already past still returns `Pending` on its
+        // first poll, while `next_item()` is immediately `Ready` if the agent has
+        // queued a frame — the likely case, since an agent that has stopped
+        // draining stdin usually keeps writing stdout. The pump arm then takes
+        // `Ended`, which KEEPS the session, carrying the half-written
+        // `session/cancel` frame that `acquire`'s `try_wait` cannot see.
+        //
+        // Script: a parked prompt, Stop, a wedged `Sent::Cancel`, and the
+        // parked-prompt cancel-answer (which is NOT wedged) pulling the agent's
+        // terminal frame into the queue — so a frame is guaranteed to be waiting
+        // at the exact moment the failed write returns.
+        let session = FakeSession::new(vec![
+            vec![permission_request(json!("p9"), "execute")],
+            vec![stop("cancelled")],
+        ])
+        .wedging(vec![Sent::Cancel]);
+        let (outcome, _events) = drive(
+            &session,
+            AcpPermissionPolicy::Ask,
+            TEST_TIMEOUTS,
+            |e, ctl| {
+                if matches!(e, RunEvent::PermissionRequest { .. }) {
+                    ctl.stop();
+                }
+            },
+        );
+        assert!(
+            matches!(outcome, TurnOutcome::CancelTimedOut),
+            "an abandoned cancel write must end the turn there and then, not hand the \
+             decision back to whatever the agent happened to queue: {outcome:?}"
+        );
+        let result = turn_result(outcome);
+        assert!(
+            result.drop_session,
+            "session kept warm after an abandoned cancel write — it still holds a \
+             half-written frame, and `is_alive` (a try_wait) will happily reuse it"
+        );
+        // …and it is still Stop-shaped: the user asked for this.
+        assert_eq!(result.status, RunStatus::Stopped);
     }
 
     #[test]
