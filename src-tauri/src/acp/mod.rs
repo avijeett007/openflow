@@ -11,6 +11,7 @@
 //!   permission.rs — the pure allow/deny/ask decision
 //!   client.rs     — transport trait, pending-request map, demux loop
 
-// client.rs, codec.rs, events.rs and permission.rs are added by later tasks in
-// this plan; only protocol.rs (wire types) exists so far.
+// client.rs, events.rs and permission.rs are added by later tasks in this
+// plan; protocol.rs (wire types) and codec.rs (envelope handling) exist so far.
+pub mod codec;
 pub mod protocol;
