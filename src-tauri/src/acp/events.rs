@@ -366,7 +366,7 @@ mod tests {
                 automatic: false,
             },
             RunEvent::TurnEnd {
-                stop_reason: "completed".into(),
+                stop_reason: "end_turn".into(),
             },
         ];
         for v in &variants {

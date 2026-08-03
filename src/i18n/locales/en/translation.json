@@ -1179,8 +1179,9 @@
         "turnEnd": {
           "completed": "Turn complete",
           "cancelled": "Turn cancelled",
-          "maxSteps": "Stopped — step limit reached",
-          "timeout": "Stopped — timed out",
+          "maxTokens": "Stopped — ran out of tokens",
+          "maxTurnRequests": "Stopped — request limit reached",
+          "refusal": "The agent declined the request",
           "failed": "Turn ended unexpectedly",
           "other": "Turn ended"
         },

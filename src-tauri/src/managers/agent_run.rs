@@ -1023,13 +1023,21 @@ pub fn uses_acp_driver(agent: &AgentDefinition) -> bool {
 /// over the serde-tagged union.
 pub fn stop_reason_to_status(r: StopReason) -> RunStatus {
     match r {
-        StopReason::Completed => RunStatus::Finished { code: 0 },
+        // `end_turn` is ACP's success value and the one every real agent returns
+        // on a good run. It used to fall through to `Other` → `Failed`, which made
+        // every successful ACP run look broken. See protocol.rs's `StopReason` doc.
+        StopReason::EndTurn => RunStatus::Finished { code: 0 },
         StopReason::Cancelled => RunStatus::Stopped,
-        StopReason::MaxStepsReached => RunStatus::Failed {
-            error: "The agent hit its step limit before finishing.".into(),
+        StopReason::MaxTokens => RunStatus::Failed {
+            error: "The agent ran out of tokens before finishing.".into(),
         },
-        StopReason::RequestTimeout => RunStatus::Failed {
-            error: "The agent timed out while generating a response.".into(),
+        StopReason::MaxTurnRequests => RunStatus::Failed {
+            error: "The agent hit its request limit for this turn before finishing.".into(),
+        },
+        // A refusal is a deliberate decision by the agent, not a malfunction — say
+        // so, rather than letting it read like a crash.
+        StopReason::Refusal => RunStatus::Failed {
+            error: "The agent declined to carry out this request.".into(),
         },
         StopReason::Other => RunStatus::Failed {
             error: "The agent stopped for a reason this version doesn't recognise.".into(),
@@ -1044,12 +1052,17 @@ pub fn stop_reason_to_status(r: StopReason) -> RunStatus {
 const TURN_END_FAILED: &str = "failed";
 
 /// The wire spelling of a stop reason, for `RunEvent::TurnEnd`.
+///
+/// These strings are the frontend's lookup keys (`TURN_END_KEYS` in
+/// `RunEventList.tsx`) — changing one here without changing it there silently
+/// drops the row back to its fallback label. They now match ACP's own spelling.
 pub fn stop_reason_label(r: StopReason) -> &'static str {
     match r {
-        StopReason::Completed => "completed",
-        StopReason::MaxStepsReached => "max_steps_reached",
+        StopReason::EndTurn => "end_turn",
+        StopReason::MaxTokens => "max_tokens",
+        StopReason::MaxTurnRequests => "max_turn_requests",
+        StopReason::Refusal => "refusal",
         StopReason::Cancelled => "cancelled",
-        StopReason::RequestTimeout => "request_timeout",
         StopReason::Other => "other",
     }
 }
@@ -3215,25 +3228,74 @@ mod tests {
     #[test]
     fn stop_reason_maps_to_run_status() {
         assert_eq!(
-            stop_reason_to_status(StopReason::Completed),
+            stop_reason_to_status(StopReason::EndTurn),
             RunStatus::Finished { code: 0 }
         );
         assert_eq!(
             stop_reason_to_status(StopReason::Cancelled),
             RunStatus::Stopped
         );
-        match stop_reason_to_status(StopReason::MaxStepsReached) {
-            RunStatus::Failed { error } => assert!(error.contains("step limit")),
+        match stop_reason_to_status(StopReason::MaxTokens) {
+            RunStatus::Failed { error } => assert!(error.contains("tokens")),
             s => panic!("expected Failed, got {s:?}"),
         }
-        match stop_reason_to_status(StopReason::RequestTimeout) {
-            RunStatus::Failed { error } => assert!(error.contains("timed out")),
+        match stop_reason_to_status(StopReason::MaxTurnRequests) {
+            RunStatus::Failed { error } => assert!(error.contains("request limit")),
+            s => panic!("expected Failed, got {s:?}"),
+        }
+        // A refusal must read as a decision, not a malfunction.
+        match stop_reason_to_status(StopReason::Refusal) {
+            RunStatus::Failed { error } => assert!(error.contains("declined")),
             s => panic!("expected Failed, got {s:?}"),
         }
         match stop_reason_to_status(StopReason::Other) {
             RunStatus::Failed { error } => assert!(!error.is_empty()),
             s => panic!("expected Failed, got {s:?}"),
         }
+    }
+
+    /// REGRESSION (2026-08-03) — the defect live verification caught, pinned end to
+    /// end with the **real** wire value rather than the design doc's invented one.
+    ///
+    /// `{"stopReason":"end_turn"}` is what Kimi 0.31.0 and claude-agent-acp 0.64.2
+    /// actually return on a successful turn. Before the fix this deserialized to
+    /// `StopReason::Other` and produced `RunStatus::Failed`, so every successful ACP
+    /// run was shown to the user as a failure. Evidence:
+    /// `verification/acp-agents/RESULTS.md` §2.
+    #[test]
+    fn a_real_agents_successful_turn_finishes_rather_than_fails() {
+        // Deserialized from the exact JSON an agent sends — not a hand-built variant.
+        let parsed: PromptResult =
+            serde_json::from_value(json!({ "stopReason": "end_turn" })).unwrap();
+        let reason = parsed.stop_reason.expect("stopReason must parse");
+        assert_eq!(reason, StopReason::EndTurn);
+
+        let status = stop_reason_to_status(reason);
+        assert_eq!(
+            status,
+            RunStatus::Finished { code: 0 },
+            "a successful agent turn must surface as Finished, never Failed"
+        );
+        assert!(
+            !matches!(status, RunStatus::Failed { .. }),
+            "regression: `end_turn` fell through to Failed again"
+        );
+        // The label the frontend keys off must be ACP's spelling.
+        assert_eq!(stop_reason_label(reason), "end_turn");
+    }
+
+    /// The turn driver's own path, not just the pure mapper: a driven turn that ends
+    /// with the real `end_turn` value must come out as a completed turn.
+    #[test]
+    fn driving_a_turn_that_ends_with_the_real_wire_value_completes_it() {
+        let session = FakeSession::new(vec![vec![text_update("done"), stop("end_turn")]]);
+        let (outcome, _events) =
+            drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::EndTurn)));
+        assert_eq!(
+            stop_reason_to_status(StopReason::EndTurn),
+            RunStatus::Finished { code: 0 }
+        );
     }
 
     #[test]
@@ -3583,11 +3645,11 @@ mod tests {
         let session = FakeSession::new(vec![vec![
             text_update("working"),
             text_update("still working"),
-            stop("completed"),
+            stop("end_turn"),
         ]]);
         let (outcome, _events) =
             drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
-        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::EndTurn)));
 
         let held = session.guard_held.lock().unwrap();
         assert!(
@@ -3603,9 +3665,9 @@ mod tests {
 
     #[test]
     fn every_update_is_dual_emitted_and_the_turn_ends_with_a_stop_reason() {
-        let session = FakeSession::new(vec![vec![text_update("hello"), stop("completed")]]);
+        let session = FakeSession::new(vec![vec![text_update("hello"), stop("end_turn")]]);
         let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
-        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::EndTurn)));
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], RunEvent::Text { text } if text == "hello"));
         // Dual emission's other half is `emit_run_event`; every event the loop
@@ -3620,7 +3682,7 @@ mod tests {
         let session = FakeSession::new(vec![vec![
             Some(PumpItem::Response {
                 id: FAKE_PROMPT_ID + 99,
-                result: Ok(json!({ "stopReason": "completed" })),
+                result: Ok(json!({ "stopReason": "end_turn" })),
             }),
             text_update("still going"),
             stop("cancelled"),
@@ -3637,7 +3699,7 @@ mod tests {
     fn an_auto_approved_permission_is_answered_with_an_offered_option_and_reported() {
         let session = FakeSession::new(vec![
             vec![permission_request(json!("a1"), "edit")],
-            vec![stop("completed")],
+            vec![stop("end_turn")],
         ]);
         let (outcome, events) = drive(
             &session,
@@ -3645,7 +3707,7 @@ mod tests {
             TEST_TIMEOUTS,
             |_, _| {},
         );
-        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::EndTurn)));
         match &events[0] {
             RunEvent::PermissionResolved {
                 outcome, automatic, ..
@@ -3673,7 +3735,7 @@ mod tests {
     fn an_ask_policy_parks_the_prompt_and_the_user_answer_resolves_it() {
         let session = FakeSession::new(vec![
             vec![permission_request(json!(7), "execute")],
-            vec![stop("completed")],
+            vec![stop("end_turn")],
         ]);
         // Answer the moment the prompt is surfaced — the loop parks it right
         // after the callback returns and picks the answer up next round.
@@ -3687,7 +3749,7 @@ mod tests {
                 }
             },
         );
-        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::EndTurn)));
 
         match &events[0] {
             RunEvent::PermissionRequest {
@@ -3746,7 +3808,7 @@ mod tests {
         ] {
             let session = FakeSession::new(vec![
                 vec![permission_request(json!(7), "execute")],
-                vec![stop("completed")],
+                vec![stop("end_turn")],
             ]);
             drive(
                 &session,
@@ -3792,7 +3854,7 @@ mod tests {
         let session = FakeSession::new(vec![
             vec![permission_request(json!(1), "read")],
             vec![permission_request(json!(2), "execute")],
-            vec![stop("completed")],
+            vec![stop("end_turn")],
         ]);
         let (outcome, events) = drive(
             &session,
@@ -3808,7 +3870,7 @@ mod tests {
                 }
             },
         );
-        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::EndTurn)));
 
         let kinds: Vec<&RunEvent> = events.iter().collect();
         assert!(
@@ -3860,11 +3922,11 @@ mod tests {
                     method: "fs/write_text_file".to_string(),
                 },
             )))],
-            vec![stop("completed")],
+            vec![stop("end_turn")],
         ]);
         let (outcome, _events) =
             drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
-        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::EndTurn)));
         assert_eq!(session.sent()[1], Sent::Refused(json!(42)));
     }
 
@@ -3972,7 +4034,7 @@ mod tests {
     fn a_wedged_stdin_on_the_prompt_itself_fails_instead_of_hanging() {
         // Same hazard one step earlier: an unbounded `prompt` never reaches the
         // select loop at all, so Stop could not even be read.
-        let session = FakeSession::new(vec![vec![stop("completed")]])
+        let session = FakeSession::new(vec![vec![stop("end_turn")]])
             .wedging(vec![Sent::Prompt("do the thing".to_string())]);
         let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
         match &outcome {
@@ -4045,7 +4107,7 @@ mod tests {
         // auto-allowed, and our answer never made it out of the pipe.
         let session = FakeSession::new(vec![
             vec![permission_request(json!("a1"), "edit")],
-            vec![stop("completed")],
+            vec![stop("end_turn")],
         ])
         .wedging(vec![Sent::Answer {
             id: json!("a1"),
@@ -4077,7 +4139,7 @@ mod tests {
         // second-guess any of it.
         for (outcome, keep, why) in [
             (
-                TurnOutcome::Ended(StopReason::Completed),
+                TurnOutcome::Ended(StopReason::EndTurn),
                 true,
                 "a completed turn leaves a healthy session — that is the point of warm sessions",
             ),

@@ -36,12 +36,21 @@ const PLAN_ICON: Record<string, React.ElementType> = {
   in_progress: CircleDot,
 };
 
-/** `RunEvent::TurnEnd`'s `stop_reason` wire values (`stop_reason_label` in agent_run.rs, plus the driver's own `"failed"`). */
+/**
+ * `RunEvent::TurnEnd`'s `stop_reason` wire values (`stop_reason_label` in
+ * agent_run.rs, plus the driver's own `"failed"`).
+ *
+ * These are ACP's own spellings. They previously read `completed` /
+ * `max_steps_reached` / `request_timeout` — names invented by the design doc that
+ * no agent has ever sent, so the success row silently rendered its fallback label.
+ * See `verification/acp-agents/RESULTS.md` §2.
+ */
 const TURN_END_KEYS: Record<string, string> = {
-  completed: "settings.agentRuns.acp.turnEnd.completed",
+  end_turn: "settings.agentRuns.acp.turnEnd.completed",
   cancelled: "settings.agentRuns.acp.turnEnd.cancelled",
-  max_steps_reached: "settings.agentRuns.acp.turnEnd.maxSteps",
-  request_timeout: "settings.agentRuns.acp.turnEnd.timeout",
+  max_tokens: "settings.agentRuns.acp.turnEnd.maxTokens",
+  max_turn_requests: "settings.agentRuns.acp.turnEnd.maxTurnRequests",
+  refusal: "settings.agentRuns.acp.turnEnd.refusal",
   failed: "settings.agentRuns.acp.turnEnd.failed",
 };
 

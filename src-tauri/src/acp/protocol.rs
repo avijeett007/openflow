@@ -105,14 +105,37 @@ pub struct PromptParams {
     pub prompt: Vec<ContentBlock>,
 }
 
+/// Why an agent stopped a prompt turn.
+///
+/// **The variants below are the ACP specification's, verbatim** — taken from the
+/// schema the agents themselves ship (`@agentclientprotocol/sdk/schema/schema.json`,
+/// `definitions.StopReason`), not from a prose summary of it.
+///
+/// History worth keeping: this enum previously read `Completed` / `MaxStepsReached` /
+/// `RequestTimeout`, names that **do not exist anywhere in ACP**. Only `cancelled`
+/// was ever right. Live verification (2026-08-03) showed every real agent returns
+/// `end_turn` on success, which fell through to `Other` and rendered a *successful*
+/// run as `RunStatus::Failed`. The whole unit suite was green throughout, because
+/// its fixtures used the same fictional vocabulary. See
+/// `verification/acp-agents/RESULTS.md` §2.
+///
+/// The fictional names are deliberately **not** kept as aliases: a test that still
+/// passes against them is a test that never exercised anything real.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopReason {
-    Completed,
-    MaxStepsReached,
+    /// "The turn ended successfully." — the ONLY success value.
+    EndTurn,
+    /// The agent reached its maximum token budget.
+    MaxTokens,
+    /// The agent reached the maximum allowed agent requests between user turns.
+    MaxTurnRequests,
+    /// The agent declined to continue. A deliberate outcome, not a crash.
+    Refusal,
+    /// The client cancelled via `session/cancel`.
     Cancelled,
-    RequestTimeout,
     /// Any reason this version does not model. Never fatal — mapped to a plainly
-    /// stated failure rather than a panic.
+    /// stated failure rather than a panic. This fallback is what kept the
+    /// vocabulary bug above from being a hard error, and it stays.
     Other,
 }
 
@@ -127,10 +150,11 @@ impl<'de> Deserialize<'de> for StopReason {
     {
         let s = String::deserialize(d)?;
         Ok(match s.as_str() {
-            "completed" => StopReason::Completed,
-            "max_steps_reached" => StopReason::MaxStepsReached,
+            "end_turn" => StopReason::EndTurn,
+            "max_tokens" => StopReason::MaxTokens,
+            "max_turn_requests" => StopReason::MaxTurnRequests,
+            "refusal" => StopReason::Refusal,
             "cancelled" => StopReason::Cancelled,
-            "request_timeout" => StopReason::RequestTimeout,
             _ => StopReason::Other,
         })
     }
@@ -304,18 +328,55 @@ mod tests {
         assert!(matches!(n.update, SessionUpdate::Unknown));
     }
 
+    /// Every value in the ACP schema's `StopReason` definition, spelled exactly as
+    /// the wire spells it. If ACP adds a value, this test is where it lands.
     #[test]
-    fn stop_reason_parses_and_unknown_is_not_fatal() {
-        assert_eq!(
-            serde_json::from_value::<StopReason>(json!("completed")).unwrap(),
-            StopReason::Completed
-        );
-        assert_eq!(
-            serde_json::from_value::<StopReason>(json!("max_steps_reached")).unwrap(),
-            StopReason::MaxStepsReached
-        );
+    fn stop_reason_parses_every_spec_value_and_unknown_is_not_fatal() {
+        for (wire, expected) in [
+            ("end_turn", StopReason::EndTurn),
+            ("max_tokens", StopReason::MaxTokens),
+            ("max_turn_requests", StopReason::MaxTurnRequests),
+            ("refusal", StopReason::Refusal),
+            ("cancelled", StopReason::Cancelled),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<StopReason>(json!(wire)).unwrap(),
+                expected,
+                "ACP wire value {wire:?} must parse to {expected:?}"
+            );
+        }
+        // Unknown must never be fatal.
         assert_eq!(
             serde_json::from_value::<StopReason>(json!("something_new")).unwrap(),
+            StopReason::Other
+        );
+    }
+
+    /// REGRESSION (2026-08-03): these three names were invented by the design doc
+    /// and shipped through every task. No agent has ever emitted them. They must
+    /// parse as `Other`, NOT be silently accepted as aliases — otherwise a fixture
+    /// using them looks like it is testing the real protocol when it is not.
+    #[test]
+    fn the_fictional_pre_fix_stop_reasons_are_not_recognised() {
+        for fictional in ["completed", "max_steps_reached", "request_timeout"] {
+            assert_eq!(
+                serde_json::from_value::<StopReason>(json!(fictional)).unwrap(),
+                StopReason::Other,
+                "{fictional:?} is not an ACP stop reason and must not be aliased"
+            );
+        }
+    }
+
+    /// The bug in one line: a real agent's success value must reach the success
+    /// variant. Before the fix `end_turn` fell to `Other` → `RunStatus::Failed`.
+    #[test]
+    fn a_real_agents_success_value_is_the_success_variant() {
+        assert_eq!(
+            serde_json::from_value::<StopReason>(json!("end_turn")).unwrap(),
+            StopReason::EndTurn
+        );
+        assert_ne!(
+            serde_json::from_value::<StopReason>(json!("end_turn")).unwrap(),
             StopReason::Other
         );
     }

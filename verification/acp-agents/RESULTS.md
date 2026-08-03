@@ -22,11 +22,15 @@
 | **V7**  | Regression half                                               | ⚠️ **PARTIAL** — static/settings evidence yes, in-app agent runs no.                                                                                     |
 | —       | Full gates                                                    | ✅ All pass (see §7).                                                                                                                                    |
 
-### 🚨 One blocking defect found — `stopReason` vocabulary is wrong
+### 🚨 One blocking defect found — `stopReason` vocabulary was wrong — **NOW FIXED**
 
-**Every successful ACP turn is currently reported to the user as a FAILURE.** This is a
-real, live-reproduced defect that the 465 unit tests cannot catch, because the tests
-assert against a stop-reason vocabulary that **no real agent emits**. Details in §2.
+**Every successful ACP turn was reported to the user as a FAILURE.** A real,
+live-reproduced defect that the 465 unit tests could not catch, because the tests
+asserted against a stop-reason vocabulary that **no real agent emits**.
+
+Diagnosis in §2. **The fix and its live re-verification are in §10** — the defect is
+resolved, re-proved against both working agents, and pinned by regression tests that were
+break-and-revert checked. Test count 465 → **469**.
 
 ---
 
@@ -679,3 +683,175 @@ Full verbatim transcripts (every frame sent and received) are in `$SCRATCH/logs/
 4. **Consider surfacing the "agent pre-approved it" case in the UI (§3.1).** With `Ask`
    policy, a user may reasonably believe OpenFlow gates every action; it only gates what
    the agent chooses to ask about.
+
+---
+
+## 10. The `stopReason` fix and its live re-verification (2026-08-03, later)
+
+§2 diagnosed the defect. This section records the fix and the evidence that it works
+against real agents. **Origin: the design doc.** `DESIGN-acp-agents.md` §3 listed
+StopReason values taken from a prose summary rather than the schema, and they were wrong;
+every downstream task faithfully implemented them and every fixture inherited them. That
+is precisely why 465 green tests proved nothing here.
+
+### 10.1 What changed
+
+**Source of truth:** `@agentclientprotocol/sdk/schema/schema.json` → `definitions.StopReason`.
+
+`src-tauri/src/acp/protocol.rs` — `StopReason`'s variants replaced with ACP's real ones.
+The hand-written `Deserialize` and its `_ => Other` fallback are **kept** (that fallback is
+what made the bug a wrong label instead of a crash):
+
+| Wire value (ACP)    | Variant           | Was                                     |
+| ------------------- | ----------------- | --------------------------------------- |
+| `end_turn`          | `EndTurn`         | _unrecognised_ → `Other`                |
+| `max_tokens`        | `MaxTokens`       | _unrecognised_ → `Other`                |
+| `max_turn_requests` | `MaxTurnRequests` | _unrecognised_ → `Other`                |
+| `refusal`           | `Refusal`         | _unrecognised_ → `Other`                |
+| `cancelled`         | `Cancelled`       | `Cancelled` (the only one ever correct) |
+| anything else       | `Other`           | `Other`                                 |
+
+The fictional `completed` / `max_steps_reached` / `request_timeout` were **not** kept as
+aliases. Aliasing them would let a stale fixture keep passing while testing nothing real.
+
+`src-tauri/src/managers/agent_run.rs`:
+
+- `stop_reason_to_status` — `EndTurn` → `Finished { code: 0 }`; `Cancelled` → `Stopped`;
+  `MaxTokens` / `MaxTurnRequests` → `Failed` with distinct limit wording; `Refusal` →
+  `Failed` saying the agent **declined** (a decision, not a crash); `Other` → unchanged.
+- `stop_reason_label` — now emits ACP's spellings, which are the frontend's lookup keys.
+
+`src/components/settings/agent-runs/RunEventList.tsx` — `TURN_END_KEYS` re-keyed to
+`end_turn` / `cancelled` / `max_tokens` / `max_turn_requests` / `refusal` / `failed`. The
+reviewer's note that it handled "all 5 wire values plus a fallback" was true, but they were
+the wrong 5, so the success row silently fell back to its generic label.
+
+`src/i18n/locales/en/translation.json` — `settings.agentRuns.acp.turnEnd`: dropped
+`maxSteps`/`timeout`, added `maxTokens` ("Stopped — ran out of tokens"),
+`maxTurnRequests` ("Stopped — request limit reached"), `refusal` ("The agent declined the
+request"). Only `en` carries the ACP block; other locales have no `turnEnd` node at all
+(pre-existing translation gap, unrelated to this fix).
+
+Whole-tree sweep for the stale strings in an ACP context (Rust, TS, i18n) returns only
+intentional hits: the history note in `protocol.rs`'s doc comment, the same note in
+`RunEventList.tsx`, and the deliberate `the_fictional_pre_fix_stop_reasons_are_not_recognised`
+regression test. `a2a.rs` and `history.rs` also contain the string `"completed"`, but those
+are A2A task states and transcript text — a different vocabulary, correctly left alone.
+
+### 10.2 Live re-verification — the acceptance criterion
+
+Fresh probe runs against both working agents, in new throwaway git repos:
+
+**Kimi (Kimi Code CLI 0.31.0)**
+
+```
+[PROMPT-RESULT] {"stopReason":"end_turn"}
+[INBOUND-METHODS-SEEN] []
+$ git diff --stat
+ README.md | 2 ++
+```
+
+**Claude Code (`@agentclientprotocol/claude-agent-acp` 0.64.2)**
+
+```
+[PROMPT-RESULT] {"stopReason":"end_turn","usage":{"inputTokens":8,"outputTokens":691,"cachedReadTokens":106876,"cachedWriteTokens":12224,"totalTokens":119799}}
+[INBOUND-METHODS-SEEN] []
+$ git diff --stat
+ README.md | 2 ++
+```
+
+Those exact payloads were then fed through **OpenFlow's own `PromptResult` deserializer
+and its own `stop_reason_to_status`** — not a re-implementation — via a throwaway
+`cargo run --example` harness (deleted afterwards; `lib.rs` restored byte-identical):
+
+```
+wire JSON : {"stopReason":"end_turn"}
+  StopReason : EndTurn
+  label      : "end_turn"
+  RunStatus  : Finished { code: 0 }
+
+wire JSON : {"stopReason":"end_turn","usage":{"inputTokens":8,"outputTokens":691,"cachedReadTokens":106876,"cachedWriteTokens":12224,"totalTokens":119799}}
+  StopReason : EndTurn
+  label      : "end_turn"
+  RunStatus  : Finished { code: 0 }
+
+wire JSON : {"stopReason":"cancelled"}
+  StopReason : Cancelled
+  label      : "cancelled"
+  RunStatus  : Stopped
+
+wire JSON : {"stopReason":"refusal"}
+  StopReason : Refusal
+  label      : "refusal"
+  RunStatus  : Failed { error: "The agent declined to carry out this request." }
+
+wire JSON : {"stopReason":"max_tokens"}
+  StopReason : MaxTokens
+  label      : "max_tokens"
+  RunStatus  : Failed { error: "The agent ran out of tokens before finishing." }
+
+wire JSON : {"stopReason":"max_turn_requests"}
+  StopReason : MaxTurnRequests
+  label      : "max_turn_requests"
+  RunStatus  : Failed { error: "The agent hit its request limit for this turn before finishing." }
+
+wire JSON : {"stopReason":"completed"}
+  StopReason : Other
+  label      : "other"
+  RunStatus  : Failed { error: "The agent stopped for a reason this version doesn't recognise." }
+```
+
+**Verdict:** a real successful turn from **both** agents now yields
+**`Finished { code: 0 }`**, where before it yielded
+`Failed { error: "The agent stopped for a reason this version doesn't recognise." }`.
+The last line is the design doc's invented `completed`, now correctly _unrecognised_ —
+the old bug's exact failure mode, preserved as proof that the fictional vocabulary is
+genuinely gone rather than merely renamed.
+
+### 10.3 Regression tests, break-and-revert checked
+
+Four new tests (465 → **469**):
+
+| Test                                                                        | Guards                                                                                                         |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `protocol::stop_reason_parses_every_spec_value_and_unknown_is_not_fatal`    | all 5 ACP values + unknown → `Other`                                                                           |
+| `protocol::the_fictional_pre_fix_stop_reasons_are_not_recognised`           | the 3 invented names must parse as `Other`, never be aliased                                                   |
+| `protocol::a_real_agents_success_value_is_the_success_variant`              | `end_turn` ≠ `Other`                                                                                           |
+| `agent_run::a_real_agents_successful_turn_finishes_rather_than_fails`       | **the defect itself**: deserializes the literal `{"stopReason":"end_turn"}` and asserts `Finished { code: 0 }` |
+| `agent_run::driving_a_turn_that_ends_with_the_real_wire_value_completes_it` | the driver path, not just the pure mapper                                                                      |
+
+**Break-and-revert:** the `"end_turn" => StopReason::EndTurn` arm was commented out to
+simulate the pre-fix bug. Three tests failed with the exact original symptom:
+
+```
+test acp::protocol::tests::a_real_agents_success_value_is_the_success_variant ... FAILED
+test acp::protocol::tests::stop_reason_parses_every_spec_value_and_unknown_is_not_fatal ... FAILED
+test managers::agent_run::tests::a_real_agents_successful_turn_finishes_rather_than_fails ... FAILED
+
+assertion `left == right` failed: ACP wire value "end_turn" must parse to EndTurn
+  left: Other
+ right: EndTurn
+```
+
+Arm restored → `469 passed; 0 failed`.
+
+### 10.4 Gates after the fix
+
+| Gate                         | Before fix  | After fix                                                    |
+| ---------------------------- | ----------- | ------------------------------------------------------------ |
+| `cargo test --lib`           | 465 passed  | ✅ **469 passed; 0 failed**                                  |
+| `cargo clippy --all-targets` | 34 / 39 / 1 | ✅ **34 / 39 / 1 — still exactly baseline, zero new**        |
+| `cargo fmt -- --check`       | clean       | ✅ clean                                                     |
+| `bun run build`              | ✓           | ✅ ✓ built in 7.92s                                          |
+| `bun run lint`               | 0 errors    | ✅ 0 errors (same 1 pre-existing `devAutomation.ts` warning) |
+| `bun run format:check`       | clean       | ✅ clean                                                     |
+
+### 10.5 What this does **not** change
+
+- **V1's verdict is unaffected** — the capability assumption held before the fix and
+  holds after it. `fs`/`terminal: false` was never the problem.
+- **Codex is still 2-of-3.** `codex login` is a user action, correctly out of scope. Its
+  session-level check remains unverified and should be re-run once authenticated.
+- **Everything in §6 is still unverified** — V5b (orphan-at-quit, still never executed),
+  V6, and the GUI halves. The fix makes the success path _correct_; it does not make the
+  GUI path _tested_.
