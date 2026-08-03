@@ -119,6 +119,14 @@ fn is_reapable(
 /// exact harm the turn lock exists to prevent. The `try_lock` is released
 /// immediately (a point-in-time check), so this stays a synchronous,
 /// non-blocking test safe to call inside the `sessions` guard.
+///
+/// A residual window remains and is accepted: `acquire` returns before the new
+/// run calls `turn_guard()`, so a follow-up that has been handed this session
+/// but has not started its turn yet is invisible here, and we may still end it.
+/// That degrades to "run B fails immediately against a dead child" — materially
+/// lesser harm than the case this closes, because B has not sent its prompt, so
+/// there is no in-flight work and no half-applied edit to lose. Not worth
+/// widening the spawn lock's scope to chase.
 fn may_end(is_current: bool, turn_lock: &tokio::sync::Mutex<()>) -> bool {
     is_current && turn_lock.try_lock().is_ok()
 }

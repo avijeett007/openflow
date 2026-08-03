@@ -743,29 +743,22 @@ impl AgentRunManager {
         )
         .await;
 
-        // 4. Terminal status. `drop_session` marks the cases where the child is
-        //    dead or wedged: NEVER auto-retry the turn (it may have half-applied
-        //    edits) — drop the session and let the next run spawn fresh.
-        let (status, drop_session, stop_reason) = match outcome {
-            TurnOutcome::Ended(reason) => (
-                stop_reason_to_status(reason),
-                false,
-                stop_reason_label(reason),
+        // 4. Terminal status + whether the session survives. The mapping itself
+        //    is pure and test-asserted (`turn_result`); only the reporting side
+        //    effects live here.
+        match &outcome {
+            TurnOutcome::Ended(_) => {}
+            TurnOutcome::CancelTimedOut => self.emit_line(
+                &app,
+                &run_id,
+                "The agent never acknowledged the cancel — ending its session.",
             ),
-            TurnOutcome::CancelTimedOut => {
-                self.emit_line(
-                    &app,
-                    &run_id,
-                    "The agent never acknowledged the cancel — ending its session.",
-                );
-                (
-                    RunStatus::Stopped,
-                    true,
-                    stop_reason_label(StopReason::Cancelled),
-                )
+            TurnOutcome::Failed(error) => {
+                self.emit_line(&app, &run_id, error);
+                log::error!("acp run {run_id}: {error}");
             }
             TurnOutcome::Crashed(error) => {
-                self.emit_line(&app, &run_id, &error);
+                self.emit_line(&app, &run_id, error);
                 log::error!("acp run {run_id}: {error}");
                 // Same actionable-diagnostic path the raw driver uses on a
                 // failure, fed the run's captured output.
@@ -774,14 +767,13 @@ impl AgentRunManager {
                 {
                     self.emit_diagnostic(&app, &run_id, &diag);
                 }
-                (RunStatus::Failed { error }, true, TURN_END_FAILED)
             }
-            TurnOutcome::Failed(error) => {
-                self.emit_line(&app, &run_id, &error);
-                log::error!("acp run {run_id}: {error}");
-                (RunStatus::Failed { error }, false, TURN_END_FAILED)
-            }
-        };
+        }
+        let TurnResult {
+            status,
+            drop_session,
+            stop_reason,
+        } = turn_result(outcome);
         // ONE emission site covering every arm: a consumer of `agent-run-event`
         // alone (Task 9's structured renderer) must never see a turn that just
         // stops producing events without ever ending.
@@ -973,6 +965,25 @@ impl TurnTimeouts {
     }
 }
 
+/// A write to the agent's stdin that timed out or errored ends the turn as a
+/// CRASH, not a protocol failure — because it takes the SESSION down with it.
+///
+/// `tokio::time::timeout` drops the in-flight `write_all`, so whatever bytes the
+/// pipe already accepted stay in it: the next frame written on that stream would
+/// land directly after a partial one, desyncing the protocol for the life of the
+/// session. `acquire` cannot detect this — `is_alive` is a `try_wait`, and a
+/// wedged-but-running child passes it — so the only thing standing between a
+/// half-written frame and every later run on that agent failing is this
+/// returning a variant whose `turn_result` sets `drop_session`. A transport
+/// error means the pipe is broken outright, which is no more reusable.
+fn broken_stream(e: String) -> TurnOutcome {
+    TurnOutcome::Crashed(format!(
+        "{e} Its session has been dropped rather than reused — a write abandoned mid-frame \
+         would desync every later turn on it. Nothing was retried, so the agent may have \
+         applied some of its changes already; check the project before running it again."
+    ))
+}
+
 /// Bound one write to the agent's stdin. See `TurnTimeouts::send`.
 async fn bounded_send<T>(
     what: &str,
@@ -1082,6 +1093,54 @@ enum TurnOutcome {
     Failed(String),
     /// Stop was pressed and the agent never acknowledged the cancelled turn.
     CancelTimedOut,
+}
+
+/// How a finished turn maps to the run's terminal state.
+struct TurnResult {
+    status: RunStatus,
+    /// Whether the warm session must be ENDED rather than left for the next run.
+    drop_session: bool,
+    /// `RunEvent::TurnEnd`'s reason.
+    stop_reason: &'static str,
+}
+
+/// Pure so `drop_session` is asserted by test rather than read off a match arm.
+///
+/// That flag is the load-bearing one: `acquire` reuses a session on
+/// `should_reuse && is_alive()`, and `is_alive` is only a `try_wait` — it cannot
+/// tell a healthy agent from one whose stdin we abandoned mid-frame. Anything
+/// that leaves the stream or the child unusable must drop the session here, or
+/// every later run on that agent inherits the damage until the idle reaper
+/// collects it (up to 600s by default).
+fn turn_result(outcome: TurnOutcome) -> TurnResult {
+    match outcome {
+        // The agent answered normally: the session is healthy and stays warm.
+        TurnOutcome::Ended(reason) => TurnResult {
+            status: stop_reason_to_status(reason),
+            drop_session: false,
+            stop_reason: stop_reason_label(reason),
+        },
+        // Stopped, but the agent never acknowledged it — alive and wedged.
+        TurnOutcome::CancelTimedOut => TurnResult {
+            status: RunStatus::Stopped,
+            drop_session: true,
+            stop_reason: stop_reason_label(StopReason::Cancelled),
+        },
+        // The child died, or a write was abandoned mid-frame (`broken_stream`).
+        TurnOutcome::Crashed(error) => TurnResult {
+            status: RunStatus::Failed { error },
+            drop_session: true,
+            stop_reason: TURN_END_FAILED,
+        },
+        // A protocol-level failure with the stream still intact: the agent
+        // rejected the request, or its result didn't parse. Nothing was left
+        // half-written, so the session is still reusable.
+        TurnOutcome::Failed(error) => TurnResult {
+            status: RunStatus::Failed { error },
+            drop_session: false,
+            stop_reason: TURN_END_FAILED,
+        },
+    }
 }
 
 /// The slice of a warm ACP session that one turn drives.
@@ -1204,9 +1263,7 @@ async fn run_acp_turn<S: AcpSessionOps>(
     .await
     {
         Ok(id) => id,
-        Err(e) => {
-            return TurnOutcome::Failed(format!("Couldn't send the instruction to the agent: {e}"))
-        }
+        Err(e) => return broken_stream(e),
     };
 
     let mut parked: HashMap<String, ParkedPermission> = HashMap::new();
@@ -1269,8 +1326,14 @@ async fn run_acp_turn<S: AcpSessionOps>(
                             // can always see afterwards what was allowed on their
                             // behalf (DESIGN §8).
                             PermissionDecision::Allow { option_id, automatic } => {
-                                let _ = bounded_send("answering a permission request", timeouts.send,
-                                    session.answer(&id, PermissionOutcome::Selected { option_id })).await;
+                                // A failed write is never reported as a resolution:
+                                // the agent never received the answer, so claiming
+                                // "→ allow (automatic)" while the turn stalls would
+                                // be a lie about what happened.
+                                if let Err(e) = bounded_send("answering a permission request", timeouts.send,
+                                    session.answer(&id, PermissionOutcome::Selected { option_id })).await {
+                                    return broken_stream(e);
+                                }
                                 on_event(RunEvent::PermissionResolved {
                                     request_id,
                                     outcome: "allow".to_string(),
@@ -1278,8 +1341,10 @@ async fn run_acp_turn<S: AcpSessionOps>(
                                 });
                             }
                             PermissionDecision::Deny { option_id, automatic } => {
-                                let _ = bounded_send("answering a permission request", timeouts.send,
-                                    session.answer(&id, PermissionOutcome::Selected { option_id })).await;
+                                if let Err(e) = bounded_send("answering a permission request", timeouts.send,
+                                    session.answer(&id, PermissionOutcome::Selected { option_id })).await {
+                                    return broken_stream(e);
+                                }
                                 on_event(RunEvent::PermissionResolved {
                                     request_id,
                                     outcome: "deny".to_string(),
@@ -1308,8 +1373,10 @@ async fn run_acp_turn<S: AcpSessionOps>(
                         // We declared no fs/terminal capabilities, so this should
                         // not happen — but never leave it unanswered.
                         log::warn!("acp: refusing unsupported agent request '{method}'");
-                        let _ = bounded_send("refusing an agent request", timeouts.send,
-                            session.refuse(&id)).await;
+                        if let Err(e) = bounded_send("refusing an agent request", timeouts.send,
+                            session.refuse(&id)).await {
+                            return broken_stream(e);
+                        }
                     }
                     PumpItem::Event(ClientEvent::Closed) => {
                         return TurnOutcome::Crashed(
@@ -1326,7 +1393,11 @@ async fn run_acp_turn<S: AcpSessionOps>(
                     None => watch_answers = false,
                     Some(answer) => {
                         if let Some(p) = parked.remove(&answer.request_id) {
-                            apply_answer(session, &answer, &p, on_event, timeouts.send).await;
+                            if let Err(e) =
+                                apply_answer(session, &answer, &p, on_event, timeouts.send).await
+                            {
+                                return broken_stream(e);
+                            }
                         }
                     }
                 }
@@ -1342,18 +1413,33 @@ async fn run_acp_turn<S: AcpSessionOps>(
                     cancel_deadline = Some(tokio::time::Instant::now() + timeouts.cancel_grace);
                     // Cancel ends the TURN, not the session — it stays warm for
                     // the next instruction.
-                    let _ = bounded_send("cancelling the turn", timeouts.send,
-                        session.cancel_turn()).await;
+                    let mut write_failed = None;
+                    if let Err(e) = bounded_send("cancelling the turn", timeouts.send,
+                        session.cancel_turn()).await {
+                        write_failed = Some(e);
+                    }
                     // Resolve every parked prompt so no responder is leaked: an
                     // unanswered permission request blocks the agent forever.
                     for (request_id, p) in parked.drain() {
-                        let _ = bounded_send("cancelling a permission request", timeouts.send,
-                            session.answer(&p.id, PermissionOutcome::Cancelled)).await;
+                        if let Err(e) = bounded_send("cancelling a permission request", timeouts.send,
+                            session.answer(&p.id, PermissionOutcome::Cancelled)).await {
+                            write_failed.get_or_insert(e);
+                        }
                         on_event(RunEvent::PermissionResolved {
                             request_id,
                             outcome: "cancelled".to_string(),
                             automatic: true,
                         });
+                    }
+                    // A write abandoned mid-frame here leaves the stream unusable
+                    // (see `broken_stream`), so there is nothing to wait for:
+                    // collapse the grace and take `CancelTimedOut`, which is the
+                    // Stop-shaped outcome that ALSO drops the session. Returning
+                    // `Crashed` instead would report `Failed` for a run the user
+                    // deliberately stopped.
+                    if let Some(e) = write_failed {
+                        log::warn!("acp: {e} — ending the session rather than reusing it");
+                        cancel_deadline = Some(tokio::time::Instant::now());
                     }
                 }
             }
@@ -1412,7 +1498,7 @@ async fn apply_answer<S: AcpSessionOps>(
     parked: &ParkedPermission,
     on_event: &mut (impl FnMut(RunEvent) + Send),
     send_timeout: Duration,
-) {
+) -> Result<(), String> {
     if answer.choice.is_persistent() {
         let mut ov = session.permission_override().unwrap_or_default();
         // PER KIND, in both directions. The user answered a question about THIS
@@ -1431,14 +1517,17 @@ async fn apply_answer<S: AcpSessionOps>(
         session.remember_override(ov);
     }
 
+    // A failed write is propagated, never reported as a resolution: the agent
+    // never received the answer, so emitting one would tell the user their click
+    // landed while the turn quietly stalls.
     match pick_option(&parked.options, answer.choice.allows()) {
         Some(option_id) => {
-            let _ = bounded_send(
+            bounded_send(
                 "answering a permission request",
                 send_timeout,
                 session.answer(&parked.id, PermissionOutcome::Selected { option_id }),
             )
-            .await;
+            .await?;
             on_event(RunEvent::PermissionResolved {
                 request_id: answer.request_id.clone(),
                 outcome: if answer.choice.allows() {
@@ -1453,12 +1542,12 @@ async fn apply_answer<S: AcpSessionOps>(
         // The agent offered nothing matching the answer. Cancelling still
         // ANSWERS the request — leaving it open would hang the turn.
         None => {
-            let _ = bounded_send(
+            bounded_send(
                 "cancelling a permission request",
                 send_timeout,
                 session.answer(&parked.id, PermissionOutcome::Cancelled),
             )
-            .await;
+            .await?;
             on_event(RunEvent::PermissionResolved {
                 request_id: answer.request_id.clone(),
                 outcome: "cancelled".to_string(),
@@ -1466,6 +1555,7 @@ async fn apply_answer<S: AcpSessionOps>(
             });
         }
     }
+    Ok(())
 }
 
 /// Read a stream line-by-line, appending each line to the run's buffer and
@@ -3822,14 +3912,96 @@ mod tests {
         let session = FakeSession::new(vec![vec![stop("completed")]])
             .wedging(vec![Sent::Prompt("do the thing".to_string())]);
         let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
-        match outcome {
-            TurnOutcome::Failed(msg) => assert!(
+        match &outcome {
+            TurnOutcome::Crashed(msg) => assert!(
                 msg.contains("stopped reading its input"),
                 "the message must name the real cause: {msg}"
             ),
-            o => panic!("expected Failed, got {o:?}"),
+            o => panic!("expected Crashed, got {o:?}"),
         }
+        // THE POINT: an abandoned write takes the SESSION with it. `timeout`
+        // drops the in-flight `write_all`, so bytes the pipe already accepted
+        // stay there and the next run's frame would land after a partial one —
+        // and `acquire`'s `is_alive` (a `try_wait`) cannot see that, so a
+        // retained session would desync every later run on this agent.
+        assert!(
+            turn_result(outcome).drop_session,
+            "a turn that abandoned a write mid-frame must NOT leave its session warm"
+        );
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn a_wedged_stdin_on_a_mid_turn_permission_answer_also_drops_the_session() {
+        // The same discarded-error path, mid-turn: the agent asked, policy
+        // auto-allowed, and our answer never made it out of the pipe.
+        let session = FakeSession::new(vec![
+            vec![permission_request(json!("a1"), "edit")],
+            vec![stop("completed")],
+        ])
+        .wedging(vec![Sent::Answer {
+            id: json!("a1"),
+            outcome: PermissionOutcome::Selected {
+                option_id: "a1".into(),
+            },
+        }]);
+        let (outcome, events) = drive(
+            &session,
+            AcpPermissionPolicy::AutoEdits,
+            TEST_TIMEOUTS,
+            |_, _| {},
+        );
+        assert!(
+            matches!(outcome, TurnOutcome::Crashed(_)),
+            "an abandoned mid-turn write is a broken session, not a protocol failure: {outcome:?}"
+        );
+        assert!(turn_result(outcome).drop_session);
+        // …and it is never reported as a resolution the agent never received.
+        assert!(
+            events.is_empty(),
+            "a write that never landed must not emit `→ allow (automatic)`: {events:?}"
+        );
+    }
+
+    #[test]
+    fn only_a_turn_that_left_the_session_usable_keeps_it_warm() {
+        // The whole drop/keep matrix in one place, because `is_alive` cannot
+        // second-guess any of it.
+        for (outcome, keep, why) in [
+            (
+                TurnOutcome::Ended(StopReason::Completed),
+                true,
+                "a completed turn leaves a healthy session — that is the point of warm sessions",
+            ),
+            (
+                TurnOutcome::Ended(StopReason::Cancelled),
+                true,
+                "cancel ends the TURN, not the session",
+            ),
+            (
+                TurnOutcome::Failed("malformed result".into()),
+                true,
+                "a protocol-level failure leaves the stream intact",
+            ),
+            (
+                TurnOutcome::Crashed("the agent exited".into()),
+                false,
+                "a dead child, or a write abandoned mid-frame, must never be reused",
+            ),
+            (
+                TurnOutcome::CancelTimedOut,
+                false,
+                "an agent that ignored session/cancel is alive and wedged",
+            ),
+        ] {
+            let result = turn_result(outcome);
+            assert_eq!(!result.drop_session, keep, "{why}");
+        }
+        // A stopped run still reads as Stopped even though its session is dropped.
+        assert_eq!(
+            turn_result(TurnOutcome::CancelTimedOut).status,
+            RunStatus::Stopped
+        );
     }
 
     #[test]
