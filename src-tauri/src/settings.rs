@@ -145,6 +145,51 @@ pub enum AgentCliType {
     Custom,
 }
 
+pub use crate::acp::permission::AcpPermissionPolicy;
+
+/// How the `Cli` driver talks to the agent binary. `Raw` (default) is today's
+/// one-shot subprocess: spawn, feed the prompt, read stdout to EOF, exit. `Acp`
+/// is a long-lived JSON-RPC session over stdio.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Type, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CliProtocol {
+    #[default]
+    Raw,
+    Acp,
+}
+
+fn default_acp_idle_timeout_secs() -> u32 {
+    600
+}
+
+/// Prefilled ACP invocation per CLI type: `(binary, argv_template)`.
+/// `None` means ACP mode is not offered for that agent — deliberately, because
+/// no adapter is confirmed and it cannot be verified here. Shipping a guessed
+/// template is the exact mistake already made once with Hermes/OpenClaw.
+///
+/// No production caller yet — the ACP session-mode wiring (client.rs + the
+/// agent-editor command) is a later task in this plan, same as the dead-code
+/// allowances in `acp/protocol.rs` and `acp/permission.rs`.
+#[allow(dead_code)]
+pub fn default_acp_template(cli_type: AgentCliType) -> Option<(String, String)> {
+    match cli_type {
+        // Built-in subcommand, no extra install.
+        AgentCliType::Kimi => Some(("kimi".to_string(), "acp".to_string())),
+        // Official adapter over the Claude Agent SDK.
+        AgentCliType::Claude => Some((
+            "npx".to_string(),
+            "-y @agentclientprotocol/claude-agent-acp".to_string(),
+        )),
+        // NB: @zed-industries/codex-acp was archived 2026-07-22 and moved to the
+        // @agentclientprotocol org. Use the new package.
+        AgentCliType::Codex => Some((
+            "npx".to_string(),
+            "-y @agentclientprotocol/codex-acp".to_string(),
+        )),
+        AgentCliType::Openclaw | AgentCliType::Hermes | AgentCliType::Custom => None,
+    }
+}
+
 /// Where a CLI agent run's output goes (multi-select). `Panel` is the live
 /// streamed in-app view (always effectively on for a running view). `Notify`
 /// fires a desktop notification on completion. `File` writes the full
@@ -291,7 +336,7 @@ pub fn default_cli_template(cli_type: AgentCliType) -> (String, PromptDelivery) 
 /// `agent:<id>`). All optional fields are `#[serde(default)]` so an old settings
 /// store (with no `agents` key, or partial entries) always deserializes cleanly —
 /// the store wipes to defaults on any parse failure.
-#[derive(Serialize, Deserialize, Clone, Debug, Type)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Type)]
 pub struct AgentDefinition {
     /// Stable slug, e.g. "coder"; unique. Matches `^[a-z0-9_-]{1,48}$`.
     pub id: String,
@@ -356,6 +401,21 @@ pub struct AgentDefinition {
     /// Card `capabilities.streaming`, cached — whether we may use `message/stream`.
     #[serde(default)]
     pub remote_streaming: bool,
+
+    // ---- C0: ACP session mode ----
+    /// Raw (default) or Acp. Only meaningful when `kind == Cli`.
+    #[serde(default)]
+    pub cli_protocol: CliProtocol,
+    /// Argv template used in ACP mode. Deliberately SEPARATE from
+    /// `command_template` so toggling protocol never destroys the other mode's
+    /// configuration.
+    #[serde(default)]
+    pub acp_command_template: String,
+    #[serde(default)]
+    pub acp_permission_policy: AcpPermissionPolicy,
+    /// Seconds a warm session may sit idle before it is closed. `0` = never.
+    #[serde(default = "default_acp_idle_timeout_secs")]
+    pub acp_idle_timeout_secs: u32,
 }
 
 /// What an AI Mode does with the raw transcript before it reaches the cursor.
@@ -2497,5 +2557,68 @@ mod tests {
         let out = format!("{:?}", map);
         assert!(!out.contains("secret"));
         assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn legacy_agent_without_acp_fields_defaults_to_raw_protocol() {
+        // A store written by 0.15.7 — no acp fields at all.
+        let json = r#"{
+            "id":"coder","name":"Coder","enabled":true,"binding_id":"agent:coder",
+            "provider_id":"p","kind":"cli","cli_type":"claude","binary_path":"/usr/local/bin/claude",
+            "command_template":"-p","project_path":"/tmp/x"
+        }"#;
+        let a: AgentDefinition = serde_json::from_str(json).unwrap();
+        assert_eq!(a.cli_protocol, CliProtocol::Raw);
+        assert_eq!(a.acp_permission_policy, AcpPermissionPolicy::Ask);
+        assert_eq!(a.acp_command_template, "");
+        assert_eq!(a.acp_idle_timeout_secs, 600);
+        // The raw template must survive untouched — toggling protocol must never
+        // destroy the other mode's configuration.
+        assert_eq!(a.command_template, "-p");
+    }
+
+    #[test]
+    fn acp_agent_round_trips() {
+        let json = r#"{
+            "id":"c","name":"C","enabled":true,"binding_id":"agent:c","provider_id":"",
+            "kind":"cli","cli_type":"kimi","binary_path":"kimi","command_template":"-p {prompt}",
+            "cli_protocol":"acp","acp_command_template":"acp",
+            "acp_permission_policy":"auto_edits","acp_idle_timeout_secs":120
+        }"#;
+        let a: AgentDefinition = serde_json::from_str(json).unwrap();
+        assert_eq!(a.cli_protocol, CliProtocol::Acp);
+        assert_eq!(a.acp_permission_policy, AcpPermissionPolicy::AutoEdits);
+        assert_eq!(a.acp_idle_timeout_secs, 120);
+        let back: AgentDefinition =
+            serde_json::from_str(&serde_json::to_string(&a).unwrap()).unwrap();
+        assert_eq!(back, a);
+    }
+
+    #[test]
+    fn acp_templates_exist_only_for_verified_agents() {
+        // Live-verifiable on the dev machine (V1) — see DESIGN §4.1.
+        assert_eq!(
+            default_acp_template(AgentCliType::Kimi),
+            Some(("kimi".to_string(), "acp".to_string()))
+        );
+        assert_eq!(
+            default_acp_template(AgentCliType::Claude),
+            Some((
+                "npx".to_string(),
+                "-y @agentclientprotocol/claude-agent-acp".to_string()
+            ))
+        );
+        assert_eq!(
+            default_acp_template(AgentCliType::Codex),
+            Some((
+                "npx".to_string(),
+                "-y @agentclientprotocol/codex-acp".to_string()
+            ))
+        );
+        // No confirmed adapter and not installed here to verify — do NOT guess.
+        assert_eq!(default_acp_template(AgentCliType::Openclaw), None);
+        assert_eq!(default_acp_template(AgentCliType::Hermes), None);
+        // Custom is user-supplied.
+        assert_eq!(default_acp_template(AgentCliType::Custom), None);
     }
 }

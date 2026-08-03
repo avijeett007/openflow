@@ -2265,6 +2265,10 @@ mod tests {
             remote_card_name: String::new(),
             remote_card_version: String::new(),
             remote_streaming: false,
+            cli_protocol: crate::settings::CliProtocol::Raw,
+            acp_command_template: String::new(),
+            acp_permission_policy: crate::settings::AcpPermissionPolicy::Ask,
+            acp_idle_timeout_secs: 600,
         }
     }
 
