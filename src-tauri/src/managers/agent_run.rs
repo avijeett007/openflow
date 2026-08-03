@@ -744,7 +744,10 @@ impl AgentRunManager {
             manager.emit_run_event(&app_events, &run_id_events, event);
         };
 
-        let outcome = run_acp_turn(
+        // The turn guard comes back STILL HELD (see `run_acp_turn`'s Contract 1
+        // / MF3): it is what lets `end_if_current_owned` below drop a poisoned
+        // session without a `try_lock` a queued follow-up would win.
+        let (outcome, turn_guard) = run_acp_turn(
             session.as_ref(),
             &instruction,
             agent.acp_permission_policy,
@@ -797,8 +800,13 @@ impl AgentRunManager {
         // Identity-checked: we are outside `acquire`'s spawn lock, so removing
         // by agent id alone could close a healthy replacement a concurrent
         // `acquire` has already spawned — killing a live agent mid-turn.
+        //
+        // `turn_guard` is moved in, not dropped first: releasing it here would
+        // hand a parked follow-up the permit and make the drop a no-op (MF3).
         if drop_session {
-            sessions.end_if_current(&session).await;
+            sessions.end_if_current_owned(&session, turn_guard).await;
+        } else {
+            drop(turn_guard);
         }
         // Sinks (Panel/Notify/File) run unchanged — dual emission means the
         // buffer they read already contains every event's text line.
@@ -1256,20 +1264,65 @@ impl AcpSessionOps for LiveSession {
 ///
 /// # Contract 1 — the turn guard spans the WHOLE round trip
 ///
-/// `begin_turn()`'s guard is taken before the prompt is sent and dropped only
-/// when this function returns, i.e. strictly after the terminal `stopReason`
-/// (or a crash/cancel outcome). `acp_session::is_reapable` spares any session
-/// whose turn lock is held; releasing it early would let the idle reaper
-/// SIGTERM a live agent mid-edit — the 600s default timeout against an
-/// 11-minute refactor — leaving half-applied changes on the user's disk. This
-/// is NOT compile-enforced; it is pinned by
-/// `the_turn_guard_is_held_for_the_whole_prompt_round_trip`.
+/// `begin_turn()`'s guard is taken before the prompt is sent and is **handed
+/// back to the caller**, still held, alongside the outcome.
+/// `acp_session::is_reapable` spares any session whose turn lock is held;
+/// releasing it early would let the idle reaper SIGTERM a live agent mid-edit —
+/// the 600s default timeout against an 11-minute refactor — leaving
+/// half-applied changes on the user's disk. This is NOT compile-enforced; it is
+/// pinned by `the_turn_guard_is_held_for_the_whole_prompt_round_trip`.
+///
+/// # Why the guard is RETURNED rather than dropped here (MF3)
+///
+/// A turn whose outcome sets `drop_session` (`Crashed` — including
+/// `broken_stream`, a write abandoned mid-frame — and `CancelTimedOut`) leaves
+/// the session's stdin desynced, and DROPPING that session is the entire
+/// mitigation: `acquire`'s liveness check is only a `try_wait`, so it cannot
+/// tell a wedged-but-running agent from a healthy one and will happily hand the
+/// poisoned session to the next run.
+///
+/// If this function dropped the guard on return, a follow-up parked on
+/// `begin_turn()` would be handed the permit **at that exact release** — tokio
+/// assigns a semaphore permit to the queue head on release, it does not leave
+/// it free — and `end_if_current`'s `try_lock` would then fail, making the drop
+/// a silent no-op. That is not a race: measured 200/200 in
+/// `a_queued_followup_can_no_longer_defeat_dropping_a_poisoned_session`.
+/// Returning the guard makes the caller's ownership a compile-time fact, which
+/// `AcpSessionManager::end_if_current_owned` consumes instead of re-checking.
 ///
 /// Generic over the session and emitting through a closure (the shape
 /// `a2a::run_remote_protocol` established) so all of the above is testable
 /// against a scripted double: no process, no network, no Tauri app.
 #[allow(clippy::too_many_arguments)]
-async fn run_acp_turn<S: AcpSessionOps>(
+async fn run_acp_turn<'s, S: AcpSessionOps>(
+    session: &'s S,
+    instruction: &str,
+    policy: AcpPermissionPolicy,
+    kill_rx: &mut mpsc::UnboundedReceiver<()>,
+    answers: &mut mpsc::UnboundedReceiver<PermissionAnswer>,
+    on_event: &mut (impl FnMut(RunEvent) + Send),
+    timeouts: TurnTimeouts,
+) -> (TurnOutcome, S::Turn<'s>) {
+    // CONTRACT 1: taken here, released only by whoever we return it to.
+    let turn = session.begin_turn().await;
+    let outcome = drive_one_turn(
+        session,
+        instruction,
+        policy,
+        kill_rx,
+        answers,
+        on_event,
+        timeouts,
+    )
+    .await;
+    (outcome, turn)
+}
+
+/// The turn loop itself. Split out of `run_acp_turn` only so that the guard's
+/// lifetime is expressed once, at the seam, rather than at each of this
+/// function's many early returns.
+#[allow(clippy::too_many_arguments)]
+async fn drive_one_turn<S: AcpSessionOps>(
     session: &S,
     instruction: &str,
     policy: AcpPermissionPolicy,
@@ -1278,9 +1331,6 @@ async fn run_acp_turn<S: AcpSessionOps>(
     on_event: &mut (impl FnMut(RunEvent) + Send),
     timeouts: TurnTimeouts,
 ) -> TurnOutcome {
-    // CONTRACT 1: held until this function returns. Do not drop it early.
-    let _turn = session.begin_turn().await;
-
     // Bounded like every other write below: an unbounded `prompt` that never
     // returns would never even reach the select loop, so Stop could not be read
     // and the guard would be pinned for the life of the app.
@@ -1508,6 +1558,12 @@ fn permission_response_body(outcome: &PermissionOutcome) -> Value {
 }
 
 /// Build the `PermissionRequest` event for a prompt we're about to park.
+///
+/// Carries the agent's OWN `kind` and `locations` through, rather than leaving
+/// the panel to re-derive them by joining on `tool_call_id`. ACP permits a
+/// permission request with no preceding `tool_call`, and that join then misses
+/// — leaving a card that says *"Edit file"* with no indication of which file,
+/// above an Allow button. We were handed the answer and threw it away.
 fn permission_request_event(
     request_id: &str,
     tool_call: &ToolCallWire,
@@ -1517,6 +1573,8 @@ fn permission_request_event(
         request_id: request_id.to_string(),
         tool_call_id: (!tool_call.tool_call_id.is_empty()).then(|| tool_call.tool_call_id.clone()),
         title: tool_call.title.clone(),
+        tool_kind: tool_call.kind.clone(),
+        locations: tool_call.locations.iter().map(|l| l.path.clone()).collect(),
         options: options
             .iter()
             .map(|o| PermissionOption {
@@ -1525,6 +1583,60 @@ fn permission_request_event(
                 kind: o.kind.clone(),
             })
             .collect(),
+    }
+}
+
+/// Whether an "always" answer given for this ACP tool kind may be REMEMBERED
+/// for the rest of the session.
+///
+/// Two kinds must never be persisted, and both are live today:
+///
+/// * **Empty** — the agent did not state a kind at all. Kimi 0.31.0's
+///   `session/request_permission` carries `{toolCallId, title, content}` and
+///   nothing else (captured in `acp/fixtures/real-agent-frames.jsonl`).
+///   Recording `allowed_kinds: [""]` would auto-approve every future kind-less
+///   request from that agent — i.e. all of them.
+/// * **`"other"`** — ACP's explicit catch-all. Claude Code buckets every MCP
+///   tool and every tool it doesn't recognise into `other` (`tools.js`), so one
+///   "Always allow" on a single MCP tool would silently pre-authorise every MCP
+///   tool for the session.
+///
+/// Neither is a category the user can have meant to answer for.
+/// `permission.rs`'s promise — an "always" applies to THE KIND THE USER
+/// ANSWERED FOR — is only true if the kind actually distinguishes something.
+/// A non-persistable kind degrades to a one-shot answer: the agent still gets
+/// the exact option the user clicked, we simply don't remember it. The UI says
+/// so too (`PermissionPrompt`'s `alwaysScopeOnce` copy).
+pub(crate) fn is_persistable_kind(kind: &str) -> bool {
+    let k = kind.trim();
+    !k.is_empty() && k != "other"
+}
+
+/// What actually happened, for `RunEvent::PermissionResolved`'s audit line —
+/// derived from the option we REALLY sent, not from the four-value `choice`
+/// the frontend guessed.
+///
+/// `PermissionPrompt.toOutcome` classifies any option kind that doesn't start
+/// with `allow` as a denial. An agent offering a non-standard kind (say
+/// `approve`) therefore arrives here as `DenyOnce` — while `apply_answer`
+/// correctly replies with the exact `option_id` the user clicked, i.e. the
+/// agent is ALLOWED. Recording "Denied." there would make the permanent record
+/// of a security decision say the opposite of what happened.
+fn resolved_outcome_label(selected_option_id: &str, options: &[PermissionOptionWire]) -> String {
+    let kind = options
+        .iter()
+        .find(|o| o.option_id == selected_option_id)
+        .map(|o| o.kind.as_str())
+        .unwrap_or_default();
+    if kind.starts_with("allow") {
+        "allow".to_string()
+    } else if kind.starts_with("reject") || kind.starts_with("deny") {
+        "deny".to_string()
+    } else {
+        // An unrecognised kind: we honoured the user's exact click but cannot
+        // honestly classify it. Record the agent's own word rather than pick a
+        // side; the panel renders an unknown outcome verbatim and neutrally.
+        kind.to_string()
     }
 }
 
@@ -1543,7 +1655,7 @@ async fn apply_answer<S: AcpSessionOps>(
     on_event: &mut (impl FnMut(RunEvent) + Send),
     send_timeout: Duration,
 ) -> Result<(), String> {
-    if answer.choice.is_persistent() {
+    if answer.choice.is_persistent() && is_persistable_kind(&parked.tool_kind) {
         let mut ov = session.permission_override().unwrap_or_default();
         // PER KIND, in both directions. The user answered a question about THIS
         // tool kind; an "always allow" on a benign `read` must not silently
@@ -1595,17 +1707,19 @@ async fn apply_answer<S: AcpSessionOps>(
             bounded_send(
                 "answering a permission request",
                 send_timeout,
-                session.answer(&parked.id, PermissionOutcome::Selected { option_id }),
+                session.answer(
+                    &parked.id,
+                    PermissionOutcome::Selected {
+                        option_id: option_id.clone(),
+                    },
+                ),
             )
             .await?;
             on_event(RunEvent::PermissionResolved {
                 request_id: answer.request_id.clone(),
-                outcome: if answer.choice.allows() {
-                    "allow"
-                } else {
-                    "deny"
-                }
-                .to_string(),
+                // From what was SENT, never from the frontend's four-value
+                // guess — see `resolved_outcome_label`.
+                outcome: resolved_outcome_label(&option_id, &parked.options),
                 automatic: false,
             });
         }
@@ -3629,8 +3743,12 @@ mod tests {
                 .await
             })
         };
-        let outcome = outcome
+        let (outcome, turn_guard) = outcome
             .expect("the turn must finish, not hang — an agent left waiting on us never replies");
+        // The guard comes back HELD (MF3). `FakeSession::begin_turn` observes
+        // exactly that, and dropping it here mirrors `drive_acp_run`'s
+        // non-`drop_session` arm.
+        drop(turn_guard);
         (outcome, events)
     }
 
@@ -4300,6 +4418,234 @@ mod tests {
     /// Task 11 review, Important 5: two options of the SAME once-kind must
     /// not collapse to "whichever comes first" — the exact option the user
     /// clicked must be the one the agent is answered with.
+    /// MF2. The card asks the user to authorize an action; it must be able to
+    /// say WHAT that action touches. The agent tells us in the request itself —
+    /// throwing `kind`/`locations` away and re-deriving them from a join on
+    /// `tool_call_id` fails silently whenever there was no preceding
+    /// `tool_call`, which ACP explicitly permits.
+    #[test]
+    fn a_permission_request_carries_the_agents_own_kind_and_paths_not_just_a_title() {
+        let e = permission_request_event(
+            "req-1",
+            &ToolCallWire {
+                tool_call_id: "t1".into(),
+                title: "Edit file".into(),
+                kind: "edit".into(),
+                locations: vec![
+                    crate::acp::protocol::ToolLocation {
+                        path: "/repo/src/main.rs".into(),
+                    },
+                    crate::acp::protocol::ToolLocation {
+                        path: "/repo/Cargo.toml".into(),
+                    },
+                ],
+                ..Default::default()
+            },
+            &allow_deny_options(),
+        );
+        match e {
+            RunEvent::PermissionRequest {
+                tool_kind,
+                locations,
+                title,
+                ..
+            } => {
+                assert_eq!(title, "Edit file");
+                assert_eq!(tool_kind, "edit");
+                assert_eq!(
+                    locations,
+                    vec![
+                        "/repo/src/main.rs".to_string(),
+                        "/repo/Cargo.toml".to_string()
+                    ],
+                    "the user must be able to see which files an Allow would touch"
+                );
+            }
+            e => panic!("expected PermissionRequest, got {e:?}"),
+        }
+
+        // Kimi 0.31.0's real shape: title only, no kind, no locations. Empty
+        // means "the agent did not say" — never a guess.
+        let e = permission_request_event(
+            "req-2",
+            &ToolCallWire {
+                tool_call_id: "0:tool_zgIHo4KEtJ7TlOcUrvx9bHUP".into(),
+                title: "Bash".into(),
+                ..Default::default()
+            },
+            &allow_deny_options(),
+        );
+        match e {
+            RunEvent::PermissionRequest {
+                tool_kind,
+                locations,
+                ..
+            } => {
+                assert_eq!(tool_kind, "");
+                assert!(locations.is_empty());
+            }
+            e => panic!("expected PermissionRequest, got {e:?}"),
+        }
+    }
+
+    /// F6. `allowed_kinds` is keyed on the agent's `kind`, so a kind that does
+    /// not actually distinguish anything must never be remembered.
+    #[test]
+    fn an_always_answer_is_not_remembered_for_a_kind_that_distinguishes_nothing() {
+        assert!(is_persistable_kind("edit"));
+        assert!(is_persistable_kind("execute"));
+        // Claude Code buckets EVERY MCP tool and every unrecognised tool into
+        // `other`, so remembering it pre-authorises all of them at once.
+        assert!(!is_persistable_kind("other"));
+        // Kimi sends permission requests with no `kind` at all.
+        assert!(!is_persistable_kind(""));
+        assert!(!is_persistable_kind("   "));
+
+        for kind in ["other", ""] {
+            let parked = ParkedPermission {
+                id: json!("req-1"),
+                tool_kind: kind.to_string(),
+                options: allow_deny_options(),
+            };
+            let session = FakeSession::new(vec![]);
+            let mut on_event = |_: RunEvent| {};
+            block_on(apply_answer(
+                &session,
+                &PermissionAnswer {
+                    request_id: "req-1".to_string(),
+                    choice: PermissionChoice::AllowAlways,
+                    option_id: None,
+                },
+                &parked,
+                &mut on_event,
+                Duration::from_millis(200),
+            ))
+            .expect("answering must succeed");
+            assert_eq!(
+                session.permission_override(),
+                None,
+                "an 'always allow' on kind {kind:?} must NOT be remembered — it would \
+                 silently pre-authorise every other tool the agent files under it"
+            );
+            // …and the agent still gets a real, one-shot answer.
+            assert_eq!(
+                session.sent().last(),
+                Some(&Sent::Answer {
+                    id: json!("req-1"),
+                    outcome: PermissionOutcome::Selected {
+                        option_id: "a1".to_string(),
+                    },
+                }),
+                "the click must still be honoured, just not persisted"
+            );
+        }
+
+        // A real, distinguishing kind is still remembered — this fix must not
+        // quietly turn every "always" into a "once".
+        let parked = ParkedPermission {
+            id: json!("req-1"),
+            tool_kind: "edit".into(),
+            options: allow_deny_options(),
+        };
+        let session = FakeSession::new(vec![]);
+        let mut on_event = |_: RunEvent| {};
+        block_on(apply_answer(
+            &session,
+            &PermissionAnswer {
+                request_id: "req-1".to_string(),
+                choice: PermissionChoice::AllowAlways,
+                option_id: None,
+            },
+            &parked,
+            &mut on_event,
+            Duration::from_millis(200),
+        ))
+        .unwrap();
+        assert_eq!(
+            session.permission_override().unwrap().allowed_kinds,
+            vec!["edit".to_string()]
+        );
+    }
+
+    /// F7. The recorded outcome is the permanent audit line for a security
+    /// decision. It must describe what was SENT, not what the frontend guessed.
+    #[test]
+    fn the_recorded_outcome_describes_the_option_actually_sent() {
+        let options = vec![
+            PermissionOptionWire {
+                option_id: "yes".into(),
+                name: "Approve".into(),
+                // NOT one of ACP's four kinds. `PermissionPrompt.toOutcome`
+                // classifies anything not starting with "allow" as a denial, so
+                // this arrives as DenyOnce — while `apply_answer` honours the
+                // exact option id and the agent is correctly ALLOWED.
+                kind: "approve".into(),
+            },
+            PermissionOptionWire {
+                option_id: "no".into(),
+                name: "Reject".into(),
+                kind: "reject_once".into(),
+            },
+        ];
+        assert_eq!(resolved_outcome_label("no", &options), "deny");
+        assert_eq!(
+            resolved_outcome_label("yes", &options),
+            "approve",
+            "an unrecognised kind must be recorded as the agent's own word, never as the \
+             opposite of what happened"
+        );
+        assert_eq!(
+            resolved_outcome_label(
+                "a1",
+                &[PermissionOptionWire {
+                    option_id: "a1".into(),
+                    name: "Allow".into(),
+                    kind: "allow_always".into(),
+                }]
+            ),
+            "allow"
+        );
+
+        // End to end through `apply_answer`: the frontend said "deny", the
+        // agent was allowed, and the record must not say "Denied".
+        let parked = ParkedPermission {
+            id: json!("req-1"),
+            tool_kind: "execute".into(),
+            options: options.clone(),
+        };
+        let session = FakeSession::new(vec![]);
+        let mut events = Vec::new();
+        let mut on_event = |e: RunEvent| events.push(e);
+        block_on(apply_answer(
+            &session,
+            &PermissionAnswer {
+                request_id: "req-1".to_string(),
+                choice: PermissionChoice::DenyOnce,
+                option_id: Some("yes".to_string()),
+            },
+            &parked,
+            &mut on_event,
+            Duration::from_millis(200),
+        ))
+        .unwrap();
+        assert_eq!(
+            session.sent().last(),
+            Some(&Sent::Answer {
+                id: json!("req-1"),
+                outcome: PermissionOutcome::Selected {
+                    option_id: "yes".to_string()
+                },
+            })
+        );
+        match &events[0] {
+            RunEvent::PermissionResolved { outcome, .. } => assert_eq!(
+                outcome, "approve",
+                "the audit trail must not record a denial for a request that was granted"
+            ),
+            e => panic!("expected PermissionResolved, got {e:?}"),
+        }
+    }
+
     #[test]
     fn apply_answer_replies_with_the_exact_option_clicked_not_just_a_kind_match() {
         let options = vec![

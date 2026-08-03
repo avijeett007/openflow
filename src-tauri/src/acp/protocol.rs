@@ -1,10 +1,33 @@
-//! Wire types only — no logic, no I/O. Nothing in the crate constructs most of
-//! these yet: the codec, client and driver that consume them are later tasks
-//! in this plan (see `acp/mod.rs`). Silence dead-code until they're wired up.
-#![allow(dead_code)]
+//! Wire types only — no logic, no I/O.
+//!
+//! **The authority for every shape here is the schema the agents themselves
+//! ship** (`@agentclientprotocol/sdk@1.3.0`, `schema/schema.json`), NOT
+//! `DESIGN-acp-agents.md`. The design doc was written from prose and has been
+//! wrong twice: once on `StopReason`'s vocabulary (see `StopReason` below) and
+//! once on `ToolCallUpdate`'s optionality (see `SessionUpdate::ToolCallUpdate`).
+//! Both bugs survived a fully green unit suite because every fixture was
+//! written from the same prose. `fixtures/real-agent-frames.jsonl` +
+//! `replay_tests` are the structural guard against a third.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+
+/// Deserialize a field that may be **absent, `null`, or present** into `T`,
+/// treating the first two as `T::default()`.
+///
+/// Bare `#[serde(default)]` only covers *absent*: an explicit `"status": null`
+/// still fails to deserialize into a `String` and takes the WHOLE frame down.
+/// The ACP schema marks almost every optional field
+/// `x-deserialize-default-on-error` and types it `["string","null"]`, so a
+/// null is a shape the protocol explicitly permits — and one agent sending a
+/// single null must never cost us a frame.
+fn null_as_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
 
 /// ACP protocol version we implement. Verified against the live agents in V1.
 pub const SUPPORTED_PROTOCOL_VERSION: u16 = 1;
@@ -172,16 +195,28 @@ pub struct ToolLocation {
     pub path: String,
 }
 
+/// `session/request_permission`'s `toolCall`. **Schema-typed as a
+/// `ToolCallUpdate`, so `toolCallId` is the ONLY required field** — Kimi
+/// 0.31.0 really does send a permission request whose `toolCall` carries just
+/// `{toolCallId, title, content}` with no `kind` at all (captured verbatim in
+/// `fixtures/real-agent-frames.jsonl`). Absent fields become their defaults;
+/// see `null_as_default` for why the explicit-`null` case needs help.
 #[derive(Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ToolCallWire {
     pub tool_call_id: String,
+    #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// ACP tool kind: `read` | `edit` | `execute` | `delete` | `move` |
     /// `search` | `fetch` | `think` | `other`. Kept as a String so an unknown
-    /// kind from a newer agent is data, not a parse failure.
+    /// kind from a newer agent is data, not a parse failure. **Empty means the
+    /// agent did not say** — never treat that as a real kind (see
+    /// `agent_run::is_persistable_kind`).
+    #[serde(deserialize_with = "null_as_default")]
     pub kind: String,
+    #[serde(deserialize_with = "null_as_default")]
     pub status: String,
+    #[serde(deserialize_with = "null_as_default")]
     pub locations: Vec<ToolLocation>,
     pub content: Option<Value>,
 }
@@ -209,23 +244,45 @@ pub enum SessionUpdate {
     AgentThoughtChunk {
         content: TextContent,
     },
+    /// Schema `ToolCall`: `toolCallId` + `title` required, the rest optional.
+    /// This is the CREATE, so an absent field genuinely means "empty" and
+    /// flattening to a default loses nothing.
     #[serde(rename_all = "camelCase")]
     ToolCall {
         tool_call_id: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_as_default")]
         title: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_as_default")]
         kind: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_as_default")]
         status: String,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "null_as_default")]
         locations: Vec<ToolLocation>,
     },
+    /// Schema `ToolCallUpdate`: **`toolCallId` is the only required field**, and
+    /// every other one is a genuine three-way — present / absent / null — where
+    /// *absent means "leave the existing value alone"*, not "reset it".
+    ///
+    /// This is why they are `Option` rather than `#[serde(default)]` scalars.
+    /// `claude-agent-acp@0.64.2` sends refinement updates carrying `title`,
+    /// `kind` and `locations` and **no `status`** — its own doc comment says a
+    /// refining update "carries neither" — and modelling `status` as an
+    /// always-present `String` turned those into `""`, which the frontend and
+    /// `render_line` then wrote OVER the tool call's real `pending`/`completed`.
+    /// Delivering the resolved file path is the entire purpose of such a
+    /// refinement, and `title`/`kind`/`locations` were not modelled at all, so
+    /// it was dropped. Both shapes are in `fixtures/real-agent-frames.jsonl`.
     #[serde(rename_all = "camelCase")]
     ToolCallUpdate {
         tool_call_id: String,
         #[serde(default)]
-        status: String,
+        status: Option<String>,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        locations: Option<Vec<ToolLocation>>,
         #[serde(default)]
         content: Option<Value>,
     },

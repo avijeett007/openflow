@@ -51,15 +51,32 @@ pub enum RunEvent {
         status: String,
         locations: Vec<String>,
     },
+    /// A REFINEMENT of an existing `ToolCall`, not a replacement. Every field
+    /// but `id` is `Option` and `None` means **"the agent said nothing about
+    /// this — leave it alone"**, never "reset it". Consumers MUST merge, not
+    /// overwrite: see `render_line` below and `runEventRows.ts`.
     ToolCallUpdate {
         id: String,
-        status: String,
+        status: Option<String>,
+        title: Option<String>,
+        tool_kind: Option<String>,
+        locations: Option<Vec<String>>,
         content: Option<String>,
     },
+    /// `tool_kind` and `locations` are carried HERE rather than left to a
+    /// frontend join on `tool_call_id`. ACP permits a permission request with
+    /// no preceding `tool_call` at all, and the join then silently misses —
+    /// leaving the card showing a bare title like *"Edit file"* with no
+    /// indication of WHAT it touches, above an Allow button. The agent handed
+    /// us both fields in the request itself; throwing them away and guessing
+    /// them back is the one thing a permission gate must not do.
+    /// Empty `tool_kind` / empty `locations` mean the agent did not say.
     PermissionRequest {
         request_id: String,
         tool_call_id: Option<String>,
         title: String,
+        tool_kind: String,
+        locations: Vec<String>,
         options: Vec<PermissionOption>,
     },
     PermissionResolved {
@@ -115,10 +132,21 @@ pub fn map_session_update(u: &SessionUpdate) -> Option<RunEvent> {
         SessionUpdate::ToolCallUpdate {
             tool_call_id,
             status,
+            title,
+            kind,
+            locations,
             content,
         } => RunEvent::ToolCallUpdate {
             id: tool_call_id.clone(),
+            // Optionality preserved end to end. Collapsing any of these to a
+            // default here would re-introduce the exact overwrite bug the
+            // `Option`s exist to prevent.
             status: status.clone(),
+            title: title.clone(),
+            tool_kind: kind.clone(),
+            locations: locations
+                .as_ref()
+                .map(|ls| ls.iter().map(|l| l.path.clone()).collect()),
             content: content.as_ref().map(|c| c.to_string()),
         },
         SessionUpdate::Unknown => return None,
@@ -146,7 +174,35 @@ pub fn render_line(e: &RunEvent) -> Option<String> {
                 format!("▸ {title} — {}", locations.join(", "))
             }
         }
-        RunEvent::ToolCallUpdate { status, .. } => format!("  ✓ {status}"),
+        // Renders only what the refinement ACTUALLY carried. This line goes
+        // into `AgentRunInfo.output` AND the File sink — the permanent record
+        // — so a status-less refinement must not be written down as a bare
+        // "  ✓ " implying the tool call reported something it never did.
+        RunEvent::ToolCallUpdate {
+            status,
+            title,
+            locations,
+            ..
+        } => {
+            let mut s = String::from("  ");
+            match status {
+                Some(st) => s.push_str(&format!("✓ {st}")),
+                // No status: this is a refinement (Claude Code's own wording).
+                None => s.push('·'),
+            }
+            if let Some(t) = title {
+                s.push(' ');
+                s.push_str(t);
+            }
+            match locations {
+                Some(l) if !l.is_empty() => {
+                    s.push_str(" — ");
+                    s.push_str(&l.join(", "));
+                }
+                _ => {}
+            }
+            s
+        }
         RunEvent::PermissionRequest { title, .. } => format!("? {title}"),
         RunEvent::PermissionResolved {
             outcome, automatic, ..
@@ -264,11 +320,76 @@ mod tests {
     fn tool_call_update_renders_check_on_completed() {
         let u = SessionUpdate::ToolCallUpdate {
             tool_call_id: "t1".into(),
-            status: "completed".into(),
+            status: Some("completed".into()),
+            title: None,
+            kind: None,
+            locations: None,
             content: None,
         };
         let e = map_session_update(&u).unwrap();
         assert_eq!(render_line(&e).as_deref(), Some("  ✓ completed"));
+    }
+
+    /// The MF1 shape, verbatim from `claude-agent-acp@0.64.2`: a refinement
+    /// that carries the RESOLVED PATH and no status at all. Before the fix
+    /// `status` was a `#[serde(default)] String`, so this produced `status: ""`
+    /// — written into `AgentRunInfo.output` and the File sink as a bare
+    /// `"  ✓ "`, and used by the frontend to overwrite the tool call's real
+    /// `pending`/`completed`. The path itself was not modelled and vanished.
+    #[test]
+    fn a_status_less_refinement_renders_its_path_and_never_claims_a_status() {
+        let u = SessionUpdate::ToolCallUpdate {
+            tool_call_id: "toolu_01V54kbxK7U3Fgz17XyuHBk3".into(),
+            status: None,
+            title: Some("Read README.md".into()),
+            kind: Some("read".into()),
+            locations: Some(vec![ToolLocation {
+                path: "/repo/README.md".into(),
+            }]),
+            content: None,
+        };
+        let e = map_session_update(&u).unwrap();
+        match &e {
+            RunEvent::ToolCallUpdate {
+                status,
+                title,
+                tool_kind,
+                locations,
+                ..
+            } => {
+                assert_eq!(*status, None, "an absent status must stay absent");
+                assert_eq!(title.as_deref(), Some("Read README.md"));
+                assert_eq!(tool_kind.as_deref(), Some("read"));
+                assert_eq!(
+                    locations.as_deref(),
+                    Some(["/repo/README.md".to_string()].as_slice()),
+                    "the resolved path is the entire point of a refinement"
+                );
+            }
+            _ => panic!("expected ToolCallUpdate"),
+        }
+        let line = render_line(&e).unwrap();
+        assert_eq!(line, "  · Read README.md — /repo/README.md");
+        assert!(
+            !line.contains('✓'),
+            "the permanent record must not claim a status the agent never sent: {line:?}"
+        );
+    }
+
+    /// The other real shape: id + `rawOutput` only. Nothing to say, and the
+    /// line must still be non-empty (dual emission) without inventing a status.
+    #[test]
+    fn a_bare_refinement_still_renders_a_line_without_inventing_a_status() {
+        let e = map_session_update(&SessionUpdate::ToolCallUpdate {
+            tool_call_id: "toolu_019zBNm4wS9dAEmoyi8715MS".into(),
+            status: None,
+            title: None,
+            kind: None,
+            locations: None,
+            content: None,
+        })
+        .unwrap();
+        assert_eq!(render_line(&e).as_deref(), Some("  ·"));
     }
 
     #[test]
@@ -282,6 +403,8 @@ mod tests {
             request_id: "r1".into(),
             tool_call_id: Some("t1".into()),
             title: "Edit src/main.rs".into(),
+            tool_kind: "edit".into(),
+            locations: vec!["/repo/src/main.rs".into()],
             options: vec![PermissionOption {
                 option_id: "allow".into(),
                 name: "Allow".into(),
@@ -351,13 +474,27 @@ mod tests {
             },
             RunEvent::ToolCallUpdate {
                 id: "1".into(),
-                status: "completed".into(),
+                status: Some("completed".into()),
+                title: None,
+                tool_kind: None,
+                locations: None,
+                content: None,
+            },
+            // The refinement shape too: it must ALSO produce a line.
+            RunEvent::ToolCallUpdate {
+                id: "1".into(),
+                status: None,
+                title: None,
+                tool_kind: None,
+                locations: None,
                 content: None,
             },
             RunEvent::PermissionRequest {
                 request_id: "r".into(),
                 tool_call_id: None,
                 title: "T".into(),
+                tool_kind: String::new(),
+                locations: vec![],
                 options: vec![],
             },
             RunEvent::PermissionResolved {

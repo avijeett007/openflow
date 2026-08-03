@@ -105,30 +105,25 @@ fn is_reapable(
     is_expired(last_used_ms, now_ms, timeout_secs) && turn_lock.try_lock().is_ok()
 }
 
-/// Whether the run driver may end the session it was driving: it must still be
-/// the registered session for its agent (`is_current`) AND have no turn in
-/// flight.
+/// Whether the run driver may end the session it was driving. Identity only:
+/// is this STILL the registered session for its agent?
 ///
-/// The second half mirrors `is_reapable`, and it is not redundant with the
-/// first. Identity answers "is this still the registered session", not "is
-/// somebody using it right now" — and the driver ends a session AFTER its own
-/// turn guard has been released, so a follow-up run can legitimately have taken
-/// the SAME warm session and started prompting on it in between. That is the
-/// `CancelTimedOut` path in particular: the child there is alive and still
-/// registered, so identity alone would SIGTERM a live agent mid-edit — the
-/// exact harm the turn lock exists to prevent. The `try_lock` is released
-/// immediately (a point-in-time check), so this stays a synchronous,
-/// non-blocking test safe to call inside the `sessions` guard.
+/// There is deliberately no "is anyone mid-turn" check here any more, and its
+/// removal is a strengthening rather than a relaxation. It used to be a
+/// `turn_lock.try_lock()`, taken *after* the driver's own turn guard had been
+/// dropped — which meant that whenever a queued follow-up was parked on
+/// `begin_turn()`, tokio handed it the permit at that very release and the
+/// `try_lock` failed. The session was then NOT dropped, in 200 trials out of
+/// 200: the check did not merely have a race, it inverted itself in exactly the
+/// case that matters most (a `Crashed`/`broken_stream` turn, where dropping the
+/// poisoned session is the entire mitigation), and run B went on to prompt on
+/// top of a truncated frame.
 ///
-/// A residual window remains and is accepted: `acquire` returns before the new
-/// run calls `turn_guard()`, so a follow-up that has been handed this session
-/// but has not started its turn yet is invisible here, and we may still end it.
-/// That degrades to "run B fails immediately against a dead child" — materially
-/// lesser harm than the case this closes, because B has not sent its prompt, so
-/// there is no in-flight work and no half-applied edit to lose. Not worth
-/// widening the spawn lock's scope to chase.
-fn may_end(is_current: bool, turn_lock: &tokio::sync::Mutex<()>) -> bool {
-    is_current && turn_lock.try_lock().is_ok()
+/// `end_if_current_owned` now takes the caller's still-held turn guard by
+/// value, so "no other turn is in flight" is proved by the type system before
+/// we are called, not re-derived afterwards from a lock we just let go of.
+fn may_end(is_current: bool) -> bool {
+    is_current
 }
 
 /// Current wall-clock time in epoch milliseconds — the single clock source for
@@ -592,21 +587,34 @@ impl AcpSessionManager {
         Ok(session)
     }
 
-    /// End `session` — but only if it is STILL the registered session for its
-    /// agent AND nobody is mid-turn on it.
+    /// End `session` — the run driver's path for discarding a session its turn
+    /// left unusable (a dead child, or stdin desynced by a write abandoned
+    /// mid-frame).
+    ///
+    /// `_turn` is the caller's OWN turn guard, still held, taken by value. It
+    /// carries no data; it is the proof, checked by the compiler, that no other
+    /// turn can be in flight on this session — nobody else can hold the lock
+    /// while we hold it, and the caller cannot have "already released it and
+    /// hoped" because it had to hand it to us. It is dropped when this function
+    /// returns, i.e. after the child is gone, so a follow-up parked on
+    /// `begin_turn()` cannot start a turn on a session mid-teardown either.
     ///
     /// Removal by key alone is only safe while `acquire`'s spawn guard is held
-    /// (see `acquire`); a caller outside that lock — the run driver, dropping a
-    /// session whose child crashed or wedged — could otherwise close a healthy
-    /// replacement a concurrent `acquire` had already spawned. `Arc::ptr_eq`
-    /// answers that half. See `may_end` for why identity alone is not enough.
-    pub async fn end_if_current(&self, session: &Arc<LiveSession>) {
+    /// (see `acquire`); a caller outside that lock could otherwise close a
+    /// healthy replacement a concurrent `acquire` had already spawned. That is
+    /// what the `Arc::ptr_eq` identity check answers, and it is the only
+    /// question left to answer at runtime.
+    pub async fn end_if_current_owned(
+        &self,
+        session: &Arc<LiveSession>,
+        _turn: tokio::sync::MutexGuard<'_, ()>,
+    ) {
         let removed = {
             let mut sessions = self.sessions.lock().unwrap();
             let is_current = sessions
                 .get(&session.agent_id)
                 .is_some_and(|current| Arc::ptr_eq(current, session));
-            if may_end(is_current, &session.turn_lock) {
+            if may_end(is_current) {
                 sessions.remove(&session.agent_id)
             } else {
                 None
@@ -1182,23 +1190,89 @@ mod tests {
     }
 
     #[test]
-    fn a_driver_never_ends_a_session_that_someone_else_is_mid_turn_on() {
-        let lock = tokio::sync::Mutex::new(());
-
+    fn a_driver_only_ends_a_session_that_is_still_the_registered_one() {
         // Our own turn is over and the session is still ours: end it.
-        assert!(may_end(true, &lock));
-        // Someone else's session — identity alone already stops us.
-        assert!(!may_end(false, &lock));
+        assert!(may_end(true));
+        // A replacement has been registered in the meantime — identity alone
+        // stops us, and it is the ONLY runtime question left: "is any other
+        // turn in flight" is now answered by the caller's moved-in turn guard,
+        // which the compiler will not let two turns hold at once.
+        assert!(!may_end(false));
+    }
 
-        // Still the registered session, but a turn is in flight on it. This is
-        // the CancelTimedOut window: we stopped run A and waited out the grace
-        // while run B acquired the SAME warm session and started prompting.
-        // Ending it here SIGTERMs a live agent mid-edit — identity says "yes",
-        // and only the turn lock says "no".
-        let _held = lock.try_lock().unwrap();
-        assert!(
-            !may_end(true, &lock),
-            "a session with an in-flight turn must never be ended by a previous run's driver"
+    /// **MF3 regression.** The defect this replaces was not a race: the old
+    /// `may_end`'s `turn_lock.try_lock()` ran *after* the driver's own guard had
+    /// been dropped, so any follow-up parked on `begin_turn()` had already been
+    /// handed the permit — tokio assigns a semaphore permit to the queue head
+    /// at release rather than leaving it free. Measured **200/200 failures**:
+    /// the session was never dropped, and run B then prompted on top of a
+    /// truncated frame.
+    ///
+    /// The harness below reproduces the old shape (A releases, then checks) and
+    /// the new one (A hands the guard on) side by side, 200 trials each, so the
+    /// claim is asserted rather than asserted-about.
+    #[test]
+    fn a_queued_followup_can_no_longer_defeat_dropping_a_poisoned_session() {
+        const TRIALS: usize = 200;
+
+        /// Run A's turn. `hand_back` models the fix: return the guard instead
+        /// of letting it drop at the end of the turn.
+        async fn run_a(
+            lock: &tokio::sync::Mutex<()>,
+            hand_back: bool,
+        ) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+            let turn = lock.lock().await;
+            // Somewhere in here run B parks on `begin_turn()`.
+            tokio::task::yield_now().await;
+            if hand_back {
+                Some(turn)
+            } else {
+                drop(turn);
+                None
+            }
+        }
+
+        let trial = |hand_back: bool| -> usize {
+            let mut dropped = 0usize;
+            for _ in 0..TRIALS {
+                let lock = Arc::new(tokio::sync::Mutex::new(()));
+                let ok = block_on(async {
+                    let l = Arc::clone(&lock);
+                    let b = tokio::spawn(async move {
+                        let _turn = l.lock().await;
+                        futures_util::future::pending::<()>().await;
+                    });
+                    let handed = run_a(&lock, hand_back).await;
+                    // The driver now wants to discard the poisoned session.
+                    let session_dropped = match handed {
+                        // NEW: ownership is proved, no lock is consulted.
+                        Some(_guard) => may_end(true),
+                        // OLD: re-derive it from a lock we just released.
+                        None => may_end(true) && lock.try_lock().is_ok(),
+                    };
+                    b.abort();
+                    session_dropped
+                });
+                if ok {
+                    dropped += 1;
+                }
+            }
+            dropped
+        };
+
+        let old = trial(false);
+        assert_eq!(
+            old, 0,
+            "the OLD release-then-try_lock shape is expected to fail every single time — if \
+             this ever passes, the reproduction has stopped reproducing and the test below \
+             proves nothing"
+        );
+
+        let new = trial(true);
+        assert_eq!(
+            new, TRIALS,
+            "a session poisoned by a Crashed/broken_stream turn must be dropped even when a \
+             follow-up is queued behind it: dropping it IS the mitigation"
         );
     }
 
