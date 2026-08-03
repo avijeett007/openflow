@@ -679,7 +679,9 @@ async fn stream_lines<R: AsyncRead + Unpin>(
 
 /// SIGTERM, then a SIGKILL backstop after a grace period (mirrors Agent OS's
 /// `killProc`). On non-unix, `start_kill` (the platform terminate) is used.
-async fn terminate_child(child: &mut tokio::process::Child) {
+/// `pub(crate)` so `acp_session::LiveSession` reuses the exact same stop
+/// ladder rather than re-implementing it for the long-lived ACP child.
+pub(crate) async fn terminate_child(child: &mut tokio::process::Child) {
     #[cfg(unix)]
     {
         if let Some(pid) = child.id() {
@@ -752,7 +754,7 @@ pub fn build_argv(
     prompt_via: PromptDelivery,
 ) -> Vec<String> {
     let mut out = Vec::new();
-    for tok in tokenize(command_template) {
+    for tok in tokenize_template(command_template) {
         if prompt_via == PromptDelivery::Stdin && tok == "{prompt}" {
             continue;
         }
@@ -769,7 +771,9 @@ pub fn build_argv(
 /// Minimal shell-ish tokenizer: splits on whitespace, honoring single/double
 /// quotes so a quoted placeholder value stays one argument. No shell expansion,
 /// no escapes beyond the quotes — the instruction never becomes a shell string.
-fn tokenize(s: &str) -> Vec<String> {
+/// `pub` so `acp_session::build_acp_argv` can reuse it verbatim: quoting must
+/// behave identically whether a template runs in raw or ACP mode.
+pub fn tokenize_template(s: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut cur = String::new();
     let mut in_single = false;
@@ -1603,14 +1607,14 @@ mod tests {
     #[test]
     fn tokenize_honors_quotes() {
         assert_eq!(
-            tokenize("run \"two words\" --flag 'single quoted'"),
+            tokenize_template("run \"two words\" --flag 'single quoted'"),
             vec!["run", "two words", "--flag", "single quoted"]
         );
     }
 
     #[test]
     fn tokenize_empty_quotes_produce_empty_arg() {
-        assert_eq!(tokenize("--name \"\""), vec!["--name", ""]);
+        assert_eq!(tokenize_template("--name \"\""), vec!["--name", ""]);
     }
 
     #[test]
