@@ -201,6 +201,55 @@ mod tests {
     }
 
     #[test]
+    fn session_deny_beats_session_allow_all_not_just_policy() {
+        // Both override signals fire on the SAME request: a persistent deny the
+        // user already gave for "execute", plus a stale allow_all flag. Deny
+        // must win — this is the case that pins the ordering of the two `if`s
+        // inside the override block, not just "override beats policy".
+        let mut i = input(AcpPermissionPolicy::Ask, "execute");
+        i.session_override = Some(SessionOverride {
+            allow_all: true,
+            denied_kinds: vec!["execute".into()],
+        });
+        match decide(&i) {
+            PermissionDecision::Deny { automatic, .. } => assert!(automatic),
+            d => panic!(
+                "expected Deny (a persistent deny must not be overridden by a stale allow_all), got {d:?}"
+            ),
+        }
+    }
+
+    #[test]
+    fn session_deny_falls_back_to_ask_when_agent_offers_no_reject_option() {
+        let mut i = input(AcpPermissionPolicy::Ask, "execute");
+        i.session_override = Some(SessionOverride {
+            allow_all: false,
+            denied_kinds: vec!["execute".into()],
+        });
+        i.options = vec![PermissionOptionWire {
+            option_id: "a1".into(),
+            name: "Allow".into(),
+            kind: "allow_once".into(),
+        }];
+        assert!(matches!(decide(&i), PermissionDecision::Ask));
+    }
+
+    #[test]
+    fn session_allow_all_falls_back_to_ask_when_agent_offers_no_allow_option() {
+        let mut i = input(AcpPermissionPolicy::Ask, "execute");
+        i.session_override = Some(SessionOverride {
+            allow_all: true,
+            denied_kinds: vec![],
+        });
+        i.options = vec![PermissionOptionWire {
+            option_id: "d1".into(),
+            name: "Deny".into(),
+            kind: "reject_once".into(),
+        }];
+        assert!(matches!(decide(&i), PermissionDecision::Ask));
+    }
+
+    #[test]
     fn falls_back_to_ask_when_the_agent_offers_no_allow_option() {
         let mut i = input(AcpPermissionPolicy::AutoAll, "edit");
         i.options = vec![PermissionOptionWire {
