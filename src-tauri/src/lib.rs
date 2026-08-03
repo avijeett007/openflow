@@ -1,4 +1,5 @@
 mod a2a;
+mod acp;
 mod actions;
 mod active_app;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
