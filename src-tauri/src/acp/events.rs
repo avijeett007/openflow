@@ -306,6 +306,29 @@ mod tests {
         assert_eq!(render_line(&manual).as_deref(), Some("  → deny"));
     }
 
+    /// Exhaustiveness tripwire. Adding a variant to `RunEvent` breaks
+    /// compilation HERE, next to the sample list below — which is the
+    /// reminder to extend it. Dual emission is the non-breaking guarantee: a
+    /// variant whose `render_line` returns `None` (or one nobody added to
+    /// `every_event_variant_renders_a_line`'s sample list) silently vanishes
+    /// from `AgentRunInfo.output`, the File sink and the notification
+    /// summary. The `match` below has NO `_ =>` catch-all on purpose: a new
+    /// variant must be listed here explicitly before the crate compiles
+    /// again, forcing whoever added it to also extend the sample list.
+    #[cfg(test)]
+    fn _render_line_exhaustiveness_guard(e: &RunEvent) {
+        match e {
+            RunEvent::Text { .. } => (),
+            RunEvent::Thought { .. } => (),
+            RunEvent::Plan { .. } => (),
+            RunEvent::ToolCall { .. } => (),
+            RunEvent::ToolCallUpdate { .. } => (),
+            RunEvent::PermissionRequest { .. } => (),
+            RunEvent::PermissionResolved { .. } => (),
+            RunEvent::TurnEnd { .. } => (),
+        }
+    }
+
     #[test]
     fn every_event_variant_renders_a_line() {
         // Dual emission is mandatory: a structured event with no text line would
