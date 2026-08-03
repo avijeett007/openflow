@@ -2621,4 +2621,53 @@ mod tests {
         // Custom is user-supplied.
         assert_eq!(default_acp_template(AgentCliType::Custom), None);
     }
+
+    /// Task 10 had to hand-mirror this table into
+    /// `ACP_DEFAULT_TEMPLATES` in
+    /// `src/components/settings/agents/agentTemplates.ts`, because no Tauri
+    /// command exposes `default_acp_template` (a pure Rust function) to the
+    /// frontend. The two match exactly today, but nothing links them: a
+    /// future rename here (a package bump, a newly-verified adapter) would
+    /// leave the settings card's "resolved program" display silently showing
+    /// a stale value — worse than no display at all, since that display's
+    /// entire purpose is to be trustworthy. This is a crude verbatim-substring
+    /// check, not a real TypeScript parse, but it turns that silent drift into
+    /// a failing test instead of a silent one.
+    #[test]
+    fn acp_default_templates_match_the_frontend_mirror() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../src/components/settings/agents/agentTemplates.ts");
+        let contents = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "Couldn't read '{}' to verify it mirrors `default_acp_template`: {e}. If \
+                 agentTemplates.ts moved, update the path in this test \
+                 (settings::tests::acp_default_templates_match_the_frontend_mirror).",
+                path.display()
+            )
+        });
+
+        // Only the types with a confirmed adapter have an entry to mirror —
+        // Openclaw/Hermes/Custom return `None` and have nothing in
+        // ACP_DEFAULT_TEMPLATES to check.
+        for cli_type in [
+            AgentCliType::Kimi,
+            AgentCliType::Claude,
+            AgentCliType::Codex,
+        ] {
+            let (binary, argv) = default_acp_template(cli_type)
+                .unwrap_or_else(|| panic!("{cli_type:?} unexpectedly has no default_acp_template"));
+            assert!(
+                contents.contains(&binary),
+                "settings.rs::default_acp_template's {cli_type:?} binary '{binary}' was not \
+                 found verbatim in agentTemplates.ts — update ACP_DEFAULT_TEMPLATES in \
+                 src/components/settings/agents/agentTemplates.ts to match."
+            );
+            assert!(
+                contents.contains(&argv),
+                "settings.rs::default_acp_template's {cli_type:?} argv '{argv}' was not found \
+                 verbatim in agentTemplates.ts — update ACP_DEFAULT_TEMPLATES in \
+                 src/components/settings/agents/agentTemplates.ts to match."
+            );
+        }
+    }
 }
