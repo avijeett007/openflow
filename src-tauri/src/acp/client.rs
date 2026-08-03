@@ -3,7 +3,6 @@
 //! Deliberately a PUMP, not a background task — the caller owns the loop. That
 //! keeps `tokio::spawn` out of this file, so every test is deterministic with
 //! no sleeps and no timing flakes.
-//!
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -67,6 +66,13 @@ impl<T: AcpTransport> AcpClient<T> {
         }
     }
 
+    /// The transport this client was built over.
+    ///
+    /// Item-scope allow (repo precedent) rather than deletion: production code
+    /// never needs it, but every scripted-transport test in this module and in
+    /// `acp_session.rs` reads what we sent back off the double through here.
+    /// Deleting it would take the assertions with it.
+    #[allow(dead_code)]
     pub fn transport(&self) -> &T {
         &self.transport
     }

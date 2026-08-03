@@ -101,11 +101,13 @@ fn every_captured_frame_deserializes_through_the_production_types() {
                             f.params
                         )
                     });
-                assert!(
-                    !n.session_id.is_empty() || matches!(n.update, SessionUpdate::Unknown),
-                    "line {}: sessionId lost",
+                assert_eq!(
+                    n.session_id,
+                    f.params["sessionId"].as_str().unwrap_or_default(),
+                    "line {}: sessionId must survive verbatim",
                     i + 1
                 );
+                assert!(!n.session_id.is_empty(), "line {}: sessionId lost", i + 1);
                 // Unmodelled variants are DROPPED, never fatal; modelled ones
                 // must always render a text line (the dual-emission contract).
                 if let Some(e) = map_session_update(&n.update) {

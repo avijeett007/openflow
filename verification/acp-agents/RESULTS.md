@@ -855,3 +855,136 @@ Arm restored → `469 passed; 0 failed`.
 - **Everything in §6 is still unverified** — V5b (orphan-at-quit, still never executed),
   V6, and the GUI halves. The fix makes the success path _correct_; it does not make the
   GUI path _tested_.
+
+---
+
+## 11. The frame capture and what replaying it found (2026-08-03, final fix wave)
+
+§10 fixed one bug that only a real agent could reveal. This section records the
+**structural** answer to "how do we stop the third one", and the second bug it caught
+immediately.
+
+### 11.1 The gap that let §2 happen twice
+
+Task 12's live probe (§8) was a Node script that _logged_ frames. Every payload it
+captured was read by a human and by `jq` — **not one of them had ever been through
+OpenFlow's own deserializer**, except the two `{"stopReason":…}` objects in §10.2. Every
+other fixture in the 469-test suite was hand-written from `DESIGN-acp-agents.md`, which
+was itself written from prose. A suite built that way cannot detect a wire assumption
+that is wrong; it can only confirm it is self-consistent.
+
+### 11.2 What was captured
+
+`src-tauri/src/acp/fixtures/real-agent-frames.jsonl` — **27 unedited JSON-RPC frames**,
+one per line, exactly as the agents wrote them to stdout:
+
+| Source                    | Frames                                                    |
+| ------------------------- | --------------------------------------------------------- |
+| `claude-agent-acp` 0.64.2 | 17 (incl. `plan`, `config_option_update`, `usage_update`) |
+| `kimi` 0.31.0             | 7                                                         |
+| permission requests       | 2 (one from each agent)                                   |
+
+Deduplicated by (agent, method, update kind, **exact key set**), so every line is a
+distinct SHAPE the crate must survive, not a repetition. Harvested from the §8 probe
+logs plus one fresh 2026-08-03 run against Claude Code (`--prompt` forcing a todo/plan
+plus a shell command), which is where the `plan` frames came from.
+
+`src-tauri/src/acp/replay_tests.rs` feeds every line through `SessionNotification` /
+`RequestPermissionParams` / `map_session_update` / `render_line`. It is the only test in
+the suite whose input we did not write.
+
+### 11.3 🚨 Second blocking defect, found by the replay — `ToolCallUpdate` optionality
+
+**The schema** (`@agentclientprotocol/sdk@1.3.0`, `$defs.ToolCallUpdate`):
+
+```
+required = ["toolCallId"]
+props    = toolCallId, kind, status, title, name, content, locations, rawInput, rawOutput, _meta
+```
+
+**Only `toolCallId` is required.** OpenFlow modelled `status` as an always-present
+`String` and did not model `title`/`kind`/`locations` at all.
+
+**What Claude Code actually sends** (verbatim, from the capture):
+
+```json
+{
+  "toolCallId": "toolu_01V54kbxK7U3Fgz17XyuHBk3",
+  "sessionUpdate": "tool_call_update",
+  "title": "Read README.md",
+  "kind": "read",
+  "locations": [{ "path": "…/repo-fix/README.md" }]
+}
+```
+
+No `status`. Its own source comment says a refining `tool_call_update` "carries neither".
+Three of the 19 captured `tool_call_update` shapes from Claude Code have no `status`;
+one has nothing but `toolCallId` and `rawOutput`.
+
+**Consequences, all live before the fix:**
+
+1. `status` deserialized to `""`, and `runEventRows.ts` assigned it unconditionally —
+   **overwriting the tool call's real `pending`/`completed`**.
+2. `render_line` wrote a bare `"  ✓ "` into `AgentRunInfo.output` **and the File sink** —
+   the permanent record — claiming a status the agent never reported.
+3. The refinement's `title`/`kind`/`locations` were discarded. **Delivering the resolved
+   file path is the entire purpose of a refinement**, so the path never reached the panel.
+
+Replayed through the panel's own reducer, before and after (real frames, `bun`):
+
+```
+BEFORE:  status=""          title="Read File"       locations=[]
+AFTER:   status="pending"   title="Read README.md"  locations=["…/repo-fix/README.md"]
+```
+
+The replay test fails **by assertion** on the captured Claude Code frame under either
+form of the bug (`status` defaulted at the serde layer, or absence collapsed at the
+mapping layer) — verified by break-and-revert both ways.
+
+### 11.4 Also learned from the real frames
+
+- **Kimi sends `session/request_permission` with no `kind` at all** — its `toolCall` is
+  `{toolCallId, title, content}`. That made an "Always allow" record `allowed_kinds:
+[""]`, auto-approving every future kind-less request from that agent. Now non-persistable.
+- **`session/request_permission`'s `toolCall` is schema-typed as a `ToolCallUpdate`**, so
+  even its `title` is optional. Previously a `#[serde(default)] String`, which rejects an
+  explicit `null` outright — one null would have cost the whole frame.
+- **Claude Code lists `reject` FIRST** in its options array (already noted in §5.1, still
+  true) and offers `optionId: "allow_always"` carrying a rich `_meta.permission` policy
+  block we correctly ignore.
+- **Kimi's option ids are `approve_once`/`approve_always`/`reject`** while its `kind`s are
+  ACP-standard. Selection by `kind` (not id, not index) remains the right call.
+- Unmodelled `session/update` variants seen in the wild: `available_commands_update`,
+  `usage_update`, `session_info_update`, `config_option_update`. All drop silently.
+- **`session/close` is capability-gated** (`sessionCapabilities.close`) and **Kimi does
+  not advertise it**, so teardown always `-32601`s through to the SIGTERM ladder. Logged,
+  deliberately not fixed — the ladder is the guarantee.
+- **Codex's `authMethods`** are `api-key` and `chat-gpt`, and `session/new` returns
+  `-32000 "Authentication required"`. Now mapped to "run `codex login`".
+
+### 11.5 The `may_end` defect (no live agent needed, but worth recording)
+
+`run_acp_turn`'s guard used to drop when the function returned, and `end_if_current` then
+did a `try_lock` to decide whether the session was safe to drop. With a follow-up parked
+on `begin_turn()`, tokio assigns the semaphore permit **at that release**, so the
+`try_lock` fails and the drop becomes a no-op. Measured **200/200** — not a race, a
+certainty. The turn guard is now returned to the caller and moved into
+`end_if_current_owned`, making the invariant structural. Reproduced 200/200 before and
+200/200 clean after, both asserted in the same permanent test.
+
+### 11.6 Gates after the fix wave
+
+| Gate                         | Baseline    | After                                                        |
+| ---------------------------- | ----------- | ------------------------------------------------------------ |
+| `cargo test --lib`           | 469 passed  | ✅ **481 passed; 0 failed**                                  |
+| `cargo clippy --all-targets` | 34 / 39 / 1 | ✅ **34 / 39 / 1 — baseline, zero new**                      |
+| `cargo fmt -- --check`       | clean       | ✅ clean                                                     |
+| `bun run build`              | ✓           | ✅ ✓                                                         |
+| `bun run lint`               | 0 errors    | ✅ 0 errors (same 1 pre-existing `devAutomation.ts` warning) |
+| `bun run format:check`       | clean       | ✅ clean (`.superpowers` now in `.prettierignore`)           |
+
+### 11.7 Still unverified
+
+Unchanged from §6 and §10.5: **V5b orphan-at-quit has still never executed**, V6 idle
+timeout, the GUI halves of V2–V5, and the in-app V7 regression clicks all need a human at
+the keyboard. Codex remains 2-of-3 pending `codex login`.

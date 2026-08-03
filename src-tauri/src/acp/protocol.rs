@@ -300,6 +300,13 @@ pub enum SessionUpdate {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionNotification {
+    /// Never read: one warm session has exactly one turn in flight (the turn
+    /// guard enforces it), so every notification arriving on that session's
+    /// pipe belongs to that turn — there is nothing to route by. Kept because
+    /// it IS the wire shape, the schema requires it, and dropping it would let
+    /// a future multi-session client silently lose the only thing that could
+    /// disambiguate. `replay_tests` asserts it survives a real frame.
+    #[allow(dead_code)]
     pub session_id: String,
     pub update: SessionUpdate,
 }
