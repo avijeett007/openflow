@@ -22,13 +22,14 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc;
 
-use crate::acp::client::{AcpClient, AcpTransport, PumpItem};
+use crate::acp::client::{AcpClient, AcpTransport, ClientEvent, InboundRequest, PumpItem};
 use crate::acp::codec::MAX_LINE_BYTES;
 use crate::acp::permission::SessionOverride;
 use crate::acp::protocol::{
@@ -37,6 +38,22 @@ use crate::acp::protocol::{
 };
 use crate::managers::agent_run::{apply_baseline_env, spawn_plan, terminate_child};
 use crate::settings::{default_acp_template, AgentDefinition};
+
+/// Cap on the `initialize` → `session/new` handshake. A misconfigured ACP
+/// template (e.g. resolving to an interactive CLI that blocks reading stdin
+/// to EOF rather than speaking JSON-RPC) must fail loudly rather than hang
+/// `acquire()` — and, with it, the child it spawned — forever. 30s is
+/// generous; `claude-agent-acp`'s real handshake takes low single-digit
+/// seconds.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Cap on waiting for a `session/close` reply before falling through to the
+/// SIGTERM→SIGKILL ladder. This is a courtesy, not a guarantee — the ladder is
+/// the real backstop — but `close()` runs on the app's exit path
+/// (`shutdown_all` from `RunEvent::Exit`, via `block_on` on the main thread),
+/// so an agent that stops draining its stdin must not be able to hang app
+/// quit.
+const CLOSE_COURTESY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A warm session may only be reused for the exact cwd it was created with: the
 /// agent's entire context is rooted there, so reusing across a project change
@@ -60,6 +77,23 @@ pub fn build_acp_argv(template: &str) -> Vec<String> {
     crate::managers::agent_run::tokenize_template(template)
 }
 
+/// Whether the idle reaper should end this session: expired AND not currently
+/// mid-turn. `turn_lock` is held by Task 8's driver for the full duration of a
+/// `session/prompt` round trip, so a failed `try_lock` means a turn is in
+/// flight — ending the session there would SIGTERM the child mid-edit, which
+/// is exactly the "reaper kills a live turn" failure this guards against. The
+/// `try_lock` is released immediately (it's a point-in-time check, not held
+/// across the reap), so this is a synchronous, non-blocking check safe to
+/// call from inside the `sessions` map's std `Mutex` guard.
+fn is_reapable(
+    last_used_ms: i64,
+    now_ms: i64,
+    timeout_secs: u32,
+    turn_lock: &tokio::sync::Mutex<()>,
+) -> bool {
+    is_expired(last_used_ms, now_ms, timeout_secs) && turn_lock.try_lock().is_ok()
+}
+
 /// Current wall-clock time in epoch milliseconds — the single clock source for
 /// `touch`/`is_expired` so a session's "last used" and the reaper's "now" are
 /// always comparable.
@@ -67,25 +101,33 @@ fn now_ms() -> i64 {
     chrono::Local::now().timestamp_millis()
 }
 
-/// Resolve the binary to exec for an ACP session. `acp_command_template` is
-/// argv-only (§4.1 of DESIGN-acp-agents.md — deliberately separate from the
-/// raw `command_template` so toggling protocol never destroys the other mode's
-/// config), so the program itself is expected in the same `binary_path` field
-/// the raw driver already reads regardless of protocol. Falls back to the
-/// built-in per-`cli_type` hint (`npx` for the official Claude/Codex ACP
-/// adapters, `kimi`'s built-in `acp` subcommand) when `binary_path` is still
-/// empty — e.g. before an agent has been through an ACP-aware editor flow.
+/// Resolve the binary to exec for an ACP session: the built-in per-`cli_type`
+/// hint (`npx` for the official Claude/Codex ACP adapters, `kimi`'s built-in
+/// `acp` subcommand) takes priority, falling back to `agent.binary_path` only
+/// when no hint exists (`Openclaw`/`Hermes`/`Custom` — `default_acp_template`
+/// returns `None` for all three, and `binary_path` is the only escape hatch
+/// for them).
+///
+/// This order is NOT symmetric with the raw driver, and that's deliberate:
+/// raw-CLI mode *requires* `binary_path` to be set (it's the actual CLI
+/// binary, e.g. `claude`/`codex`), so any agent with a confirmed ACP hint
+/// **always** arrives here with `binary_path` already populated from raw mode
+/// — but that's the wrong program for ACP (Claude/Codex's ACP adapters run
+/// via `npx`, not the raw `claude`/`codex` binary). Preferring `binary_path`
+/// would silently spawn the interactive raw CLI as if it spoke JSON-RPC:
+/// piped stdio, no TTY, and no protocol handshake ever arrives — see
+/// `HANDSHAKE_TIMEOUT` for the backstop that bounds the resulting hang.
 fn resolve_acp_binary(agent: &AgentDefinition) -> Result<String, String> {
+    if let Some((binary, _argv)) = agent.cli_type.and_then(default_acp_template) {
+        return Ok(binary);
+    }
     if !agent.binary_path.trim().is_empty() {
         return Ok(agent.binary_path.clone());
     }
-    match agent.cli_type.and_then(default_acp_template) {
-        Some((binary, _argv)) => Ok(binary),
-        None => Err(format!(
-            "'{}' has no binary configured for ACP mode. Set a binary path in its settings.",
-            agent.name
-        )),
-    }
+    Err(format!(
+        "'{}' has no binary configured for ACP mode. Set a binary path in its settings.",
+        agent.name
+    ))
 }
 
 /// Production `AcpTransport`: the agent child's stdin/stdout, framed as
@@ -192,8 +234,18 @@ impl LiveSession {
     /// child's stdout closes — the caller must treat that as a crash: never
     /// auto-retry the in-flight turn (it may have half-applied edits), drop
     /// the session, surface the failure, and let the next `acquire` respawn.
+    ///
+    /// Every item received `touch`es the session: a long-running turn (e.g. an
+    /// 11-minute refactor, well past the 600s default idle timeout) must not
+    /// look idle to the reaper just because nothing has called `acquire`
+    /// again. This is one of two guards against the reaper killing a live
+    /// turn — see `is_reapable`'s `turn_lock` check for the other.
     pub async fn client_pump(&self) -> Option<PumpItem> {
-        self.client.pump().await
+        let item = self.client.pump().await;
+        if item.is_some() {
+            self.touch(now_ms());
+        }
+        item
     }
 
     /// Send `session/prompt`; returns the JSON-RPC request id so the caller
@@ -239,13 +291,20 @@ impl LiveSession {
     }
 
     /// `session/close`, then the existing SIGTERM→SIGKILL stop ladder.
-    /// `terminate_child` has its own grace-period backstop, so this never
-    /// blocks forever even if the agent never answers `session/close`.
+    /// `session/close` is a courtesy, bounded by `CLOSE_COURTESY_TIMEOUT` —
+    /// `StdioTransport::send` does a blocking `write_all` on the child's
+    /// stdin, which never resolves if the agent is alive but has stopped
+    /// draining it, and this runs on the app's exit path
+    /// (`shutdown_all`→`block_on`, main thread). `terminate_child` is the
+    /// actual guarantee and always runs regardless of how `send_request`
+    /// above resolves.
     async fn close(&self) {
-        let _ = self
-            .client
-            .send_request("session/close", json!({ "sessionId": self.session_id }))
-            .await;
+        let _ = tokio::time::timeout(
+            CLOSE_COURTESY_TIMEOUT,
+            self.client
+                .send_request("session/close", json!({ "sessionId": self.session_id })),
+        )
+        .await;
         let mut child = self.child.lock().await;
         terminate_child(&mut child).await;
     }
@@ -257,6 +316,17 @@ impl LiveSession {
 /// the wrong repo.
 pub struct AcpSessionManager {
     sessions: Mutex<HashMap<String, Arc<LiveSession>>>,
+    /// Per-agent spawn lock: serializes `acquire`'s whole
+    /// check-reuse→end-stale→spawn→insert sequence so two concurrent triggers
+    /// for the SAME agent (a double hotkey press, or a queued follow-up
+    /// landing during a cold `npx` handshake) can't both miss the registry,
+    /// each spawn their own child, and orphan one of them (the second
+    /// `insert` would silently overwrite the first, and nothing else would
+    /// ever hold or close that first `Arc<LiveSession>` — dropping it drops
+    /// `Child` too, which is `kill_on_drop(false)` by default). Never removed
+    /// once created: agent ids are a small, bounded set (one per configured
+    /// agent), so this cannot grow unbounded.
+    spawn_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl Default for AcpSessionManager {
@@ -269,7 +339,18 @@ impl AcpSessionManager {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            spawn_locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Get-or-create the per-agent spawn lock used to serialize `acquire`.
+    fn spawn_lock_for(&self, agent_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.spawn_locks.lock().unwrap();
+        Arc::clone(
+            locks
+                .entry(agent_id.to_string())
+                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
+        )
     }
 
     /// Return the warm session for `agent.id`, reusing it only when its `cwd`
@@ -281,6 +362,14 @@ impl AcpSessionManager {
         agent: &AgentDefinition,
         cwd: &Path,
     ) -> Result<Arc<LiveSession>, String> {
+        // Held for the ENTIRE body below: a second concurrent `acquire` for
+        // this same agent id queues here rather than racing this one through
+        // the check-then-spawn-then-insert window (see `spawn_locks`'s doc
+        // comment for the orphan this prevents). Different agent ids get
+        // different locks, so this never serializes unrelated agents.
+        let spawn_lock = self.spawn_lock_for(&agent.id);
+        let _spawn_guard = spawn_lock.lock().await;
+
         let wanted_cwd = cwd.to_string_lossy().to_string();
 
         let existing = {
@@ -293,6 +382,9 @@ impl AcpSessionManager {
                 return Ok(session);
             }
             // Wrong cwd, or the child died under us — never silently reuse.
+            // Safe to remove by key here: with `_spawn_guard` held, no
+            // concurrent `acquire` for this agent id can have replaced this
+            // entry between the read above and this removal.
             self.end_session(&agent.id).await;
         }
 
@@ -314,20 +406,24 @@ impl AcpSessionManager {
     }
 
     /// Close every session idle beyond its own `acp_idle_timeout_secs`
-    /// (`0` = never — see `is_expired`). Intended to be driven by a periodic
-    /// timer (60s) from the app's setup.
+    /// (`0` = never — see `is_expired`), UNLESS a turn is currently in flight
+    /// on it (`is_reapable`). Intended to be driven by a periodic timer (60s)
+    /// from the app's setup.
     pub async fn reap_idle(&self, now_ms: i64) {
         let stale: Vec<String> = {
             let sessions = self.sessions.lock().unwrap();
             sessions
                 .iter()
-                .filter(|(_, s)| is_expired(s.last_used_ms(), now_ms, s.idle_timeout_secs))
+                .filter(|(_, s)| {
+                    is_reapable(s.last_used_ms(), now_ms, s.idle_timeout_secs, &s.turn_lock)
+                })
                 .map(|(id, _)| id.clone())
                 .collect()
         };
-        for id in stale {
-            self.end_session(&id).await;
-        }
+        // Concurrently: N stubborn sessions (each bounded by `close`'s own
+        // courtesy timeout + terminate_child's grace period) should cost
+        // roughly constant wall-clock time, not N times that.
+        futures_util::future::join_all(stale.iter().map(|id| self.end_session(id))).await;
     }
 
     /// Close every live session. Called from the app's exit handler so no
@@ -337,9 +433,10 @@ impl AcpSessionManager {
             let sessions = self.sessions.lock().unwrap();
             sessions.keys().cloned().collect()
         };
-        for id in ids {
-            self.end_session(&id).await;
-        }
+        // This runs on the main thread via `block_on` in `RunEvent::Exit` —
+        // serial teardown of N sessions would visibly delay app quit by
+        // N × (up to CLOSE_COURTESY_TIMEOUT + terminate_child's grace period).
+        futures_util::future::join_all(ids.iter().map(|id| self.end_session(id))).await;
     }
 }
 
@@ -389,8 +486,15 @@ async fn spawn_session(agent: &AgentDefinition, cwd: &Path) -> Result<Arc<LiveSe
     let transport = StdioTransport::new(stdin, stdout);
     let client = AcpClient::new(transport);
 
-    match handshake(&client, cwd).await {
-        Ok(session_id) => Ok(Arc::new(LiveSession {
+    // Bounded: a misresolved binary (e.g. an interactive CLI spawned instead
+    // of its ACP adapter — see `resolve_acp_binary`'s doc comment) never sends
+    // a JSON-RPC line back, and without this timeout `handshake` would await
+    // `client.pump()` forever, hanging `acquire()` and, with it, the spawned
+    // child (which — not yet registered anywhere — no `shutdown_all` could
+    // ever reach).
+    let handshake_result = tokio::time::timeout(HANDSHAKE_TIMEOUT, handshake(&client, cwd)).await;
+    match handshake_result {
+        Ok(Ok(session_id)) => Ok(Arc::new(LiveSession {
             session_id,
             agent_id: agent.id.clone(),
             cwd: cwd.to_string_lossy().to_string(),
@@ -401,18 +505,30 @@ async fn spawn_session(agent: &AgentDefinition, cwd: &Path) -> Result<Arc<LiveSe
             turn_lock: tokio::sync::Mutex::new(()),
             session_override: Mutex::new(None),
         })),
-        Err(e) => {
+        Ok(Err(e)) => {
             // The child isn't registered in `sessions` yet — if we return
             // without killing it here, it is orphaned forever.
             terminate_child(&mut child).await;
             Err(e)
         }
+        Err(_elapsed) => {
+            terminate_child(&mut child).await;
+            Err(format!(
+                "'{}' did not complete the ACP handshake within {}s. Check its ACP binary and \
+                 command template — it may not be speaking JSON-RPC.",
+                agent.name,
+                HANDSHAKE_TIMEOUT.as_secs()
+            ))
+        }
     }
 }
 
 /// `initialize` then `session/new`, in one place so `spawn_session` has a
-/// single fallible step to wrap in orphan-cleanup.
-async fn handshake(client: &AcpClient<StdioTransport>, cwd: &Path) -> Result<String, String> {
+/// single fallible step to wrap in orphan-cleanup. Generic over `T:
+/// AcpTransport` (rather than concretely `StdioTransport`) so this is
+/// directly testable against a scripted in-memory transport — no process
+/// spawn needed to prove the handshake's frame-handling logic.
+async fn handshake<T: AcpTransport>(client: &AcpClient<T>, cwd: &Path) -> Result<String, String> {
     let init = do_initialize(client).await?;
     if init.protocol_version != SUPPORTED_PROTOCOL_VERSION {
         return Err(format!(
@@ -428,11 +544,27 @@ async fn handshake(client: &AcpClient<StdioTransport>, cwd: &Path) -> Result<Str
     do_session_new(client, cwd).await
 }
 
-/// `initialize` request/response. Any stray event arriving before the answer
-/// is skipped rather than treated as a protocol violation — none of our
-/// target agents are known to emit anything pre-handshake, but a creative one
-/// must not wedge the pump forever on the wrong frame.
-async fn do_initialize(client: &AcpClient<StdioTransport>) -> Result<InitializeResult, String> {
+/// Reply "method not found" to an inbound request that arrives while we're
+/// waiting for a handshake response, rather than silently dropping it. No ACP
+/// agent is expected to call back into the client before we've answered its
+/// `initialize`/`session/new`, but `client.rs`'s own doctrine for
+/// `InboundRequest` is unconditional: an unanswered request hangs the
+/// agent's turn forever, so we always reply — being mid-handshake rather than
+/// mid-turn is not an exception to that rule.
+async fn refuse_inbound<T: AcpTransport>(client: &AcpClient<T>, req: InboundRequest) {
+    let id = match &req {
+        InboundRequest::RequestPermission { id, .. } => id,
+        InboundRequest::Unsupported { id, .. } => id,
+    };
+    let _ = client.reply_error(id, -32601, "Method not found").await;
+}
+
+/// `initialize` request/response. An inbound request arriving before the
+/// answer is refused (`refuse_inbound`) rather than dropped; any other stray
+/// event (e.g. a `session/update`) is skipped — none of our target agents are
+/// known to emit one pre-handshake, but a creative one must not wedge the
+/// pump forever on the wrong frame.
+async fn do_initialize<T: AcpTransport>(client: &AcpClient<T>) -> Result<InitializeResult, String> {
     let params = InitializeParams {
         protocol_version: SUPPORTED_PROTOCOL_VERSION,
         client_capabilities: ClientCapabilities::v1_defaults(),
@@ -451,14 +583,21 @@ async fn do_initialize(client: &AcpClient<StdioTransport>) -> Result<InitializeR
                 return serde_json::from_value(v)
                     .map_err(|e| format!("Malformed initialize result: {e}"));
             }
+            Some(PumpItem::Event(ClientEvent::Inbound(req))) => {
+                refuse_inbound(client, req).await;
+            }
             Some(_) => continue,
             None => return Err("The agent exited before completing initialize.".to_string()),
         }
     }
 }
 
-/// `session/new` request/response.
-async fn do_session_new(client: &AcpClient<StdioTransport>, cwd: &Path) -> Result<String, String> {
+/// `session/new` request/response. Same inbound-request handling as
+/// `do_initialize` — see `refuse_inbound`.
+async fn do_session_new<T: AcpTransport>(
+    client: &AcpClient<T>,
+    cwd: &Path,
+) -> Result<String, String> {
     let params = NewSessionParams {
         cwd: cwd.to_string_lossy().to_string(),
         mcp_servers: Vec::new(),
@@ -473,6 +612,9 @@ async fn do_session_new(client: &AcpClient<StdioTransport>, cwd: &Path) -> Resul
                 let parsed: NewSessionResult = serde_json::from_value(v)
                     .map_err(|e| format!("Malformed session/new result: {e}"))?;
                 return Ok(parsed.session_id);
+            }
+            Some(PumpItem::Event(ClientEvent::Inbound(req))) => {
+                refuse_inbound(client, req).await;
             }
             Some(_) => continue,
             None => return Err("The agent exited before completing session/new.".to_string()),
@@ -554,15 +696,18 @@ mod tests {
     }
 
     #[test]
-    fn resolve_acp_binary_prefers_an_explicitly_configured_binary_path() {
-        // Kimi's raw AND acp binary happen to be the same name, but Claude's
-        // ACP adapter runs via `npx`, not the `claude` binary — an explicit
-        // `binary_path` must win over any cli_type-derived guess.
-        let agent = agent_fixture(Some(AgentCliType::Claude), "/opt/custom/my-claude-acp");
-        assert_eq!(
-            resolve_acp_binary(&agent).unwrap(),
-            "/opt/custom/my-claude-acp"
-        );
+    fn resolve_acp_binary_prefers_the_cli_type_hint_over_a_stale_binary_path() {
+        // This is the exact bug found in review: raw-CLI mode REQUIRES
+        // `binary_path`, so any Claude/Codex agent that ever ran in raw mode
+        // already arrives here with `binary_path` populated (e.g. the real
+        // `claude` binary) — but that's the WRONG program for ACP mode, whose
+        // Claude adapter runs via `npx`. The hint must win, or we'd spawn the
+        // interactive raw CLI as if it spoke JSON-RPC and hang forever.
+        let agent = agent_fixture(Some(AgentCliType::Claude), "/usr/local/bin/claude");
+        assert_eq!(resolve_acp_binary(&agent).unwrap(), "npx");
+
+        let agent = agent_fixture(Some(AgentCliType::Codex), "/usr/local/bin/codex");
+        assert_eq!(resolve_acp_binary(&agent).unwrap(), "npx");
     }
 
     #[test]
@@ -575,9 +720,23 @@ mod tests {
     }
 
     #[test]
+    fn resolve_acp_binary_falls_back_to_binary_path_when_no_hint_exists() {
+        // Openclaw/Hermes/Custom have no confirmed ACP adapter
+        // (`default_acp_template` returns `None` for all three) — an
+        // explicitly configured `binary_path` is their only escape hatch, and
+        // must still be honored.
+        let agent = agent_fixture(Some(AgentCliType::Openclaw), "/opt/custom/my-openclaw-acp");
+        assert_eq!(
+            resolve_acp_binary(&agent).unwrap(),
+            "/opt/custom/my-openclaw-acp"
+        );
+
+        let agent = agent_fixture(Some(AgentCliType::Custom), "/opt/custom/my-agent");
+        assert_eq!(resolve_acp_binary(&agent).unwrap(), "/opt/custom/my-agent");
+    }
+
+    #[test]
     fn resolve_acp_binary_errs_actionably_when_neither_is_available() {
-        // Openclaw/Hermes have no confirmed ACP adapter (`default_acp_template`
-        // returns None for them), and Custom has no built-in hint either.
         let agent = agent_fixture(Some(AgentCliType::Openclaw), "");
         let err = resolve_acp_binary(&agent).unwrap_err();
         assert!(err.contains("Coder"), "error should name the agent: {err}");
@@ -585,5 +744,116 @@ mod tests {
         assert!(resolve_acp_binary(&agent_fixture(Some(AgentCliType::Hermes), "")).is_err());
         assert!(resolve_acp_binary(&agent_fixture(Some(AgentCliType::Custom), "")).is_err());
         assert!(resolve_acp_binary(&agent_fixture(None, "")).is_err());
+    }
+
+    #[test]
+    fn reaper_spares_a_session_whose_turn_lock_is_held() {
+        let lock = tokio::sync::Mutex::new(());
+        let start = 1_000_000i64;
+        let now = start + 601_000; // past the 600s default timeout
+
+        // Free lock, expired: reapable.
+        assert!(is_reapable(start, now, 600, &lock));
+
+        // Hold the lock — simulating a turn in flight via `turn_guard` — and
+        // the SAME expired session must now be spared. This is the exact bug
+        // from review: an 11-minute refactor on the default 600s timeout must
+        // not get SIGTERM'd mid-edit just because it's also "expired".
+        let _held = lock.try_lock().unwrap();
+        assert!(
+            !is_reapable(start, now, 600, &lock),
+            "a session with an in-flight turn must never be reaped, even if expired"
+        );
+    }
+
+    #[test]
+    fn spawn_lock_for_shares_one_lock_per_agent_and_a_distinct_one_per_other_agent() {
+        let mgr = AcpSessionManager::new();
+        let a1 = mgr.spawn_lock_for("agent-a");
+        let a2 = mgr.spawn_lock_for("agent-a");
+        assert!(
+            Arc::ptr_eq(&a1, &a2),
+            "the same agent id must always get the same spawn lock"
+        );
+
+        let b = mgr.spawn_lock_for("agent-b");
+        assert!(
+            !Arc::ptr_eq(&a1, &b),
+            "different agents must not share a spawn lock (that would serialize unrelated agents)"
+        );
+    }
+
+    /// Run a future to completion on a current-thread runtime with the time
+    /// driver enabled — mirrors `a2a.rs`'s and `acp/client.rs`'s helper; this
+    /// repo uses no `#[tokio::test]`.
+    fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(fut)
+    }
+
+    /// Scripted transport mirroring `acp/client.rs`'s own test double: replays
+    /// canned inbound lines, records what we sent. Lets the handshake's
+    /// frame-handling be tested without spawning a process.
+    struct FakeTransport {
+        inbound: std::sync::Mutex<std::collections::VecDeque<String>>,
+        sent: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl FakeTransport {
+        fn new(lines: Vec<&str>) -> Self {
+            Self {
+                inbound: std::sync::Mutex::new(lines.iter().map(|s| s.to_string()).collect()),
+                sent: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+        fn sent(&self) -> Vec<String> {
+            self.sent.lock().unwrap().clone()
+        }
+    }
+
+    impl AcpTransport for FakeTransport {
+        async fn send(&self, line: String) -> Result<(), String> {
+            self.sent.lock().unwrap().push(line);
+            Ok(())
+        }
+        async fn recv(&self) -> Option<String> {
+            self.inbound.lock().unwrap().pop_front()
+        }
+    }
+
+    #[test]
+    fn handshake_replies_to_an_inbound_request_instead_of_dropping_it() {
+        block_on(async {
+            let transport = FakeTransport::new(vec![
+                // Arrives BEFORE the initialize response. Must not be
+                // silently dropped: client.rs's own doctrine is that an
+                // unanswered inbound request hangs the agent's turn forever.
+                r#"{"jsonrpc":"2.0","id":"a1","method":"session/request_permission",
+                    "params":{"sessionId":"s1","toolCall":{"toolCallId":"t1","title":"x",
+                    "kind":"edit"},"options":[]}}"#,
+                r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"authMethods":[]}}"#,
+            ]);
+            let client = AcpClient::new(transport);
+
+            let result = do_initialize(&client).await;
+            assert!(
+                result.is_ok(),
+                "the real initialize response must still be found past the inbound request: {result:?}"
+            );
+
+            let sent = client.transport().sent();
+            assert_eq!(
+                sent.len(),
+                2,
+                "expected our outgoing initialize request + one reply to the inbound request, got: {sent:?}"
+            );
+            assert!(
+                sent[1].contains(r#""id":"a1""#) && sent[1].contains("-32601"),
+                "must reply Method-not-found to the inbound request rather than drop it: {sent:?}"
+            );
+        });
     }
 }
