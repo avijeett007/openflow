@@ -18,9 +18,11 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -217,7 +219,13 @@ pub struct LiveSession {
     pub agent_id: String,
     pub cwd: String,
     client: AcpClient<StdioTransport>,
-    child: tokio::sync::Mutex<Child>,
+    /// Shared with `AcpSessionManager::pending_children` until this session is
+    /// promoted into `sessions` (see `acquire`) — an `Arc` so the same child
+    /// stays reachable by BOTH registries during that handoff, never by
+    /// neither.
+    child: Arc<tokio::sync::Mutex<Child>>,
+    /// This session's key in `pending_children`, cleared once promoted.
+    pending_id: u64,
     last_used_ms: AtomicI64,
     idle_timeout_secs: u32,
     /// Serializes turns: ACP does not guarantee concurrent prompts on one
@@ -331,6 +339,14 @@ async fn send_close_courtesy<T: AcpTransport>(
     .await;
 }
 
+/// A pending child's teardown action, type-erased so `pending_children`
+/// doesn't need to know about `tokio::process::Child` concretely.
+/// Production always closes over a real spawned child and reuses
+/// `terminate_child` (the SIGTERM→SIGKILL ladder) — nothing here reinvents
+/// it. Type-erasing this is what lets `shutdown_all`'s pending-drain logic be
+/// tested with a dummy entry, no real process required.
+type PendingKill = Box<dyn (FnOnce() -> Pin<Box<dyn Future<Output = ()> + Send>>) + Send>;
+
 /// Registry of warm ACP sessions, keyed by `agent_id`: at most one live
 /// session per agent. A project-path change or a dead child invalidates it
 /// (`should_reuse`, `is_alive`) rather than silently reusing state rooted in
@@ -340,14 +356,24 @@ pub struct AcpSessionManager {
     /// Per-agent spawn lock: serializes `acquire`'s whole
     /// check-reuse→end-stale→spawn→insert sequence so two concurrent triggers
     /// for the SAME agent (a double hotkey press, or a queued follow-up
-    /// landing during a cold `npx` handshake) can't both miss the registry,
-    /// each spawn their own child, and orphan one of them (the second
-    /// `insert` would silently overwrite the first, and nothing else would
-    /// ever hold or close that first `Arc<LiveSession>` — dropping it drops
-    /// `Child` too, which is `kill_on_drop(false)` by default). Never removed
-    /// once created: agent ids are a small, bounded set (one per configured
-    /// agent), so this cannot grow unbounded.
+    /// landing during a cold `npx` handshake) can't both miss the registry and
+    /// each spawn their own child for it. Deliberately NOT consulted by
+    /// `shutdown_all` — see `pending_children` for how orphan-at-quit is
+    /// actually prevented; waiting on this lock at quit was tried and
+    /// reverted (it coupled quit latency to the handshake budget, up to
+    /// ~161s worst case — see task-7-report.md's round-3 section). Never
+    /// removed once created: agent ids are a small, bounded set (one per
+    /// configured agent), so this cannot grow unbounded.
     spawn_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Spawned children not yet promoted into `sessions` (still mid-handshake)
+    /// or torn down after a failed handshake. Registered synchronously right
+    /// after `cmd.spawn()` succeeds, before any `.await` — so there is no
+    /// window where a spawned child is invisible to both this and `sessions`.
+    /// `shutdown_all` kills everything still here directly, rather than
+    /// waiting for any in-flight spawn to finish: this is what keeps quit
+    /// bounded (~4.5s) regardless of how wide the handshake budget is.
+    pending_children: Mutex<HashMap<u64, PendingKill>>,
+    next_pending_id: AtomicU64,
 }
 
 impl Default for AcpSessionManager {
@@ -361,6 +387,8 @@ impl AcpSessionManager {
         Self {
             sessions: Mutex::new(HashMap::new()),
             spawn_locks: Mutex::new(HashMap::new()),
+            pending_children: Mutex::new(HashMap::new()),
+            next_pending_id: AtomicU64::new(1),
         }
     }
 
@@ -409,11 +437,19 @@ impl AcpSessionManager {
             self.end_session(&agent.id).await;
         }
 
-        let session = spawn_session(agent, cwd).await?;
+        let session = self.spawn_session(agent, cwd).await?;
         self.sessions
             .lock()
             .unwrap()
             .insert(agent.id.clone(), Arc::clone(&session));
+        // Fully promoted: `shutdown_all` will now find this child via
+        // `sessions`. Only remove the pending marker AFTER the insert above,
+        // not before — so at every instant the child is reachable via
+        // `pending_children` OR `sessions`, never via neither.
+        self.pending_children
+            .lock()
+            .unwrap()
+            .remove(&session.pending_id);
         Ok(session)
     }
 
@@ -447,37 +483,39 @@ impl AcpSessionManager {
         futures_util::future::join_all(stale.iter().map(|id| self.end_session(id))).await;
     }
 
-    /// Close every live session. Called from the app's exit handler so no
-    /// child is ever left running after OpenFlow quits.
+    /// Close every live session AND kill every still-pending (mid-handshake)
+    /// child. Called from the app's exit handler so no child is ever left
+    /// running after OpenFlow quits.
+    ///
+    /// Deliberately does NOT wait on any spawn lock — an earlier version of
+    /// this fix did, to close the same orphan window `pending_children` now
+    /// closes, but that coupled quit latency to however long an in-flight
+    /// spawn's handshake budget allows (worst case ~161s: see
+    /// task-7-report.md's round-3 section). `pending_children` closes the
+    /// same window without waiting for anything: a pending child is killed
+    /// directly, not awaited to finish on its own.
     pub async fn shutdown_all(&self) {
-        // Take EVERY known agent's spawn lock before snapshotting `sessions`.
-        // `acquire` holds its agent's spawn lock for its entire
-        // check-then-spawn-then-insert body (now up to `COLD_START_TIMEOUT`
-        // wide), so an `acquire` that was mid-spawn when shutdown began could
-        // otherwise insert its session into the registry AFTER our snapshot
-        // below — an orphan on quit, unobserved by this call. Waiting out
-        // every lock first guarantees any in-flight `acquire` has already
-        // either inserted (visible below) or failed (nothing to clean up)
-        // before we look.
-        let locks: Vec<Arc<tokio::sync::Mutex<()>>> = {
-            let spawn_locks = self.spawn_locks.lock().unwrap();
-            spawn_locks.values().cloned().collect()
+        let pending: Vec<PendingKill> = {
+            let mut p = self.pending_children.lock().unwrap();
+            p.drain().map(|(_, kill)| kill).collect()
         };
-        let guards = futures_util::future::join_all(locks.iter().map(|l| l.lock())).await;
-
         let ids: Vec<String> = {
             let sessions = self.sessions.lock().unwrap();
             sessions.keys().cloned().collect()
         };
-        // Release before teardown: nothing else needs to be excluded once the
-        // snapshot above is taken, and holding these any longer would only
-        // needlessly block a brand-new `acquire` racing the very end of quit.
-        drop(guards);
 
         // This runs on the main thread via `block_on` in `RunEvent::Exit` —
-        // serial teardown of N sessions would visibly delay app quit by
-        // N × (up to CLOSE_COURTESY_TIMEOUT + terminate_child's grace period).
-        futures_util::future::join_all(ids.iter().map(|id| self.end_session(id))).await;
+        // serial teardown would visibly delay app quit by the sum of every
+        // session's + every pending child's teardown; concurrently, N of
+        // either cost roughly constant wall-clock time instead.
+        let mut futs: Vec<Pin<Box<dyn Future<Output = ()> + Send + '_>>> = Vec::new();
+        for kill in pending {
+            futs.push(kill());
+        }
+        for id in &ids {
+            futs.push(Box::pin(self.end_session(id)));
+        }
+        futures_util::future::join_all(futs).await;
     }
 }
 
@@ -486,67 +524,111 @@ impl AcpSessionManager {
 /// after the child is spawned kills it before returning — a
 /// partially-initialized ACP agent must never be left running unattended,
 /// since nothing else holds a handle to it yet.
-async fn spawn_session(agent: &AgentDefinition, cwd: &Path) -> Result<Arc<LiveSession>, String> {
-    let binary = resolve_acp_binary(agent)?;
-    let argv = build_acp_argv(&agent.acp_command_template);
-    let idle_timeout_secs = agent.acp_idle_timeout_secs;
+impl AcpSessionManager {
+    /// Spawn the agent binary as an ACP server, run the handshake
+    /// (`initialize` then `session/new`), and wrap the result as a
+    /// `LiveSession`. Registers the spawned child in `pending_children`
+    /// BEFORE the handshake — synchronously, with no `.await` in between —
+    /// so `shutdown_all` can always reach it, even if the app quits
+    /// mid-handshake. On a failure path here, the pending marker is removed
+    /// and the child is killed directly; on success, the caller (`acquire`)
+    /// removes the marker only once the session is fully promoted into
+    /// `sessions`, so the child is never invisible to both registries at once.
+    async fn spawn_session(
+        &self,
+        agent: &AgentDefinition,
+        cwd: &Path,
+    ) -> Result<Arc<LiveSession>, String> {
+        let binary = resolve_acp_binary(agent)?;
+        let argv = build_acp_argv(&agent.acp_command_template);
+        let idle_timeout_secs = agent.acp_idle_timeout_secs;
 
-    // Same plumbing as the raw driver: `spawn_plan` handles the Windows
-    // `.cmd`/`.bat` npm-shim case (two of our three ACP agents launch via
-    // `npx`), and `apply_baseline_env` restores the Homebrew/nvm/cargo PATH a
-    // GUI-launched process otherwise lacks. Do not reinvent either.
-    let plan = spawn_plan(&binary, cfg!(windows));
-    let mut cmd = Command::new(&plan.program);
-    cmd.args(&plan.pre_args)
-        .args(&argv)
-        .current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    apply_baseline_env(&mut cmd);
+        // Same plumbing as the raw driver: `spawn_plan` handles the Windows
+        // `.cmd`/`.bat` npm-shim case (two of our three ACP agents launch via
+        // `npx`), and `apply_baseline_env` restores the Homebrew/nvm/cargo
+        // PATH a GUI-launched process otherwise lacks. Do not reinvent either.
+        let plan = spawn_plan(&binary, cfg!(windows));
+        let mut cmd = Command::new(&plan.program);
+        cmd.args(&plan.pre_args)
+            .args(&argv)
+            .current_dir(cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        apply_baseline_env(&mut cmd);
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn ACP agent '{binary}': {e}"))?;
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn ACP agent '{binary}': {e}"))?;
+        let child = Arc::new(tokio::sync::Mutex::new(child));
 
-    let stdin = child.stdin.take().expect("stdin was piped");
-    let stdout = child.stdout.take().expect("stdout was piped");
-    // Drain stderr so a chatty agent never blocks on a full pipe. There is no
-    // run yet to attribute this to (a session outlives any one run); log it
-    // for post-mortem diagnosis of a crash.
-    if let Some(stderr) = child.stderr.take() {
-        let agent_id = agent.id.clone();
-        tauri::async_runtime::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                log::debug!("acp[{agent_id}] stderr: {line}");
+        // Register BEFORE anything below can yield to another task: from
+        // this instant until either promotion (`acquire`, on success) or
+        // removal in the `Err` arm below, `shutdown_all` can always find and
+        // kill this child.
+        let pending_id = self.next_pending_id.fetch_add(1, Ordering::SeqCst);
+        {
+            let child_for_kill = Arc::clone(&child);
+            let kill: PendingKill = Box::new(move || {
+                Box::pin(async move {
+                    let mut c = child_for_kill.lock().await;
+                    terminate_child(&mut c).await;
+                })
+            });
+            self.pending_children
+                .lock()
+                .unwrap()
+                .insert(pending_id, kill);
+        }
+
+        let (stdin, stdout, stderr) = {
+            let mut c = child.lock().await;
+            (
+                c.stdin.take().expect("stdin was piped"),
+                c.stdout.take().expect("stdout was piped"),
+                c.stderr.take(),
+            )
+        };
+        // Drain stderr so a chatty agent never blocks on a full pipe. There is
+        // no run yet to attribute this to (a session outlives any one run);
+        // log it for post-mortem diagnosis of a crash.
+        if let Some(stderr) = stderr {
+            let agent_id = agent.id.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    log::debug!("acp[{agent_id}] stderr: {line}");
+                }
+            });
+        }
+
+        let transport = StdioTransport::new(stdin, stdout);
+        let client = AcpClient::new(transport);
+
+        // Bounded, in two phases — see `run_handshake`'s doc comment for why a
+        // single budget doesn't work here (an `npx` cold install can dwarf
+        // the handshake itself).
+        match run_handshake(&client, cwd, &agent.name).await {
+            Ok(session_id) => Ok(Arc::new(LiveSession {
+                session_id,
+                agent_id: agent.id.clone(),
+                cwd: cwd.to_string_lossy().to_string(),
+                client,
+                child,
+                pending_id,
+                last_used_ms: AtomicI64::new(now_ms()),
+                idle_timeout_secs,
+                turn_lock: tokio::sync::Mutex::new(()),
+                session_override: Mutex::new(None),
+            })),
+            Err(e) => {
+                // Not registered in `sessions` (never was) and no longer
+                // pending — if we didn't kill it here, it would be orphaned.
+                self.pending_children.lock().unwrap().remove(&pending_id);
+                let mut c = child.lock().await;
+                terminate_child(&mut c).await;
+                Err(e)
             }
-        });
-    }
-
-    let transport = StdioTransport::new(stdin, stdout);
-    let client = AcpClient::new(transport);
-
-    // Bounded, in two phases — see `run_handshake`'s doc comment for why a
-    // single budget doesn't work here (an `npx` cold install can dwarf the
-    // handshake itself). Any failure past this point kills the child before
-    // returning — it isn't registered in `sessions` yet, so a bare `return`
-    // here would orphan it forever.
-    match run_handshake(&client, cwd, &agent.name).await {
-        Ok(session_id) => Ok(Arc::new(LiveSession {
-            session_id,
-            agent_id: agent.id.clone(),
-            cwd: cwd.to_string_lossy().to_string(),
-            client,
-            child: tokio::sync::Mutex::new(child),
-            last_used_ms: AtomicI64::new(now_ms()),
-            idle_timeout_secs,
-            turn_lock: tokio::sync::Mutex::new(()),
-            session_override: Mutex::new(None),
-        })),
-        Err(e) => {
-            terminate_child(&mut child).await;
-            Err(e)
         }
     }
 }
@@ -936,15 +1018,73 @@ mod tests {
     fn close_courtesy_send_is_bounded_even_when_the_transport_never_resolves() {
         block_on(async {
             let client = AcpClient::new(HangingTransport);
-            let started = std::time::Instant::now();
-            // A tight timeout: proves the bound, not the real 2s production
-            // value (CLOSE_COURTESY_TIMEOUT), so this test stays fast.
-            send_close_courtesy(&client, "s1", Duration::from_millis(20)).await;
+            // Outer timeout hardens the TEST itself, not just the assertion:
+            // `cargo test` has no per-test timeout, so if `send_close_courtesy`'s
+            // own inner timeout ever regresses (e.g. someone removes it), this
+            // must fail with a named assertion in ~1s rather than hang CI
+            // forever. The inner 20ms timeout is what's actually under test;
+            // it stays far short of the outer 1s bound so a passing run is fast.
+            let result = tokio::time::timeout(
+                Duration::from_secs(1),
+                send_close_courtesy(&client, "s1", Duration::from_millis(20)),
+            )
+            .await;
             assert!(
-                started.elapsed() < Duration::from_secs(1),
-                "the courtesy send must return once its timeout elapses, not hang on a \
-                 transport that never resolves — took {:?}",
-                started.elapsed()
+                result.is_ok(),
+                "send_close_courtesy must return well within its own timeout, not hang the test"
+            );
+        });
+    }
+
+    #[test]
+    fn shutdown_all_does_not_wait_on_an_in_flight_spawn_lock() {
+        // Round-3 regression test: an earlier fix made `shutdown_all` wait on
+        // every spawn lock before tearing down, to close an orphan-at-quit
+        // window — but that coupled quit latency to the handshake budget
+        // (worst case ~161s). `pending_children` closes the same window
+        // without waiting on anything, so holding a spawn lock (simulating an
+        // `acquire` mid-`spawn_session`) must have NO effect on `shutdown_all`'s
+        // latency at all.
+        block_on(async {
+            let mgr = AcpSessionManager::new();
+            let lock = mgr.spawn_lock_for("coder");
+            let _guard = lock.lock().await; // simulates acquire() mid-spawn_session
+
+            let result = tokio::time::timeout(Duration::from_millis(100), mgr.shutdown_all()).await;
+            assert!(
+                result.is_ok(),
+                "shutdown_all must not block on a spawn lock held by an in-flight acquire — \
+                 quit must stay bounded no matter how wide the handshake budget is"
+            );
+        });
+    }
+
+    #[test]
+    fn shutdown_all_kills_every_pending_entry_and_clears_the_registry() {
+        // Process-free stand-in for "shutdown_all reaches a child that's
+        // still mid-handshake": register a dummy `PendingKill` (no real
+        // `Child` — pending_children is type-erased for exactly this reason)
+        // and confirm shutdown_all invokes it and removes it.
+        block_on(async {
+            let mgr = AcpSessionManager::new();
+            let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let called_in_kill = Arc::clone(&called);
+            let dummy: PendingKill = Box::new(move || {
+                Box::pin(async move {
+                    called_in_kill.store(true, Ordering::SeqCst);
+                })
+            });
+            mgr.pending_children.lock().unwrap().insert(1, dummy);
+
+            mgr.shutdown_all().await;
+
+            assert!(
+                called.load(Ordering::SeqCst),
+                "shutdown_all must invoke every kill action still in pending_children"
+            );
+            assert!(
+                mgr.pending_children.lock().unwrap().is_empty(),
+                "shutdown_all must clear pending_children after killing everything in it"
             );
         });
     }
