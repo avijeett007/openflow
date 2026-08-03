@@ -19,3 +19,6 @@ src-tauri/src/catalog/catalog.json
 # Misc
 .DS_Store
 *.log
+
+# Superpowers/SDD working state (git-ignored, but Prettier still walks it)
+.superpowers

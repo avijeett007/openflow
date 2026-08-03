@@ -17,12 +17,33 @@ type Outcome = "allow_once" | "allow_always" | "deny_once" | "deny_always";
  * check rather than an exact match table, since every kind ACP defines fits
  * this shape and an unrecognized future kind should still resolve sensibly
  * rather than silently drop the button.
+ *
+ * This is a GUESS for anything outside those four kinds, and the backend knows
+ * it: the exact `option_id` travels alongside and is what actually gets sent,
+ * and `PermissionResolved`'s recorded outcome is derived from THAT option's
+ * kind, not from this return value. Otherwise an agent offering `kind:
+ * "approve"` would be correctly allowed while the audit trail said "Denied".
  */
 const toOutcome = (kind: string): Outcome => {
   const always = kind.includes("always");
   const allow = kind.startsWith("allow");
   if (allow) return always ? "allow_always" : "allow_once";
   return always ? "deny_always" : "deny_once";
+};
+
+/**
+ * Button emphasis. Only ACP's own vocabulary earns a colour: `allow*` reads as
+ * the affirmative action, `reject*`/`deny*` as the destructive one. Anything
+ * else is styled NEUTRALLY rather than as a denial — painting an unrecognised
+ * option red tells the user it refuses when we have no idea whether it does.
+ */
+const variantFor = (
+  kind: string,
+): "primary-soft" | "danger-ghost" | "ghost" => {
+  if (kind.startsWith("allow")) return "primary-soft";
+  if (kind.startsWith("reject") || kind.startsWith("deny"))
+    return "danger-ghost";
+  return "ghost";
 };
 
 interface PermissionPromptProps {
@@ -115,11 +136,7 @@ export const PermissionPrompt: React.FC<PermissionPromptProps> = ({
                 <Button
                   key={option.option_id}
                   type="button"
-                  variant={
-                    option.kind.startsWith("allow")
-                      ? "primary-soft"
-                      : "danger-ghost"
-                  }
+                  variant={variantFor(option.kind)}
                   size="sm"
                   disabled={busy}
                   onClick={() => void respond(req.requestId, option)}
@@ -130,11 +147,19 @@ export const PermissionPrompt: React.FC<PermissionPromptProps> = ({
             </div>
             {hasAlwaysOption && (
               <p className="text-xs text-mid-gray/80 italic">
-                {req.toolKind
+                {/* The copy must match what the backend will actually do. An
+                    "always" is remembered PER TOOL KIND, and only for a kind
+                    that distinguishes something: an absent kind or ACP's
+                    catch-all `other` is deliberately NOT persisted (see
+                    `agent_run::is_persistable_kind`), because Claude Code
+                    files every MCP tool under `other` and one click would
+                    otherwise pre-authorise all of them. Promising a scope we
+                    then refuse to honour is worse than promising none. */}
+                {req.alwaysPersists && req.toolKind
                   ? t("settings.agentRuns.acp.permission.alwaysScopeKind", {
                       kind: req.toolKind,
                     })
-                  : t("settings.agentRuns.acp.permission.alwaysScope")}
+                  : t("settings.agentRuns.acp.permission.alwaysScopeOnce")}
               </p>
             )}
           </div>

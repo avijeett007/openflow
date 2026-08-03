@@ -12,6 +12,7 @@ import {
   Pencil,
   Search,
   ShieldCheck,
+  ShieldQuestion,
   ShieldX,
   Terminal,
   Trash2,
@@ -54,7 +55,17 @@ const TURN_END_KEYS: Record<string, string> = {
   failed: "settings.agentRuns.acp.turnEnd.failed",
 };
 
-/** `RunEvent::PermissionResolved`'s `outcome` is always one of these three (see `drive_acp_run`'s `on_event(RunEvent::PermissionResolved …)` call sites) — never the agent-supplied option name. */
+/**
+ * `RunEvent::PermissionResolved`'s `outcome`, normally one of these three.
+ *
+ * It can also be an agent's own non-standard option kind: the backend derives
+ * this string from the option it ACTUALLY sent (`resolved_outcome_label`), and
+ * when that option's kind is outside ACP's four it records the agent's word
+ * verbatim rather than guessing a side. Recording "Denied" for a request that
+ * was in fact granted would make the permanent record of a security decision
+ * say the opposite of what happened. Such a value falls through to the raw
+ * string below, with neutral rather than red-shield treatment.
+ */
 const PERMISSION_OUTCOME_KEYS: Record<string, string> = {
   allow: "settings.agentRuns.acp.permission.outcomeAllow",
   deny: "settings.agentRuns.acp.permission.outcomeDeny",
@@ -190,14 +201,26 @@ export const RunEventList: React.FC<RunEventListProps> = ({ rows }) => {
             const outcomeKey = row.outcome
               ? PERMISSION_OUTCOME_KEYS[row.outcome]
               : undefined;
-            const allowed = row.outcome === "allow";
+            // Three states, not two: allowed, refused, and "the agent used a
+            // kind we do not recognise, so we honoured the exact click but
+            // will not claim which way it went".
+            const OutcomeIcon =
+              row.outcome === "allow"
+                ? ShieldCheck
+                : row.outcome === "deny" || row.outcome === "cancelled"
+                  ? ShieldX
+                  : ShieldQuestion;
+            const outcomeColor =
+              row.outcome === "allow"
+                ? "text-green-400"
+                : row.outcome === "deny" || row.outcome === "cancelled"
+                  ? "text-red-400"
+                  : "text-mid-gray";
             return (
               <div key={row.key} className="flex items-start gap-1.5 text-xs">
-                {allowed ? (
-                  <ShieldCheck className="h-3.5 w-3.5 mt-0.5 shrink-0 text-green-400" />
-                ) : (
-                  <ShieldX className="h-3.5 w-3.5 mt-0.5 shrink-0 text-red-400" />
-                )}
+                <OutcomeIcon
+                  className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${outcomeColor}`}
+                />
                 <span className="text-mid-gray">
                   {t("settings.agentRuns.acp.permission.resolved", {
                     title: row.title,

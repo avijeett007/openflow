@@ -649,6 +649,17 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
                   {resolvedAcpProgram}
                 </code>
               </p>
+              {/* Verified live: codex-acp advertises `authMethods` and refuses
+                  `session/new` with "Authentication required" until the CLI
+                  itself has been logged in. OpenFlow does not implement ACP's
+                  `authenticate`, so this preset simply cannot work first-run —
+                  say so here rather than let the user discover it as a failed
+                  run. */}
+              {effectiveCliType === "codex" && (
+                <p className="text-xs text-mid-gray/80 italic">
+                  {t("settings.agents.acp.resolvedProgram.codexLoginNote")}
+                </p>
+              )}
             </div>
           </SettingContainer>
 

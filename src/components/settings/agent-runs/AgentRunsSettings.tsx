@@ -63,9 +63,16 @@ function groupRunsIntoThreads(runs: AgentRunInfo[]): RunThread[] {
 }
 
 /** The follow-up textarea + Send button shown under the newest run of a thread whose warm session can still take another turn. */
-const FollowUpBox: React.FC<{ onSubmit: (text: string) => Promise<void> }> = ({
-  onSubmit,
-}) => {
+const FollowUpBox: React.FC<{
+  onSubmit: (text: string) => Promise<void>;
+  /**
+   * The previous turn did not end with `Finished`, so its session was very
+   * likely dropped (see `turn_result`'s `drop_session`). A follow-up still
+   * works — it just starts a FRESH session with none of the earlier context,
+   * which is not what "continue this conversation" promises.
+   */
+  contextLikelyLost: boolean;
+}> = ({ onSubmit, contextLikelyLost }) => {
   const { t } = useTranslation();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -88,7 +95,11 @@ const FollowUpBox: React.FC<{ onSubmit: (text: string) => Promise<void> }> = ({
         variant="compact"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder={t("settings.agentRuns.acp.followUp.placeholder")}
+        placeholder={t(
+          contextLikelyLost
+            ? "settings.agentRuns.acp.followUp.placeholderAfterFailure"
+            : "settings.agentRuns.acp.followUp.placeholder",
+        )}
         disabled={sending}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -375,6 +386,25 @@ export const AgentRunsSettings: React.FC = () => {
             const manuallyEnded =
               endedAt !== undefined && endedAt >= newest.started_at_ms;
             const showFollowUp = showThreadControls && !manuallyEnded;
+            // "End session" SIGTERMs the agent without consulting its turn
+            // lock — unlike the idle reaper and the run driver, which both
+            // spare an in-flight turn. Deliberate for a deliberate action, but
+            // it must not be clickable while this agent has work running in
+            // ANOTHER thread (a fresh session started after a previous one was
+            // ended), where `turnOver` above only looks at this thread's
+            // newest run.
+            const agentIsBusyElsewhere = runs.some(
+              (r) => r.agent_id === newest.agent_id && isRunning(r.status),
+            );
+            // A turn that did not end with `Finished` very likely had its
+            // session dropped (`turn_result`'s `drop_session`: a crashed
+            // child, a stdin write abandoned mid-frame, a cancel the agent
+            // never acknowledged). Offering "continue this conversation" there
+            // overstates what a follow-up will do — it will start a NEW
+            // session with none of the context. Surfacing true session
+            // liveness would need a new `AgentRunInfo` field; saying so
+            // plainly costs nothing and misleads no one.
+            const contextLikelyLost = newest.status.status !== "finished";
 
             return (
               <div
@@ -393,6 +423,12 @@ export const AgentRunsSettings: React.FC = () => {
                       type="button"
                       variant="ghost"
                       size="sm"
+                      disabled={agentIsBusyElsewhere}
+                      title={t(
+                        agentIsBusyElsewhere
+                          ? "settings.agentRuns.acp.thread.endSessionBusy"
+                          : "settings.agentRuns.acp.thread.endSessionHint",
+                      )}
                       onClick={() => void handleEndSession(newest.agent_id)}
                       className="inline-flex items-center gap-1.5 text-mid-gray"
                     >
@@ -418,6 +454,7 @@ export const AgentRunsSettings: React.FC = () => {
                 ))}
                 {showFollowUp && (
                   <FollowUpBox
+                    contextLikelyLost={contextLikelyLost}
                     onSubmit={(text) => handleFollowUp(newest.agent_id, text)}
                   />
                 )}

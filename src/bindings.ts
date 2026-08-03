@@ -2487,7 +2487,25 @@ export type ProjectUsage = { project: string; dictations: number; words: number 
  */
 export type PromptDelivery = "stdin" | "arg"
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
-export type RunEvent = { kind: "text"; text: string } | { kind: "thought"; text: string } | { kind: "plan"; entries: PlanEntry[] } | { kind: "tool_call"; id: string; title: string; tool_kind: string; status: string; locations: string[] } | { kind: "tool_call_update"; id: string; status: string; content: string | null } | { kind: "permission_request"; request_id: string; tool_call_id: string | null; title: string; options: PermissionOption[] } | { kind: "permission_resolved"; request_id: string; outcome: string; automatic: boolean } | { kind: "turn_end"; stop_reason: string }
+export type RunEvent = { kind: "text"; text: string } | { kind: "thought"; text: string } | { kind: "plan"; entries: PlanEntry[] } | { kind: "tool_call"; id: string; title: string; tool_kind: string; status: string; locations: string[] } | 
+/**
+ * A REFINEMENT of an existing `ToolCall`, not a replacement. Every field
+ * but `id` is `Option` and `None` means **"the agent said nothing about
+ * this — leave it alone"**, never "reset it". Consumers MUST merge, not
+ * overwrite: see `render_line` below and `runEventRows.ts`.
+ */
+{ kind: "tool_call_update"; id: string; status: string | null; title: string | null; tool_kind: string | null; locations: string[] | null; content: string | null } | 
+/**
+ * `tool_kind` and `locations` are carried HERE rather than left to a
+ * frontend join on `tool_call_id`. ACP permits a permission request with
+ * no preceding `tool_call` at all, and the join then silently misses —
+ * leaving the card showing a bare title like *"Edit file"* with no
+ * indication of WHAT it touches, above an Allow button. The agent handed
+ * us both fields in the request itself; throwing them away and guessing
+ * them back is the one thing a permission gate must not do.
+ * Empty `tool_kind` / empty `locations` mean the agent did not say.
+ */
+{ kind: "permission_request"; request_id: string; tool_call_id: string | null; title: string; tool_kind: string; locations: string[]; options: PermissionOption[] } | { kind: "permission_resolved"; request_id: string; outcome: string; automatic: boolean } | { kind: "turn_end"; stop_reason: string }
 /**
  * Terminal/live status of a run. Internally tagged so the TS side is a clean
  * discriminated union: `{ status: "running" } | { status: "finished", code }`

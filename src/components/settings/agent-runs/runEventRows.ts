@@ -17,7 +17,14 @@ export interface ToolCallRow {
   toolKind: string;
   status: string;
   locations: string[];
-  content: string | null;
+  // NB: `ToolCallUpdate.content` is deliberately NOT retained. It is
+  // `Value::to_string()` of arbitrary agent JSON — bounded only by the
+  // transport's 8 MiB per-line cap, and a real run accumulates megabytes of it
+  // — while nothing in the panel has ever rendered it (the only `content` the
+  // UI draws belongs to a `PlanEntry`). Keeping it meant this store held
+  // roughly 10 MB where the backend's own mirror of the same run holds ~3 KB.
+  // If a tool-output view is ever built, read it from the event stream at
+  // render time rather than reviving this field.
 }
 
 export interface PermissionRow {
@@ -27,15 +34,33 @@ export interface PermissionRow {
   toolCallId: string | null;
   title: string;
   options: PermissionOption[];
-  /** Resolved via the matching `ToolCall`'s `locations`, if any. */
+  /**
+   * What an Allow would touch. Taken from the permission request's OWN
+   * `locations` when the agent supplied them, and only falling back to the
+   * matching `ToolCall`'s. ACP permits a permission request with no preceding
+   * `tool_call`, so the join can legitimately miss — and a card that asks
+   * "Edit file — Allow?" without naming the file is the one failure this
+   * feature cannot afford.
+   */
   targetPaths: string[];
   /**
-   * The matching `ToolCall`'s `tool_kind` (e.g. `read`, `execute`), if any.
-   * Lets the prompt word an "always" answer's scope concretely (an
-   * always-allow is recorded PER TOOL KIND — see `permission::decide` — never
-   * as blanket authority) instead of leaving it vague.
+   * The tool kind (e.g. `read`, `execute`), from the request itself where the
+   * agent stated one, else the matching `ToolCall`'s. Lets the prompt word an
+   * "always" answer's scope concretely (an always-allow is recorded PER TOOL
+   * KIND — see `permission::decide`) instead of leaving it vague. `null` means
+   * the agent named no kind at all (Kimi does this), in which case an "always"
+   * is NOT remembered — see `alwaysPersists`.
    */
   toolKind: string | null;
+  /**
+   * Whether clicking an "always" option will actually be remembered for the
+   * session. False when the kind is absent or `"other"` — ACP's catch-all,
+   * which Claude Code files every MCP and unrecognised tool under, so
+   * remembering it would pre-authorise all of them at once. Mirrors
+   * `agent_run::is_persistable_kind`; the copy under the buttons must not
+   * promise persistence the backend deliberately refuses.
+   */
+  alwaysPersists: boolean;
   /**
    * `open` — still awaiting an answer, the turn has not ended.
    * `resolved` — a matching `PermissionResolved` arrived.
@@ -133,33 +158,39 @@ export function buildEventRows(
             toolKind: e.tool_kind,
             status: e.status,
             locations: e.locations,
-            content: null,
           });
         }
         break;
       }
       case "tool_call_update": {
+        // A `ToolCallUpdate` is a REFINEMENT: `null` on any field means "the
+        // agent said nothing about this", never "reset it". Merge, never
+        // overwrite. `claude-agent-acp` sends refinements carrying the resolved
+        // path and NO status at all; assigning `e.status` unconditionally used
+        // to clobber the tool call's real `pending`/`completed` with `""`, and
+        // the path itself was not modelled and never arrived.
         const idx = toolIndex.get(e.id);
         const existing = idx !== undefined ? rows[idx] : undefined;
         if (existing !== undefined && existing.type === "tool_call") {
           rows[idx as number] = {
             ...existing,
-            status: e.status,
-            content: e.content ?? existing.content,
+            status: e.status ?? existing.status,
+            title: e.title ?? existing.title,
+            toolKind: e.tool_kind ?? existing.toolKind,
+            locations: e.locations ?? existing.locations,
           };
         } else {
           // An update with no matching call shouldn't happen in practice, but
-          // never silently drop a status change the agent sent.
+          // never silently drop what the agent sent.
           toolIndex.set(e.id, rows.length);
           rows.push({
             type: "tool_call",
             key: `tool-${e.id}`,
             id: e.id,
-            title: e.id,
-            toolKind: "other",
-            status: e.status,
-            locations: [],
-            content: e.content,
+            title: e.title ?? e.id,
+            toolKind: e.tool_kind ?? "other",
+            status: e.status ?? "",
+            locations: e.locations ?? [],
           });
         }
         break;
@@ -169,14 +200,16 @@ export function buildEventRows(
           ? toolIndex.get(e.tool_call_id)
           : undefined;
         const toolRow = toolIdx !== undefined ? rows[toolIdx] : undefined;
+        const joined =
+          toolRow !== undefined && toolRow.type === "tool_call"
+            ? toolRow
+            : undefined;
+        // The REQUEST's own fields win. The join is only a fallback: ACP allows
+        // a permission request with no preceding `tool_call`, and a card that
+        // cannot name what it is about is worse than no card.
         const targetPaths =
-          toolRow !== undefined && toolRow.type === "tool_call"
-            ? toolRow.locations
-            : [];
-        const toolKind =
-          toolRow !== undefined && toolRow.type === "tool_call"
-            ? toolRow.toolKind
-            : null;
+          e.locations.length > 0 ? e.locations : (joined?.locations ?? []);
+        const toolKind = e.tool_kind || (joined?.toolKind ?? null);
         permIndex.set(e.request_id, rows.length);
         rows.push({
           type: "permission",
@@ -187,6 +220,8 @@ export function buildEventRows(
           options: e.options,
           targetPaths,
           toolKind,
+          // Mirrors `agent_run::is_persistable_kind`.
+          alwaysPersists: toolKind !== null && toolKind !== "other",
           state: "open",
         });
         break;
