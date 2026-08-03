@@ -1,0 +1,681 @@
+# ACP agents — live verification results
+
+**Date:** 2026-08-03
+**Branch:** `feat/acp-agents` @ `8c486e1`
+**Machine:** Intel Mac (`x86_64-apple-darwin`), macOS 24.6.0, node v24.2.0, npm 11.3.0
+**Spec:** `documentation/design/DESIGN-acp-agents.md` §2 / §7.1
+**Task:** `.superpowers/sdd/PLAN/task-12-brief.md`
+
+---
+
+## 0. Executive summary
+
+| #       | Item                                                          | Verdict                                                                                                                                                  |
+| ------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **V1**  | `fs`/`terminal` declared **false** — do agents still operate? | ✅ **VERIFIED — the design assumption HOLDS** (Kimi, Claude Code). ⚠️ Codex **not reached** (unauthenticated on this machine, not a capability refusal). |
+| **V2**  | Permission prompt → Allow → file changed                      | ✅ **Verified at protocol level** (Kimi + Claude Code). ❌ GUI half **not verified**.                                                                    |
+| **V3**  | Same session id reused, context retained                      | ✅ **Verified** (Kimi + Claude Code).                                                                                                                    |
+| **V4**  | Deny → agent reports it could not proceed, no side effect     | ✅ **Verified** (Kimi).                                                                                                                                  |
+| **V5**  | Stop mid-turn → `cancelled`, no orphan, session still warm    | ✅ **Verified at protocol level** (Kimi).                                                                                                                |
+| **V5b** | Orphan-at-quit (`pending_children`)                           | ❌ **NOT VERIFIED** — requires quitting the GUI app mid-spawn.                                                                                           |
+| **V6**  | Idle timeout → child reaped, next instruction respawns        | ❌ **NOT VERIFIED** — requires the GUI app.                                                                                                              |
+| **V7**  | Regression half                                               | ⚠️ **PARTIAL** — static/settings evidence yes, in-app agent runs no.                                                                                     |
+| —       | Full gates                                                    | ✅ All pass (see §7).                                                                                                                                    |
+
+### 🚨 One blocking defect found — `stopReason` vocabulary is wrong
+
+**Every successful ACP turn is currently reported to the user as a FAILURE.** This is a
+real, live-reproduced defect that the 465 unit tests cannot catch, because the tests
+assert against a stop-reason vocabulary that **no real agent emits**. Details in §2.
+
+---
+
+## 1. V1 — the riskiest assumption (`fs`/`terminal` = false)
+
+### 1.1 Method
+
+OpenFlow does **not** need to be running for this. A standalone probe
+(`scratchpad/acp-probe.mjs`, reproduced in §8) spawns each agent's ACP command over
+stdio and speaks the **exact** frames OpenFlow speaks. The `initialize` params are
+byte-for-byte what `ClientCapabilities::v1_defaults()` +
+`do_initialize()` produce (`src-tauri/src/acp/protocol.rs:39`,
+`src-tauri/src/managers/acp_session.rs:983`):
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": 1,
+    "clientCapabilities": {
+      "fs": { "readTextFile": false, "writeTextFile": false },
+      "terminal": false
+    },
+    "clientInfo": { "name": "OpenFlow", "version": "0.15.7" }
+  }
+}
+```
+
+The probe also replicates OpenFlow's inbound-request doctrine: it answers
+`session/request_permission`, and refuses **everything else** with
+`-32601 Method not found` — exactly as `refuse_inbound()`
+(`acp_session.rs:969`) and the turn driver (`agent_run.rs:1385`) do. So if an agent
+tried to call `fs/read_text_file` back to us, the probe would refuse it the same way the
+real app does, and we would see it in the log.
+
+### 1.2 `initialize` results — all three agents
+
+**Kimi** — `kimi acp` (`~/.kimi-code/bin/kimi`)
+
+```
+[INIT-OK] kimi in 1527ms
+```
+
+| Field               | Value                                                                       |
+| ------------------- | --------------------------------------------------------------------------- |
+| `agentInfo.name`    | `Kimi Code CLI`                                                             |
+| `agentInfo.version` | `0.31.0`                                                                    |
+| `protocolVersion`   | `1`                                                                         |
+| `authMethods`       | `[{ id: "login", type: "terminal", name: "Login with Kimi account", ... }]` |
+
+```json
+"agentCapabilities": {
+  "loadSession": true,
+  "promptCapabilities": { "image": true, "audio": false, "embeddedContext": true },
+  "mcpCapabilities": { "http": true, "sse": true },
+  "sessionCapabilities": { "list": {}, "resume": {} }
+}
+```
+
+**Claude Code** — `npx -y @agentclientprotocol/claude-agent-acp`
+
+```
+[INIT-OK] claude-code in 13872ms
+```
+
+| Field               | Value                                                          |
+| ------------------- | -------------------------------------------------------------- |
+| `agentInfo.name`    | `@agentclientprotocol/claude-agent-acp` (title `Claude Agent`) |
+| `agentInfo.version` | `0.64.2`                                                       |
+| `protocolVersion`   | `1`                                                            |
+| `authMethods`       | `[]` (already authenticated on this machine)                   |
+
+```json
+"agentCapabilities": {
+  "_meta": { "claudeCode": { "promptQueueing": true } },
+  "promptCapabilities": { "image": true, "embeddedContext": true },
+  "mcpCapabilities": { "http": true, "sse": true },
+  "auth": { "logout": {} },
+  "providers": {},
+  "loadSession": true,
+  "sessionCapabilities": {
+    "additionalDirectories": {}, "close": {}, "delete": {},
+    "fork": {}, "list": {}, "resume": {}
+  }
+}
+```
+
+**Codex** — `npx -y @agentclientprotocol/codex-acp`
+
+```
+[INIT-OK] codex in 22247ms
+```
+
+| Field               | Value                                               |
+| ------------------- | --------------------------------------------------- |
+| `agentInfo.name`    | `@agentclientprotocol/codex-acp` (title `Codex`)    |
+| `agentInfo.version` | `1.1.9`                                             |
+| `protocolVersion`   | `1`                                                 |
+| `authMethods`       | `[{ id: "api-key", ... }, { id: "chat-gpt", ... }]` |
+
+```json
+"agentCapabilities": {
+  "auth": { "logout": {} }, "providers": {}, "loadSession": true,
+  "promptCapabilities": { "embeddedContext": true, "image": true },
+  "sessionCapabilities": {
+    "resume": {}, "list": {}, "close": {}, "delete": {}, "additionalDirectories": {}
+  },
+  "mcpCapabilities": { "acp": false, "http": true, "sse": false }
+}
+```
+
+> **All three negotiate `protocolVersion: 1`, matching
+> `SUPPORTED_PROTOCOL_VERSION` (`protocol.rs:10`). Not one of them rejected, warned
+> about, or renegotiated over the `fs`/`terminal: false` declaration.**
+
+### 1.3 Session-level check — does the agent do its own I/O?
+
+Throwaway git repos under the scratch dir, each with a committed `README.md` +
+`CONTRIBUTING.md`. Instruction: _"Read README.md in this directory and add a one-line
+comment at the very top describing this project. Make the edit directly to the file."_
+
+**Kimi — ✅ PASS**
+
+```
+[SESSION-ID] session_916bf000-e3cb-46c1-94e7-fb03f0caa8ba
+[PROMPT-RESULT] {"stopReason":"end_turn"}
+[INBOUND-METHODS-SEEN] []
+[TOOL-CALL-COUNT] 83
+```
+
+```diff
+$ git diff
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,4 @@
++<!-- Probe repo: a throwaway repo for ACP live verification. -->
+ # Probe Repo
+```
+
+**Claude Code — ✅ PASS**
+
+```
+[SESSION-ID] b757feeb-eb3e-4f5f-8e74-1ffb713cf9de
+[PROMPT-RESULT] {"stopReason":"end_turn","usage":{...,"totalTokens":88378}}
+[INBOUND-METHODS-SEEN] []
+[TOOL-CALL-COUNT] 10
+```
+
+```diff
+$ git diff
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,5 @@
++<!-- Probe Repo: a disposable scratch repository used for ACP live verification runs. -->
++
+ # Probe Repo
+```
+
+**Codex — ⚠️ NOT REACHED (auth, not capabilities)**
+
+```
+[SEND] {"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":".../repo-codex","mcpServers":[]}}
+[RECV] {"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"Authentication required"}}
+[RESULT] codex: SESSION/NEW FAILED
+```
+
+Confirmed independently — this is a machine state issue, not a protocol one:
+
+```
+$ codex login status
+Not logged in
+```
+
+`codex-cli 0.146.0` is installed, `~/.codex/auth.json` does not exist, and no
+`OPENAI_API_KEY` / `CODEX_ACCESS_TOKEN` is present in the environment. **Codex's
+`initialize` succeeded with `fs`/`terminal` declared false** — the refusal is at
+`session/new` and its message is `Authentication required`, which is unrelated to
+client capabilities. I did not attempt to authenticate it: doing so needs the founder's
+own OpenAI/ChatGPT credentials.
+
+### 1.4 V1 VERDICT
+
+> **The design assumption in DESIGN-acp-agents.md §2/§7.1 HOLDS.**
+>
+> **No agent refused to operate with `fs.readTextFile: false`,
+> `fs.writeTextFile: false`, `terminal: false`.** Both agents that reached a session
+> performed **100% of their own file I/O**: across every prompt run in this document,
+> the count of inbound `fs/*` and `terminal/*` requests from an agent was **zero**
+> (`[INBOUND-METHODS-TOTAL] []` in every log except the permission tests, where the only
+> inbound method was `session/request_permission` — which we _do_ support). The files
+> on disk actually changed, proven by `git diff`.
+>
+> **`BLOCKERS.md` was NOT written for V1, because V1 did not fail.** The blocker in §2
+> is a separate implementation defect, not a capability-model failure, and it does not
+> invalidate the §7.1 decision.
+
+**Caveat, stated plainly:** the V1 result is 2-of-3. Codex remains **unverified** at
+session level. It is the one agent whose own sandbox policy could still interact badly
+with a capability-less client, so this should be re-run once someone logs Codex in.
+
+---
+
+## 2. 🚨 BLOCKING DEFECT — `stopReason` vocabulary does not match the ACP spec
+
+**Severity: high. Affects 100% of successful ACP runs. Not catchable by the current unit tests.**
+
+### 2.1 What was observed
+
+Every single successful turn from **both** working agents returned:
+
+```json
+{ "stopReason": "end_turn" }
+```
+
+Kimi: `[PROMPT-RESULT] {"stopReason":"end_turn"}` — 6 separate runs.
+Claude Code: `[PROMPT-RESULT] {"stopReason":"end_turn","usage":{...}}` — 4 separate runs.
+
+### 2.2 What OpenFlow expects
+
+`src-tauri/src/acp/protocol.rs:129-134` parses only:
+
+```rust
+"completed"         => StopReason::Completed,
+"max_steps_reached" => StopReason::MaxStepsReached,
+"cancelled"         => StopReason::Cancelled,
+"request_timeout"   => StopReason::RequestTimeout,
+_                   => StopReason::Other,
+```
+
+### 2.3 The authoritative ACP enum
+
+From the ACP SDK schema shipped inside the adapters
+(`@agentclientprotocol/sdk/schema/schema.json` → `definitions.StopReason`):
+
+| Const               | Description (verbatim from schema)                                          |
+| ------------------- | --------------------------------------------------------------------------- |
+| `end_turn`          | "The turn ended successfully."                                              |
+| `max_tokens`        | "…reached the maximum number of tokens."                                    |
+| `max_turn_requests` | "…reached the maximum number of allowed agent requests between user turns." |
+| `refusal`           | "…the agent refused to continue."                                           |
+| `cancelled`         | "…cancelled by the client via `session/cancel`."                            |
+
+**Only `cancelled` overlaps.** `completed`, `max_steps_reached` and `request_timeout`
+**do not exist anywhere in the ACP specification.**
+
+### 2.4 Consequence
+
+`end_turn` falls to `_ => StopReason::Other`, and `stop_reason_to_status()`
+(`agent_run.rs:1034`) maps that to:
+
+```rust
+StopReason::Other => RunStatus::Failed {
+    error: "The agent stopped for a reason this version doesn't recognise.".into(),
+},
+```
+
+So **a perfectly successful agent run — file edited, task done — is surfaced to the user
+as a red `Failed` run with a confusing error string.** `max_tokens`, `max_turn_requests`
+and `refusal` collapse into the same generic failure, losing three distinct, actionable
+states (notably `refusal`, which the spec says "should be reflected in the UI").
+
+The unit tests do not catch this because they construct fixtures with the wrong
+vocabulary — e.g. `stop("completed")` in `agent_run.rs` tests. They are self-consistent
+and green against a vocabulary no agent emits.
+
+### 2.5 Suggested fix (NOT applied — reporting only, per instruction)
+
+In `protocol.rs`, align the parse with the spec and extend the enum:
+
+```rust
+"end_turn"          => StopReason::Completed,      // success
+"cancelled"         => StopReason::Cancelled,
+"max_tokens"        => StopReason::MaxTokens,      // new
+"max_turn_requests" => StopReason::MaxTurnRequests,// new
+"refusal"           => StopReason::Refusal,        // new
+_                   => StopReason::Other,
+```
+
+Keeping `"completed"`/`"max_steps_reached"`/`"request_timeout"` as tolerated aliases is
+harmless and preserves the existing tests. `stop_reason_to_status()` needs matching arms
+with distinct, human-meaningful messages. `RunStatus` still gains no variant, so DESIGN §6
+is respected.
+
+**One good side effect already proven:** `cancelled` _is_ correct, so V5's stop path
+(§5) maps to `RunStatus::Stopped` properly today.
+
+---
+
+## 3. V2 — permission prompt → Allow → file changed
+
+### 3.1 First attempt did not trigger a prompt — and why that is not a bug
+
+The initial V1 file-edit runs produced **zero** `session/request_permission` calls from
+either agent. Investigated rather than assumed:
+
+```
+$ python3 -c "...json.load(open('~/.claude/settings.json'))..."
+ALLOW: [..., "Read", "Edit", "Write", "Glob", "Grep", "Agent", "Bash(git *)", ...]
+DENY:  ["Bash(rm *)", "Bash(rmdir *)", ...]
+```
+
+The founder's own `~/.claude/settings.json` pre-approves `Edit`/`Write`, and the Claude
+adapter's session opened in mode `default` ("Standard behavior, prompts for dangerous
+operations"). A pre-approved edit is therefore _correctly_ not escalated. A second probe
+asking for `date -u` also auto-approved — the adapter classifies it read-only.
+
+> **Consequence worth flagging to the founder:** OpenFlow's `Ask` policy can only gate
+> what the agent actually _asks_ about. An agent whose own config pre-approves edits will
+> perform them with **no OpenFlow prompt at all**. That is the agent's policy winning,
+> not a gate failure — but the UI should not imply OpenFlow is gating everything.
+
+### 3.2 Forcing a real permission request — both agents ✅
+
+Using a shell command that is neither allow-listed nor deny-listed.
+
+**Kimi — Allow path**
+
+```
+[PERMISSION-REQUEST] options=[
+  {"optionId":"approve_once","name":"Approve once","kind":"allow_once"},
+  {"optionId":"approve_always","name":"Approve for this session","kind":"allow_always"},
+  {"optionId":"reject","name":"Reject","kind":"reject_once"}
+] -> policy=allow picking={"optionId":"approve_once",...,"kind":"allow_once"}
+[PROMPT-RESULT] {"stopReason":"end_turn"}
+[INBOUND-METHODS-SEEN] ["session/request_permission"]
+
+$ cat /tmp/openflow-acp-kimi-perm.txt
+kimi-perm-ok
+```
+
+**Claude Code — Allow path**
+
+```
+[PERMISSION-REQUEST] options=[
+  {"kind":"reject_once","name":"Deny","optionId":"reject"},
+  {"kind":"allow_once","name":"Allow Once","optionId":"allow"},
+  {"kind":"allow_always","name":"Always Allow","optionId":"allow_always","_meta":{...}}
+] -> policy=allow picking={"kind":"allow_once","name":"Allow Once","optionId":"allow"}
+[PROMPT-RESULT] {"stopReason":"end_turn",...}
+[INBOUND-METHODS-SEEN] ["session/request_permission"]
+
+$ cat /tmp/openflow-acp-perm-test.txt
+perm-ok
+```
+
+### 3.3 An important detail that OpenFlow gets right
+
+The two agents present their options in **different order** and with **different
+`optionId` strings**:
+
+| Agent       | Option ids                                   | Order            |
+| ----------- | -------------------------------------------- | ---------------- |
+| Kimi        | `approve_once` / `approve_always` / `reject` | allow first      |
+| Claude Code | `allow` / `allow_always` / `reject`          | **reject first** |
+
+`acp/permission.rs:69` selects by **`kind`** (`allow_once`, falling back to
+`allow_always`), never by index or by a hard-coded id:
+
+```rust
+.find(|o| o.kind == once)
+.or_else(|| options.iter().find(|o| o.kind == always))
+```
+
+**This is verified correct against both live shapes.** An index-based implementation
+would have silently clicked _Deny_ on Claude Code. Good call by whoever wrote it.
+
+### 3.4 V2 status
+
+- Protocol round trip (request → OpenFlow's exact option selection → answer → agent acts
+  → file on disk changes): ✅ **verified, both agents**.
+- Prompt rendered in the run panel, tool-call rows, run present in panel **and** File
+  sink: ❌ **NOT VERIFIED — needs a human at the GUI** (see §6).
+
+---
+
+## 4. V3 — session reuse and multi-turn context
+
+Turn 1: _"Add a one-line comment to the top of README.md describing this project."_
+Turn 2: _"Now do the same for CONTRIBUTING.md."_ — deliberately anaphoric, so it only
+works if the agent retained turn 1.
+
+**Claude Code ✅**
+
+```
+[SESSION-ID]              26da8e95-8d3d-44a4-9736-50cf133bb0e1
+[PROMPT-RESULT]           {"stopReason":"end_turn",...}
+[PROMPT2-RESULT]          {"stopReason":"end_turn",...}
+[TURN2-SESSION-ID-REUSED] 26da8e95-8d3d-44a4-9736-50cf133bb0e1
+[TOOL-CALL-COUNT-TOTAL]   26
+```
+
+```diff
+$ git status --short
+ M CONTRIBUTING.md
+ M README.md
++<!-- Contribution guidelines for Probe Repo, a disposable scratch repository used for ACP live verification. -->
++<!-- Probe Repo: a disposable scratch repository used for ACP live verification. -->
+```
+
+**Kimi ✅**
+
+```
+[SESSION-ID]              session_afcd453a-c378-4b4f-b87a-ebea3b6a58db
+[TURN2-SESSION-ID-REUSED] session_afcd453a-c378-4b4f-b87a-ebea3b6a58db
+[TOOL-CALL-COUNT-TOTAL]   138
+```
+
+```diff
+ M CONTRIBUTING.md
+ M README.md
++<!-- A throwaway probe repository used for ACP live verification. -->  (both files)
+```
+
+Both agents resolved "the same" correctly against turn 1 on a **single reused
+`sessionId`** — multi-turn context over one long-lived session is real. ✅ **VERIFIED.**
+
+"The two runs group into one thread" is a **UI** assertion — not verified (§6).
+
+---
+
+## 5. V4 (deny) and V5 (stop mid-turn)
+
+### 5.1 V4 — deny ✅
+
+Same forced-permission command, probe answering with the `reject_once` option:
+
+```
+[PERMISSION-REQUEST] ... -> policy=deny picking={"optionId":"reject",...,"kind":"reject_once"}
+[PROMPT-RESULT] {"stopReason":"end_turn"}
+[INBOUND-METHODS-SEEN] ["session/request_permission"]
+
+$ ls -la /tmp/openflow-acp-kimi-deny.txt
+ls: /tmp/openflow-acp-kimi-deny.txt: No such file or directory
+```
+
+The agent's own closing message:
+
+> "The command was not executed — the Bash tool approval was rejected, so I did not run it."
+
+**The denied side effect did not happen, and the agent reported it could not proceed.**
+✅ **VERIFIED.**
+
+> Honest note on the brief's "`git status` is clean": in that repo `git status` showed
+> ` M README.md`, which is **left over from the earlier V1 edit in the same repo**, not
+> from the denied operation. The denied operation targeted `/tmp/openflow-acp-kimi-deny.txt`,
+> whose non-existence is the actual proof. Recorded this way rather than re-running in a
+> pristine repo to avoid overstating.
+
+### 5.2 V5 — stop mid-turn ✅ (protocol level)
+
+Long-running prompt ("write a detailed 2000-word architecture report"), with a
+`session/cancel` notification sent 6s in, then a **third** prompt on the same session to
+prove it stayed warm:
+
+```
+[CANCELLING] after 6000ms — sending session/cancel notification
+[PROMPT-RESULT]           {"stopReason":"cancelled"}
+[PROMPT2-RESULT]          {"stopReason":"end_turn"}
+[TURN2-SESSION-ID-REUSED] session_8bb75e23-194a-4d6e-9151-758809e0fe0d
+```
+
+- `stopReason: "cancelled"` → `StopReason::Cancelled` → `RunStatus::Stopped`. ✅ Correct
+  (and the one stop reason OpenFlow parses correctly today — see §2).
+- **Session still warm and usable:** the follow-up turn succeeded on the _same_
+  `sessionId`, and correctly recalled the cancelled turn's instruction:
+  > "The first thing you asked me to do in this session was: **You asked me to carefully
+  > analyze this directory and write a detailed 2000-word architecture report into ARCH.md.**"
+- **No orphan process:**
+  ```
+  $ pgrep -f 'kimi-code/bin/kimi' | wc -l
+  0
+  $ pgrep -f 'claude-agent-acp|codex-acp' | wc -l
+  0
+  ```
+
+The `Stopped` status label itself is a UI assertion — not verified (§6).
+
+---
+
+## 6. NOT VERIFIED — everything that needs a human at the keyboard
+
+**These were not tested. No result is claimed for them.** This agent has no GUI access,
+no microphone, and no way to click. Recording them as unverified rather than inferring
+them from the protocol results.
+
+| Item                      | Why not verified                    | Exact steps for a human                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **V2 GUI**                | No way to click Allow               | Settings → Agents → add a CLI agent, protocol **ACP**, command `kimi`, ACP args `acp`, policy **Ask**. Bind a hotkey. Open a git repo as project path. Speak _"add a one-line comment to the top of README describing this project"_. Confirm: prompt appears inline in the run panel; click **Allow**; `git diff` shows the change; tool-call rows render; the run is in **both** the panel and the File sink.                                                                                                   |
+| **V3 GUI**                | Same                                | Immediately speak _"now do the same for CONTRIBUTING.md"_. Confirm the run panel groups both runs into **one thread** and shows the same session id.                                                                                                                                                                                                                                                                                                                                                              |
+| **V4 GUI**                | Same                                | Repeat V2 but click **Deny**. Confirm the panel shows the agent reporting it could not proceed, and `git status` is clean.                                                                                                                                                                                                                                                                                                                                                                                        |
+| **V5 GUI**                | Same                                | Start a long instruction, click **Stop** mid-turn. Confirm status renders **`Stopped`**, `ps` shows no orphan, and the next instruction reuses the warm session.                                                                                                                                                                                                                                                                                                                                                  |
+| **V5b orphan-at-quit**    | Requires quitting the app mid-spawn | `npm cache clean --force`; trigger an ACP agent using `npx -y @agentclientprotocol/codex-acp` so the spawn sits in its cold-install window; **Cmd+Q OpenFlow while it is still starting**. Assert `ps aux \| grep -E 'npx\|claude-agent-acp\|codex-acp\|kimi'` shows **no** survivor and that quit took seconds (not blocked on the install). Repeat with the agent mid-_handshake_. Record both `ps` outputs. **This is the only check for Task 7's `pending_children` registry — it has never been exercised.** |
+| **V6 idle timeout**       | Requires the app                    | Set ACP idle timeout to 60s, run one instruction, wait >60s. Assert `pgrep -f 'kimi\|acp'` shows the child gone, then give another instruction and confirm it respawns transparently.                                                                                                                                                                                                                                                                                                                             |
+| **V7 in-app regressions** | Requires the app                    | Run a **Raw-mode** CLI agent (identical output + file sink as before), a **prompt agent** (persona-LLM result still injected), and **plain dictation** (untouched).                                                                                                                                                                                                                                                                                                                                               |
+
+---
+
+## 7. V7 regression half — what _was_ provable, and gates
+
+### 7.1 Provable without the GUI ✅
+
+**The core dictation path is not touched by this branch:**
+
+```
+$ git diff --name-only main...HEAD | grep -E "transcription|audio_toolkit|shortcut|signal_handle|overlay"
+NONE — core dictation path untouched
+```
+
+The diff is 28 files / +7368 / −57, and is **additive**: new `acp/` module, new
+`managers/acp_session.rs`, new `commands/acp_agents.rs`, new run-panel components. The
+only pre-existing backend files modified are `settings.rs` (+179, `#[serde(default)]`
+fields), `agent_run.rs` (+2149, new ACP driver alongside the raw one), `lib.rs` (+39,
+registration) and `actions.rs` (+4).
+
+**Settings file is byte-identical over an app lifetime with zero ACP agents configured:**
+
+```
+$ shasum -a 256 ~/Library/Application\ Support/knotie.ai.openflow/settings_store.json   # T0
+a88738921761b5a98a2b805840366d01c6b4e27896b2c5896de6915378cbfd16
+$ shasum -a 256 ~/Library/Application\ Support/knotie.ai.openflow/settings_store.json   # T1, ~15 min later
+a88738921761b5a98a2b805840366d01c6b4e27896b2c5896de6915378cbfd16
+```
+
+Identical. The store contains **no agent keys at all** (`[k for k in settings if 'agent'
+in k.lower()]` → `[]`), i.e. the feature is genuinely unconfigured, and **no ACP child
+process exists**:
+
+```
+$ pgrep -f 'claude-agent-acp|codex-acp|kimi acp' | wc -l
+0
+```
+
+> ⚠️ **Honest limitation:** the running app during this window was the **released
+> `/Applications/OpenFlow.app` (v0.15.7, pid 4917)**, which does _not_ contain the ACP
+> code. So this proves the settings store is stable and unconfigured, but it is **not**
+> the branch-build start/stop cycle the brief asks for. Producing that requires quitting
+> the founder's running app and launching the dev build against the same real settings
+> store — deliberately not done. **The byte-identical-across-a-branch-build-cycle proof
+> is still outstanding.**
+
+**The full app compiles with all the new code wired in:**
+
+```
+$ export ORT_LIB_LOCATION=$(brew --prefix onnxruntime)/lib ORT_PREFER_DYNAMIC_LINK=1
+$ cargo build --manifest-path src-tauri/Cargo.toml --bins
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.78s
+$ ls -la src-tauri/target/debug/openflow
+-rwxr-xr-x@ 1 avijitsarkar staff 142922872 Aug  3 16:35 src-tauri/target/debug/openflow
+```
+
+Exit code 0. `bun run tauri dev` was **not** launched — it would have collided with the
+founder's running instance via `tauri_plugin_single_instance`. Compilation of the real
+binary is the safe equivalent and is what is claimed here; **no claim is made that the
+app was launched or driven.**
+
+### 7.2 Gates — all pass ✅
+
+```
+$ cargo test --lib
+test result: ok. 465 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+```
+
+```
+$ cargo clippy --all-targets
+warning: `openflow` (lib) generated 34 warnings
+warning: `openflow` (lib test) generated 39 warnings (34 duplicates)
+warning: `openflow` (example "diarize_ground_truth") generated 1 warning
+```
+
+**34 / 39 / 1 — exactly the documented baseline. Zero new findings.**
+
+```
+$ cargo fmt -- --check
+FMT_OK
+
+$ bun run build
+✓ built in 8.38s
+
+$ bun run lint
+✖ 1 problem (0 errors, 1 warning)
+  src/devAutomation.ts  12:9  warning  Unused eslint-disable directive
+```
+
+0 errors. The single warning is **pre-existing** in `devAutomation.ts`, untouched by this
+branch.
+
+```
+$ bun run format:check
+```
+
+Passes for all tracked files. Before `bun run format` it flagged
+`.superpowers/sdd/PLAN/progress.md` and `.superpowers/sdd/PLAN/task-12-brief.md` — both
+**gitignored local planning scaffolding** (`git check-ignore` →
+`.superpowers/sdd/.gitignore:1:*`), never committed, and unformatted before this task
+began. `bun run format` was run as required by `AGENTS.md`.
+
+---
+
+## 8. Reproducing this
+
+The probe is a single self-contained Node script; no OpenFlow build is required for
+V1–V5's protocol half.
+
+```bash
+SCRATCH=/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/\
+4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad
+
+# V1 initialize only
+node acp-probe.mjs --name kimi   --cmd kimi --args 'acp' --phase init
+node acp-probe.mjs --name claude --cmd npx  --args '-y @agentclientprotocol/claude-agent-acp' --phase init
+node acp-probe.mjs --name codex  --cmd npx  --args '-y @agentclientprotocol/codex-acp'        --phase init
+
+# V1 session-level file edit
+node acp-probe.mjs --name kimi --cmd kimi --args 'acp' --cwd "$SCRATCH/repo-kimi" \
+  --phase prompt --policy allow \
+  --prompt 'Read README.md and add a one-line comment at the very top describing this project.'
+
+# V3 multi-turn on one session
+node acp-probe.mjs ... --prompt 'Add a one-line comment to the top of README.md ...' \
+                       --prompt2 'Now do the same for CONTRIBUTING.md.'
+
+# V4 deny
+node acp-probe.mjs ... --policy deny --prompt '<a command needing approval>'
+
+# V5 cancel mid-turn, then prove the session is still warm
+node acp-probe.mjs ... --cancel-after 6000 --prompt '<long task>' --prompt2 'What did I first ask you?'
+```
+
+Full verbatim transcripts (every frame sent and received) are in `$SCRATCH/logs/`:
+`v1-kimi-init.log`, `v1-claude-init.log`, `v1-codex-init.log`, `v1-kimi-prompt.log`,
+`v1-claude-prompt.log`, `v1-codex-prompt.log`, `v2-claude-perm-allow.log`,
+`v2-claude-perm2.log`, `v2-kimi-perm.log`, `v3-claude.log`, `v3-kimi.log`,
+`v4-kimi-deny.log`, `v5-kimi-cancel.log`.
+
+> These logs live in the session scratch dir, not in the repo — they contain absolute
+> paths and agent chatter. The material findings are quoted verbatim above.
+
+---
+
+## 9. Recommendations
+
+1. **Fix the `stopReason` vocabulary before merge (§2).** Without it, every successful
+   ACP run reads as a failure. This is the one finding that should block.
+2. **Re-run V1 §1.3 against Codex** once it is authenticated (`codex login`). 2-of-3 is
+   not 3-of-3, and Codex has the strictest sandbox of the three.
+3. **Have a human complete §6** — especially **V5b**, which is the _only_ check covering
+   Task 7's `pending_children` registry. That code path has never executed.
+4. **Consider surfacing the "agent pre-approved it" case in the UI (§3.1).** With `Ask`
+   policy, a user may reasonably believe OpenFlow gates every action; it only gates what
+   the agent chooses to ask about.
