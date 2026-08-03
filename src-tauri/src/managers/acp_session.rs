@@ -105,6 +105,24 @@ fn is_reapable(
     is_expired(last_used_ms, now_ms, timeout_secs) && turn_lock.try_lock().is_ok()
 }
 
+/// Whether the run driver may end the session it was driving: it must still be
+/// the registered session for its agent (`is_current`) AND have no turn in
+/// flight.
+///
+/// The second half mirrors `is_reapable`, and it is not redundant with the
+/// first. Identity answers "is this still the registered session", not "is
+/// somebody using it right now" — and the driver ends a session AFTER its own
+/// turn guard has been released, so a follow-up run can legitimately have taken
+/// the SAME warm session and started prompting on it in between. That is the
+/// `CancelTimedOut` path in particular: the child there is alive and still
+/// registered, so identity alone would SIGTERM a live agent mid-edit — the
+/// exact harm the turn lock exists to prevent. The `try_lock` is released
+/// immediately (a point-in-time check), so this stays a synchronous,
+/// non-blocking test safe to call inside the `sessions` guard.
+fn may_end(is_current: bool, turn_lock: &tokio::sync::Mutex<()>) -> bool {
+    is_current && turn_lock.try_lock().is_ok()
+}
+
 /// Current wall-clock time in epoch milliseconds — the single clock source for
 /// `touch`/`is_expired` so a session's "last used" and the reaper's "now" are
 /// always comparable.
@@ -567,20 +585,23 @@ impl AcpSessionManager {
     }
 
     /// End `session` — but only if it is STILL the registered session for its
-    /// agent. Removal by key alone is only safe while `acquire`'s spawn guard is
-    /// held (see `acquire`); a caller outside that lock — the run driver, which
-    /// drops a session whose child crashed or wedged — could otherwise close a
-    /// healthy replacement a concurrent `acquire` had already spawned, SIGTERMing
-    /// a live agent mid-turn. `Arc::ptr_eq` makes that impossible: we only ever
-    /// end the exact session we were driving.
+    /// agent AND nobody is mid-turn on it.
+    ///
+    /// Removal by key alone is only safe while `acquire`'s spawn guard is held
+    /// (see `acquire`); a caller outside that lock — the run driver, dropping a
+    /// session whose child crashed or wedged — could otherwise close a healthy
+    /// replacement a concurrent `acquire` had already spawned. `Arc::ptr_eq`
+    /// answers that half. See `may_end` for why identity alone is not enough.
     pub async fn end_if_current(&self, session: &Arc<LiveSession>) {
         let removed = {
             let mut sessions = self.sessions.lock().unwrap();
-            match sessions.get(&session.agent_id) {
-                Some(current) if Arc::ptr_eq(current, session) => {
-                    sessions.remove(&session.agent_id)
-                }
-                _ => None,
+            let is_current = sessions
+                .get(&session.agent_id)
+                .is_some_and(|current| Arc::ptr_eq(current, session));
+            if may_end(is_current, &session.turn_lock) {
+                sessions.remove(&session.agent_id)
+            } else {
+                None
             }
         };
         if let Some(session) = removed {
@@ -1059,6 +1080,27 @@ mod tests {
         assert!(
             !is_reapable(start, now, 600, &lock),
             "a session with an in-flight turn must never be reaped, even if expired"
+        );
+    }
+
+    #[test]
+    fn a_driver_never_ends_a_session_that_someone_else_is_mid_turn_on() {
+        let lock = tokio::sync::Mutex::new(());
+
+        // Our own turn is over and the session is still ours: end it.
+        assert!(may_end(true, &lock));
+        // Someone else's session — identity alone already stops us.
+        assert!(!may_end(false, &lock));
+
+        // Still the registered session, but a turn is in flight on it. This is
+        // the CancelTimedOut window: we stopped run A and waited out the grace
+        // while run B acquired the SAME warm session and started prompting.
+        // Ending it here SIGTERMs a live agent mid-edit — identity says "yes",
+        // and only the turn lock says "no".
+        let _held = lock.try_lock().unwrap();
+        assert!(
+            !may_end(true, &lock),
+            "a session with an in-flight turn must never be ended by a previous run's driver"
         );
     }
 

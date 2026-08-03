@@ -739,30 +739,30 @@ impl AgentRunManager {
             &mut kill_rx,
             &mut answer_rx,
             &mut on_event,
-            CANCEL_GRACE,
+            TurnTimeouts::production(),
         )
         .await;
 
         // 4. Terminal status. `drop_session` marks the cases where the child is
         //    dead or wedged: NEVER auto-retry the turn (it may have half-applied
         //    edits) — drop the session and let the next run spawn fresh.
-        let (status, drop_session) = match outcome {
-            TurnOutcome::Ended(reason) => {
-                on_event(RunEvent::TurnEnd {
-                    stop_reason: stop_reason_label(reason).to_string(),
-                });
-                (stop_reason_to_status(reason), false)
-            }
+        let (status, drop_session, stop_reason) = match outcome {
+            TurnOutcome::Ended(reason) => (
+                stop_reason_to_status(reason),
+                false,
+                stop_reason_label(reason),
+            ),
             TurnOutcome::CancelTimedOut => {
-                on_event(RunEvent::TurnEnd {
-                    stop_reason: stop_reason_label(StopReason::Cancelled).to_string(),
-                });
                 self.emit_line(
                     &app,
                     &run_id,
                     "The agent never acknowledged the cancel — ending its session.",
                 );
-                (RunStatus::Stopped, true)
+                (
+                    RunStatus::Stopped,
+                    true,
+                    stop_reason_label(StopReason::Cancelled),
+                )
             }
             TurnOutcome::Crashed(error) => {
                 self.emit_line(&app, &run_id, &error);
@@ -774,14 +774,20 @@ impl AgentRunManager {
                 {
                     self.emit_diagnostic(&app, &run_id, &diag);
                 }
-                (RunStatus::Failed { error }, true)
+                (RunStatus::Failed { error }, true, TURN_END_FAILED)
             }
             TurnOutcome::Failed(error) => {
                 self.emit_line(&app, &run_id, &error);
                 log::error!("acp run {run_id}: {error}");
-                (RunStatus::Failed { error }, false)
+                (RunStatus::Failed { error }, false, TURN_END_FAILED)
             }
         };
+        // ONE emission site covering every arm: a consumer of `agent-run-event`
+        // alone (Task 9's structured renderer) must never see a turn that just
+        // stops producing events without ever ending.
+        on_event(RunEvent::TurnEnd {
+            stop_reason: stop_reason.to_string(),
+        });
         drop(on_event);
 
         // Identity-checked: we are outside `acquire`'s spawn lock, so removing
@@ -929,17 +935,58 @@ impl AgentRunManager {
 // C0 — the ACP turn (DESIGN-acp-agents.md §6-§8).
 // ---------------------------------------------------------------------------
 
-/// How long we wait for the agent to acknowledge a `session/cancel` with a
-/// terminal `stopReason` before giving up on it.
-///
-/// Stop is the ONLY escape hatch from a parked permission prompt (there is no
-/// auto-deny timeout, DESIGN §8), and the idle reaper deliberately spares any
-/// session with a turn in flight — so an agent that ignores `session/cancel`
-/// would otherwise pin the turn guard, and its own child, for the life of the
-/// app. Generous, because unwinding a large in-flight edit legitimately takes
-/// a moment; bounded, because "I pressed Stop and nothing happened, ever" is
-/// not a state the user can escape.
-const CANCEL_GRACE: Duration = Duration::from_secs(30);
+/// The two bounds one turn needs. Injected rather than read from the constants
+/// below so both are testable in milliseconds — the `send_close_courtesy`
+/// precedent, for the same reason: a timeout you can't exercise in a test is a
+/// timeout nobody has checked still fires.
+#[derive(Clone, Copy, Debug)]
+struct TurnTimeouts {
+    /// Cap on ONE write to the agent's stdin.
+    ///
+    /// `StdioTransport::send` does a blocking `write_all`, which this codebase
+    /// already documents as never resolving if the agent is alive but has
+    /// stopped draining its stdin (see `acp_session::send_close_courtesy`,
+    /// which exists for exactly that). While such an await is pending, the turn
+    /// loop is not polling `kill_rx` — so an unbounded write would defeat Stop,
+    /// the cancel grace and the idle reaper all at once, and the run would sit
+    /// at `Running` forever with no escape left.
+    send: Duration,
+    /// How long we wait for the agent to acknowledge a `session/cancel` with a
+    /// terminal `stopReason` before giving up on it.
+    ///
+    /// Stop is the ONLY escape hatch from a parked permission prompt (there is
+    /// no auto-deny timeout, DESIGN §8), and the idle reaper deliberately
+    /// spares any session with a turn in flight — so an agent that ignores
+    /// `session/cancel` would otherwise pin the turn guard, and its own child,
+    /// for the life of the app. Generous, because unwinding a large in-flight
+    /// edit legitimately takes a moment; bounded, because "I pressed Stop and
+    /// nothing happened, ever" is not a state the user can escape.
+    cancel_grace: Duration,
+}
+
+impl TurnTimeouts {
+    const fn production() -> Self {
+        Self {
+            send: Duration::from_secs(5),
+            cancel_grace: Duration::from_secs(30),
+        }
+    }
+}
+
+/// Bound one write to the agent's stdin. See `TurnTimeouts::send`.
+async fn bounded_send<T>(
+    what: &str,
+    limit: Duration,
+    fut: impl Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    match tokio::time::timeout(limit, fut).await {
+        Ok(result) => result,
+        Err(_elapsed) => Err(format!(
+            "The agent stopped reading its input ({what} got no further after {}s).",
+            limit.as_secs()
+        )),
+    }
+}
 
 /// Whether an agent takes the ACP session driver. This is the actual guard
 /// `start`'s match arm evaluates — not a copy of it — so routing is asserted by
@@ -966,6 +1013,12 @@ pub fn stop_reason_to_status(r: StopReason) -> RunStatus {
         },
     }
 }
+
+/// `RunEvent::TurnEnd`'s reason when the turn ended without an ACP
+/// `stopReason` at all — the child died, or the protocol round trip failed.
+/// A new VALUE in an existing `String` field, not a new variant: `RunEvent` is
+/// the C2 public contract and stays additive-only.
+const TURN_END_FAILED: &str = "failed";
 
 /// The wire spelling of a stop reason, for `RunEvent::TurnEnd`.
 pub fn stop_reason_label(r: StopReason) -> &'static str {
@@ -1135,12 +1188,21 @@ async fn run_acp_turn<S: AcpSessionOps>(
     kill_rx: &mut mpsc::UnboundedReceiver<()>,
     answers: &mut mpsc::UnboundedReceiver<PermissionAnswer>,
     on_event: &mut (impl FnMut(RunEvent) + Send),
-    cancel_grace: Duration,
+    timeouts: TurnTimeouts,
 ) -> TurnOutcome {
     // CONTRACT 1: held until this function returns. Do not drop it early.
     let _turn = session.begin_turn().await;
 
-    let prompt_id = match session.prompt(instruction).await {
+    // Bounded like every other write below: an unbounded `prompt` that never
+    // returns would never even reach the select loop, so Stop could not be read
+    // and the guard would be pinned for the life of the app.
+    let prompt_id = match bounded_send(
+        "sending the instruction",
+        timeouts.send,
+        session.prompt(instruction),
+    )
+    .await
+    {
         Ok(id) => id,
         Err(e) => {
             return TurnOutcome::Failed(format!("Couldn't send the instruction to the agent: {e}"))
@@ -1207,9 +1269,8 @@ async fn run_acp_turn<S: AcpSessionOps>(
                             // can always see afterwards what was allowed on their
                             // behalf (DESIGN §8).
                             PermissionDecision::Allow { option_id, automatic } => {
-                                let _ = session
-                                    .answer(&id, PermissionOutcome::Selected { option_id })
-                                    .await;
+                                let _ = bounded_send("answering a permission request", timeouts.send,
+                                    session.answer(&id, PermissionOutcome::Selected { option_id })).await;
                                 on_event(RunEvent::PermissionResolved {
                                     request_id,
                                     outcome: "allow".to_string(),
@@ -1217,9 +1278,8 @@ async fn run_acp_turn<S: AcpSessionOps>(
                                 });
                             }
                             PermissionDecision::Deny { option_id, automatic } => {
-                                let _ = session
-                                    .answer(&id, PermissionOutcome::Selected { option_id })
-                                    .await;
+                                let _ = bounded_send("answering a permission request", timeouts.send,
+                                    session.answer(&id, PermissionOutcome::Selected { option_id })).await;
                                 on_event(RunEvent::PermissionResolved {
                                     request_id,
                                     outcome: "deny".to_string(),
@@ -1248,7 +1308,8 @@ async fn run_acp_turn<S: AcpSessionOps>(
                         // We declared no fs/terminal capabilities, so this should
                         // not happen — but never leave it unanswered.
                         log::warn!("acp: refusing unsupported agent request '{method}'");
-                        let _ = session.refuse(&id).await;
+                        let _ = bounded_send("refusing an agent request", timeouts.send,
+                            session.refuse(&id)).await;
                     }
                     PumpItem::Event(ClientEvent::Closed) => {
                         return TurnOutcome::Crashed(
@@ -1265,7 +1326,7 @@ async fn run_acp_turn<S: AcpSessionOps>(
                     None => watch_answers = false,
                     Some(answer) => {
                         if let Some(p) = parked.remove(&answer.request_id) {
-                            apply_answer(session, &answer, &p, on_event).await;
+                            apply_answer(session, &answer, &p, on_event, timeouts.send).await;
                         }
                     }
                 }
@@ -1274,25 +1335,31 @@ async fn run_acp_turn<S: AcpSessionOps>(
             signal = kill_rx.recv(), if watch_kill => {
                 watch_kill = false;
                 if signal.is_some() {
+                    // Arm the grace BEFORE the writes below, not after: their own
+                    // bound is what stops a wedged stdin from parking us here,
+                    // and the clock the user is waiting on started when they
+                    // pressed Stop, not when the agent got round to reading it.
+                    cancel_deadline = Some(tokio::time::Instant::now() + timeouts.cancel_grace);
                     // Cancel ends the TURN, not the session — it stays warm for
                     // the next instruction.
-                    let _ = session.cancel_turn().await;
+                    let _ = bounded_send("cancelling the turn", timeouts.send,
+                        session.cancel_turn()).await;
                     // Resolve every parked prompt so no responder is leaked: an
                     // unanswered permission request blocks the agent forever.
                     for (request_id, p) in parked.drain() {
-                        let _ = session.answer(&p.id, PermissionOutcome::Cancelled).await;
+                        let _ = bounded_send("cancelling a permission request", timeouts.send,
+                            session.answer(&p.id, PermissionOutcome::Cancelled)).await;
                         on_event(RunEvent::PermissionResolved {
                             request_id,
                             outcome: "cancelled".to_string(),
                             automatic: true,
                         });
                     }
-                    cancel_deadline = Some(tokio::time::Instant::now() + cancel_grace);
                 }
             }
 
             _ = tokio::time::sleep_until(
-                cancel_deadline.unwrap_or_else(|| tokio::time::Instant::now() + cancel_grace)
+                cancel_deadline.unwrap_or_else(|| tokio::time::Instant::now() + timeouts.cancel_grace)
             ), if cancel_deadline.is_some() => {
                 return TurnOutcome::CancelTimedOut;
             }
@@ -1344,22 +1411,34 @@ async fn apply_answer<S: AcpSessionOps>(
     answer: &PermissionAnswer,
     parked: &ParkedPermission,
     on_event: &mut (impl FnMut(RunEvent) + Send),
+    send_timeout: Duration,
 ) {
     if answer.choice.is_persistent() {
         let mut ov = session.permission_override().unwrap_or_default();
-        if answer.choice.allows() {
-            ov.allow_all = true;
-        } else if !ov.denied_kinds.contains(&parked.tool_kind) {
-            ov.denied_kinds.push(parked.tool_kind.clone());
+        // PER KIND, in both directions. The user answered a question about THIS
+        // tool kind; an "always allow" on a benign `read` must not silently
+        // approve an `execute` or `delete` later in the same session. It never
+        // sets `allow_all` — that is the separate, explicit allow-everything
+        // answer.
+        let list = if answer.choice.allows() {
+            &mut ov.allowed_kinds
+        } else {
+            &mut ov.denied_kinds
+        };
+        if !list.contains(&parked.tool_kind) {
+            list.push(parked.tool_kind.clone());
         }
         session.remember_override(ov);
     }
 
     match pick_option(&parked.options, answer.choice.allows()) {
         Some(option_id) => {
-            let _ = session
-                .answer(&parked.id, PermissionOutcome::Selected { option_id })
-                .await;
+            let _ = bounded_send(
+                "answering a permission request",
+                send_timeout,
+                session.answer(&parked.id, PermissionOutcome::Selected { option_id }),
+            )
+            .await;
             on_event(RunEvent::PermissionResolved {
                 request_id: answer.request_id.clone(),
                 outcome: if answer.choice.allows() {
@@ -1374,9 +1453,12 @@ async fn apply_answer<S: AcpSessionOps>(
         // The agent offered nothing matching the answer. Cancelling still
         // ANSWERS the request — leaving it open would hang the turn.
         None => {
-            let _ = session
-                .answer(&parked.id, PermissionOutcome::Cancelled)
-                .await;
+            let _ = bounded_send(
+                "cancelling a permission request",
+                send_timeout,
+                session.answer(&parked.id, PermissionOutcome::Cancelled),
+            )
+            .await;
             on_event(RunEvent::PermissionResolved {
                 request_id: answer.request_id.clone(),
                 outcome: "cancelled".to_string(),
@@ -3107,6 +3189,10 @@ mod tests {
         /// `is_reapable`'s check, which is why this pins Contract 1.
         guard_held: Mutex<Vec<bool>>,
         session_override: Mutex<Option<SessionOverride>>,
+        /// Writes that never resolve — the agent is alive but has stopped
+        /// draining its stdin, which is exactly what `StdioTransport::send`'s
+        /// blocking `write_all` does in that situation.
+        wedged: Mutex<Vec<Sent>>,
     }
 
     /// The id `FakeSession::prompt` hands back, so scripted responses can
@@ -3124,11 +3210,22 @@ mod tests {
                 sent: Mutex::new(Vec::new()),
                 guard_held: Mutex::new(Vec::new()),
                 session_override: Mutex::new(None),
+                wedged: Mutex::new(Vec::new()),
             }
         }
 
-        /// Record what we sent, then let the agent respond to it.
-        fn record(&self, s: Sent) {
+        /// Make the given writes hang forever instead of completing.
+        fn wedging(self, writes: Vec<Sent>) -> Self {
+            *self.wedged.lock().unwrap() = writes;
+            self
+        }
+
+        /// Record what we sent, then let the agent respond to it. Hangs forever
+        /// first if this write is one of the wedged ones.
+        async fn record(&self, s: Sent) {
+            if self.wedged.lock().unwrap().contains(&s) {
+                std::future::pending::<()>().await;
+            }
             self.sent.lock().unwrap().push(s);
             if let Some(batch) = self.replies.lock().unwrap().pop_front() {
                 for item in batch {
@@ -3151,7 +3248,7 @@ mod tests {
         fn prompt(&self, text: &str) -> impl Future<Output = Result<u64, String>> + Send {
             let text = text.to_string();
             async move {
-                self.record(Sent::Prompt(text));
+                self.record(Sent::Prompt(text)).await;
                 Ok(FAKE_PROMPT_ID)
             }
         }
@@ -3168,7 +3265,7 @@ mod tests {
             }
         }
         async fn cancel_turn(&self) -> Result<(), String> {
-            self.record(Sent::Cancel);
+            self.record(Sent::Cancel).await;
             Ok(())
         }
         fn answer(
@@ -3178,14 +3275,14 @@ mod tests {
         ) -> impl Future<Output = Result<(), String>> + Send {
             let id = id.clone();
             async move {
-                self.record(Sent::Answer { id, outcome });
+                self.record(Sent::Answer { id, outcome }).await;
                 Ok(())
             }
         }
         fn refuse(&self, id: &Value) -> impl Future<Output = Result<(), String>> + Send {
             let id = id.clone();
             async move {
-                self.record(Sent::Refused(id));
+                self.record(Sent::Refused(id)).await;
                 Ok(())
             }
         }
@@ -3277,10 +3374,17 @@ mod tests {
     /// that leaves an agent request unanswered — the exact failure mode that
     /// blocks a real agent forever — must fail by assertion in ~1s rather than
     /// hang CI.
+    /// Both bounds in milliseconds, so every timeout under test fires far inside
+    /// `drive`'s own 1s harness rather than after the production 5s/30s.
+    const TEST_TIMEOUTS: TurnTimeouts = TurnTimeouts {
+        send: Duration::from_millis(20),
+        cancel_grace: Duration::from_millis(40),
+    };
+
     fn drive(
         session: &FakeSession,
         policy: AcpPermissionPolicy,
-        grace: Duration,
+        timeouts: TurnTimeouts,
         mut on_step: impl FnMut(&RunEvent, &Ctl) + Send,
     ) -> (TurnOutcome, Vec<RunEvent>) {
         let (kill, mut kill_rx) = mpsc::unbounded_channel::<()>();
@@ -3304,7 +3408,7 @@ mod tests {
                         &mut kill_rx,
                         &mut answer_rx,
                         &mut on_event,
-                        grace,
+                        timeouts,
                     ),
                 )
                 .await
@@ -3328,7 +3432,8 @@ mod tests {
             text_update("still working"),
             stop("completed"),
         ]]);
-        let (outcome, _events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        let (outcome, _events) =
+            drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
         assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
 
         let held = session.guard_held.lock().unwrap();
@@ -3346,7 +3451,7 @@ mod tests {
     #[test]
     fn every_update_is_dual_emitted_and_the_turn_ends_with_a_stop_reason() {
         let session = FakeSession::new(vec![vec![text_update("hello"), stop("completed")]]);
-        let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
         assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], RunEvent::Text { text } if text == "hello"));
@@ -3367,7 +3472,7 @@ mod tests {
             text_update("still going"),
             stop("cancelled"),
         ]]);
-        let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
         assert!(
             matches!(outcome, TurnOutcome::Ended(StopReason::Cancelled)),
             "the turn must end on ITS OWN prompt response, got {outcome:?}"
@@ -3384,7 +3489,7 @@ mod tests {
         let (outcome, events) = drive(
             &session,
             AcpPermissionPolicy::AutoEdits,
-            CANCEL_GRACE,
+            TEST_TIMEOUTS,
             |_, _| {},
         );
         assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
@@ -3422,7 +3527,7 @@ mod tests {
         let (outcome, events) = drive(
             &session,
             AcpPermissionPolicy::Ask,
-            CANCEL_GRACE,
+            TEST_TIMEOUTS,
             |e, ctl| {
                 if let RunEvent::PermissionRequest { request_id, .. } = e {
                     ctl.answer(request_id, PermissionChoice::DenyOnce);
@@ -3470,7 +3575,10 @@ mod tests {
             (
                 PermissionChoice::AllowAlways,
                 SessionOverride {
-                    allow_all: true,
+                    // Per KIND, and never `allow_all`: the user answered a
+                    // question about `execute`, not about everything.
+                    allow_all: false,
+                    allowed_kinds: vec!["execute".to_string()],
                     denied_kinds: vec![],
                 },
             ),
@@ -3478,6 +3586,7 @@ mod tests {
                 PermissionChoice::DenyAlways,
                 SessionOverride {
                     allow_all: false,
+                    allowed_kinds: vec![],
                     denied_kinds: vec!["execute".to_string()],
                 },
             ),
@@ -3489,7 +3598,7 @@ mod tests {
             drive(
                 &session,
                 AcpPermissionPolicy::Ask,
-                CANCEL_GRACE,
+                TEST_TIMEOUTS,
                 |e, ctl| {
                     if let RunEvent::PermissionRequest { request_id, .. } = e {
                         ctl.answer(request_id, choice);
@@ -3518,6 +3627,75 @@ mod tests {
     }
 
     #[test]
+    fn an_always_allow_on_one_kind_never_auto_approves_a_different_kind() {
+        // The escalation this design forbids, driven end to end through the
+        // turn loop: the user clicks "always" on a benign `read` at minute two,
+        // and the agent asks to `execute` something at minute eight. The second
+        // prompt must still reach the user. If the driver recorded `allow_all`,
+        // `decide` would auto-approve it with nothing but a `→ allow
+        // (automatic)` line in the buffer to show for it.
+        // Scripted so BOTH the correct and the escalating behaviour terminate
+        // normally: the discriminator is the event list, not a timeout.
+        let session = FakeSession::new(vec![
+            vec![permission_request(json!(1), "read")],
+            vec![permission_request(json!(2), "execute")],
+            vec![stop("completed")],
+        ]);
+        let (outcome, events) = drive(
+            &session,
+            AcpPermissionPolicy::Ask,
+            TEST_TIMEOUTS,
+            |e, ctl| {
+                if let RunEvent::PermissionRequest { request_id, .. } = e {
+                    if request_id == "perm-1" {
+                        ctl.answer(request_id, PermissionChoice::AllowAlways);
+                    } else {
+                        ctl.answer(request_id, PermissionChoice::DenyOnce);
+                    }
+                }
+            },
+        );
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+
+        let kinds: Vec<&RunEvent> = events.iter().collect();
+        assert!(
+            matches!(kinds[0], RunEvent::PermissionRequest { request_id, .. } if request_id == "perm-1"),
+            "the read prompt must be surfaced: {kinds:?}"
+        );
+        assert!(
+            matches!(
+                kinds[1],
+                RunEvent::PermissionResolved {
+                    automatic: false,
+                    ..
+                }
+            ),
+            "the user's own answer to it is never automatic: {kinds:?}"
+        );
+        // THE POINT: the `execute` request is ASKED, not auto-allowed. Under the
+        // escalating behaviour this slot is instead a `PermissionResolved {
+        // automatic: true }` the user never saw coming.
+        match kinds[2] {
+            RunEvent::PermissionRequest { request_id, .. } => assert_eq!(request_id, "perm-2"),
+            e => panic!(
+                "an always-allow for `read` must not auto-approve `execute` — expected a second \
+                 PermissionRequest, got {e:?}"
+            ),
+        }
+        assert_eq!(
+            session
+                .session_override
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap()
+                .allowed_kinds,
+            vec!["read".to_string()],
+            "the override must record the kind the user actually answered for"
+        );
+    }
+
+    #[test]
     fn an_unsupported_agent_request_is_always_answered() {
         // client.rs's doctrine: an unanswered request hangs the agent's turn
         // forever. We declared no fs/terminal capabilities, so this shouldn't
@@ -3531,7 +3709,8 @@ mod tests {
             )))],
             vec![stop("completed")],
         ]);
-        let (outcome, _events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        let (outcome, _events) =
+            drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
         assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
         assert_eq!(session.sent()[1], Sent::Refused(json!(42)));
     }
@@ -3547,7 +3726,7 @@ mod tests {
         let (outcome, events) = drive(
             &session,
             AcpPermissionPolicy::Ask,
-            CANCEL_GRACE,
+            TEST_TIMEOUTS,
             |e, ctl| {
                 if matches!(e, RunEvent::PermissionRequest { .. }) {
                     ctl.stop();
@@ -3585,13 +3764,13 @@ mod tests {
         // turn guard would otherwise be held for the life of the app.
         // The agent goes quiet after one line and never acknowledges the cancel.
         // `drive`'s own 1s bound is what turns a regression here into a failed
-        // assertion rather than a hung CI run; the 20ms grace is the thing
-        // actually under test and stays far inside it.
+        // assertion rather than a hung CI run; `TEST_TIMEOUTS.cancel_grace` is
+        // the thing actually under test and stays far inside it.
         let session = FakeSession::new(vec![vec![text_update("working")]]);
         let (outcome, _events) = drive(
             &session,
             AcpPermissionPolicy::Ask,
-            Duration::from_millis(20),
+            TEST_TIMEOUTS,
             |e, ctl| {
                 if matches!(e, RunEvent::Text { .. }) {
                     ctl.stop();
@@ -3603,9 +3782,60 @@ mod tests {
     }
 
     #[test]
+    fn a_wedged_stdin_cannot_swallow_the_cancel_and_pin_the_turn_forever() {
+        // The agent is alive but has stopped draining its stdin, so our
+        // `session/cancel` write never completes (`StdioTransport::send` does a
+        // blocking `write_all` — this is why `send_close_courtesy` exists). An
+        // unbounded write there parks the loop OUTSIDE `select!`, so `kill_rx`
+        // is no longer polled, the cancel grace never starts, the turn guard
+        // stays held, the reaper spares the session, and the run sits at
+        // `Running` for the life of the app with the user's one escape hatch
+        // already spent.
+        let session =
+            FakeSession::new(vec![vec![text_update("working")]]).wedging(vec![Sent::Cancel]);
+        let (outcome, _events) = drive(
+            &session,
+            AcpPermissionPolicy::Ask,
+            TEST_TIMEOUTS,
+            |e, ctl| {
+                if matches!(e, RunEvent::Text { .. }) {
+                    ctl.stop();
+                }
+            },
+        );
+        assert!(
+            matches!(outcome, TurnOutcome::CancelTimedOut),
+            "a write the agent never drains must not outlive its own bound, got {outcome:?}"
+        );
+        // The wedged write never landed — proving the bound fired rather than
+        // the fake simply completing it.
+        assert!(
+            !session.sent().contains(&Sent::Cancel),
+            "the cancel write must have been abandoned at its timeout"
+        );
+    }
+
+    #[test]
+    fn a_wedged_stdin_on_the_prompt_itself_fails_instead_of_hanging() {
+        // Same hazard one step earlier: an unbounded `prompt` never reaches the
+        // select loop at all, so Stop could not even be read.
+        let session = FakeSession::new(vec![vec![stop("completed")]])
+            .wedging(vec![Sent::Prompt("do the thing".to_string())]);
+        let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
+        match outcome {
+            TurnOutcome::Failed(msg) => assert!(
+                msg.contains("stopped reading its input"),
+                "the message must name the real cause: {msg}"
+            ),
+            o => panic!("expected Failed, got {o:?}"),
+        }
+        assert!(events.is_empty());
+    }
+
+    #[test]
     fn a_child_that_dies_mid_turn_fails_the_run_and_is_never_retried() {
         let session = FakeSession::new(vec![vec![text_update("halfway through"), None]]);
-        let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
         match outcome {
             TurnOutcome::Crashed(msg) => {
                 assert!(msg.contains("exited"), "message must name the cause: {msg}");
@@ -3641,7 +3871,8 @@ mod tests {
                 message: "Invalid params".to_string(),
             }),
         })]]);
-        let (outcome, _events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        let (outcome, _events) =
+            drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
         match outcome {
             TurnOutcome::Failed(msg) => assert!(msg.contains("Invalid params")),
             o => panic!("expected Failed, got {o:?}"),
@@ -3654,7 +3885,8 @@ mod tests {
             id: FAKE_PROMPT_ID,
             result: Ok(json!({})),
         })]]);
-        let (outcome, _events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        let (outcome, _events) =
+            drive(&session, AcpPermissionPolicy::Ask, TEST_TIMEOUTS, |_, _| {});
         assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Other)));
     }
 

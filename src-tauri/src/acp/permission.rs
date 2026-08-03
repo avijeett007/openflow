@@ -24,9 +24,20 @@ pub enum AcpPermissionPolicy {
 }
 
 /// Answers the user gave during THIS session that outlive a single request.
+///
+/// Allow and deny are deliberately SYMMETRIC and per-kind: a user who clicks
+/// "always" on a benign `read` prompt has answered a question about reading, and
+/// must not thereby auto-approve an `execute` or `delete` eight minutes later
+/// with no prompt at all. `allow_all` is the separate, explicit "allow
+/// everything for this session" answer — a per-prompt "always" never sets it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SessionOverride {
+    /// Session-wide "allow everything". Only an explicit allow-all answer sets
+    /// this; `decide` still lets a `denied_kinds` entry beat it.
     pub allow_all: bool,
+    /// Tool kinds the user answered "always allow" for.
+    pub allowed_kinds: Vec<String>,
+    /// Tool kinds the user answered "always deny" for.
     pub denied_kinds: Vec<String>,
 }
 
@@ -72,7 +83,10 @@ pub fn decide(input: &PolicyInput) -> PermissionDecision {
                 None => PermissionDecision::Ask,
             };
         }
-        if ov.allow_all {
+        // An "always allow" the user gave for THIS kind — never for another.
+        // Symmetric with `denied_kinds`, and the reason a per-prompt "always"
+        // on a `read` cannot silently approve a later `execute`.
+        if ov.allow_all || ov.allowed_kinds.iter().any(|k| k == &input.tool_kind) {
             return match pick_option(&input.options, true) {
                 Some(option_id) => PermissionDecision::Allow {
                     option_id,
@@ -177,6 +191,7 @@ mod tests {
         let mut i = input(AcpPermissionPolicy::Ask, "execute");
         i.session_override = Some(SessionOverride {
             allow_all: true,
+            allowed_kinds: vec![],
             denied_kinds: vec![],
         });
         match decide(&i) {
@@ -186,10 +201,56 @@ mod tests {
     }
 
     #[test]
+    fn an_always_allow_applies_only_to_the_kind_it_was_given_for() {
+        // The user clicked "always" on a benign `read` prompt. That is an answer
+        // about READING. An `execute` request minutes later must still ask —
+        // otherwise a single click on a harmless prompt silently authorizes
+        // everything the agent does for the rest of the session.
+        let ov = SessionOverride {
+            allow_all: false,
+            allowed_kinds: vec!["read".into()],
+            denied_kinds: vec![],
+        };
+
+        let mut same = input(AcpPermissionPolicy::Ask, "read");
+        same.session_override = Some(ov.clone());
+        match decide(&same) {
+            PermissionDecision::Allow { automatic, .. } => assert!(automatic),
+            d => panic!("the kind the user answered for must auto-allow, got {d:?}"),
+        }
+
+        for kind in ["execute", "delete", "edit", "fetch"] {
+            let mut other = input(AcpPermissionPolicy::Ask, kind);
+            other.session_override = Some(ov.clone());
+            assert!(
+                matches!(decide(&other), PermissionDecision::Ask),
+                "an always-allow for `read` must NOT auto-approve `{kind}`"
+            );
+        }
+    }
+
+    #[test]
+    fn a_denied_kind_still_beats_an_allowed_kind() {
+        // Preserves Task 4's precedence (deny beats allow beats policy) now that
+        // allow is per-kind too: the same kind in both lists must deny.
+        let mut i = input(AcpPermissionPolicy::AutoAll, "execute");
+        i.session_override = Some(SessionOverride {
+            allow_all: true,
+            allowed_kinds: vec!["execute".into()],
+            denied_kinds: vec!["execute".into()],
+        });
+        match decide(&i) {
+            PermissionDecision::Deny { automatic, .. } => assert!(automatic),
+            d => panic!("a persistent deny must outrank every allow signal, got {d:?}"),
+        }
+    }
+
+    #[test]
     fn session_denied_kind_beats_auto_all() {
         let mut i = input(AcpPermissionPolicy::AutoAll, "execute");
         i.session_override = Some(SessionOverride {
             allow_all: false,
+            allowed_kinds: vec![],
             denied_kinds: vec!["execute".into()],
         });
         // A deny_always answer is a stronger signal than a permissive policy.
@@ -208,6 +269,7 @@ mod tests {
         let mut i = input(AcpPermissionPolicy::Ask, "execute");
         i.session_override = Some(SessionOverride {
             allow_all: true,
+            allowed_kinds: vec![],
             denied_kinds: vec!["execute".into()],
         });
         match decide(&i) {
@@ -223,6 +285,7 @@ mod tests {
         let mut i = input(AcpPermissionPolicy::Ask, "execute");
         i.session_override = Some(SessionOverride {
             allow_all: false,
+            allowed_kinds: vec![],
             denied_kinds: vec!["execute".into()],
         });
         i.options = vec![PermissionOptionWire {
@@ -238,6 +301,7 @@ mod tests {
         let mut i = input(AcpPermissionPolicy::Ask, "execute");
         i.session_override = Some(SessionOverride {
             allow_all: true,
+            allowed_kinds: vec![],
             denied_kinds: vec![],
         });
         i.options = vec![PermissionOptionWire {
