@@ -1159,6 +1159,29 @@ async clearFinishedAgentRuns() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Start a follow-up run against the same agent from the run panel — the run
+ * panel's Task 11 addition. Reuses `AgentRunManager::start` VERBATIM, the
+ * exact path `finish_dictation` already takes for an `agent:<id>` hotkey
+ * (`actions.rs`), so a follow-up behaves identically to a fresh hotkey
+ * trigger: for an ACP-mode agent, `AcpSessionManager::acquire` transparently
+ * reuses the still-warm session for this agent id (continuing the same
+ * conversation) when its `cwd` still matches and its child is still alive,
+ * or spawns a fresh one otherwise — this command never has to know or care
+ * which happened.
+ * 
+ * Mirrors `finish_dictation`'s own guard: only `Cli`/`Remote` agents drive a
+ * real run here; a `Prompt` agent has no binary/endpoint to run and must not
+ * reach the run registry through this door.
+ */
+async sendAgentFollowup(agentId: string, instruction: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("send_agent_followup", { agentId, instruction }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateMicrophoneMode(alwaysOn: boolean) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_microphone_mode", { alwaysOn }) };

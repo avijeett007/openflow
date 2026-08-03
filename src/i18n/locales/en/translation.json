@@ -1161,6 +1161,51 @@
         "ran": "Ran {{command}}",
         "read": "Read {{target}}",
         "used": "Used {{tool}}"
+      },
+      "acp": {
+        "thought": {
+          "label": "Thinking"
+        },
+        "plan": {
+          "label": "Plan"
+        },
+        "toolCall": {
+          "failed": "failed"
+        },
+        "turnEnd": {
+          "completed": "Turn complete",
+          "cancelled": "Turn cancelled",
+          "maxSteps": "Stopped — step limit reached",
+          "timeout": "Stopped — timed out",
+          "failed": "Turn ended unexpectedly",
+          "other": "Turn ended"
+        },
+        "permission": {
+          "waiting": "Waiting for your response…",
+          "target": "Target: {{path}}",
+          "abandoned": "\"{{title}}\" was never answered — the turn ended first.",
+          "resolved": "{{title}} — {{outcome}}",
+          "automatic": "(automatic)",
+          "outcomeAllow": "Allowed",
+          "outcomeDeny": "Denied",
+          "outcomeCancelled": "Cancelled",
+          "respondError": "Couldn't send your response: {{error}}",
+          "alwaysScope": "\"Always\" applies only to this kind of action for the rest of the session — not everything the agent might ask for.",
+          "alwaysScopeKind": "\"Always\" applies only to {{kind}} actions for the rest of the session — not everything the agent might ask for."
+        },
+        "thread": {
+          "label_one": "Conversation · {{count}} run",
+          "label_other": "Conversation · {{count}} runs",
+          "endSession": "End session",
+          "endSessionError": "Couldn't end the session: {{error}}",
+          "endSessionSuccess": "Session ended"
+        },
+        "followUp": {
+          "placeholder": "Send a follow-up to continue this conversation…",
+          "send": "Send",
+          "sending": "Sending…",
+          "error": "Couldn't send the follow-up: {{error}}"
+        }
       }
     },
     "missionControl": {

@@ -14,13 +14,16 @@ import {
   Terminal,
   Wrench,
 } from "lucide-react";
-import type { AgentRunInfo, RunStatus } from "@/bindings";
+import type { AgentRunInfo, RunEvent, RunStatus } from "@/bindings";
 import { Button } from "../../ui/Button";
 import {
   assembleReadableText,
   parseAgentOutput,
   type ActionCategory,
 } from "./parseAgentOutput";
+import { PermissionPrompt } from "./PermissionPrompt";
+import { RunEventList } from "./RunEventList";
+import { buildEventRows, isTurnOver, openPermissionRows } from "./runEventRows";
 
 interface AgentRunRowProps {
   run: AgentRunInfo;
@@ -29,6 +32,13 @@ interface AgentRunRowProps {
   onReveal?: () => void;
   /** Whether the Output section should start expanded (most recent / running runs). */
   defaultExpanded?: boolean;
+  /**
+   * Structured `agent-run-event` events for this run, in arrival order.
+   * ALWAYS empty for a raw CLI/remote run (they never emit `agent-run-event`)
+   * — the non-breaking guarantee is that this component renders EXACTLY as it
+   * did before this prop existed whenever this array is empty.
+   */
+  events?: RunEvent[];
 }
 
 const STATUS_PILL_CLASSES: Record<string, string> = {
@@ -89,6 +99,7 @@ export const AgentRunRow: React.FC<AgentRunRowProps> = ({
   onStop,
   onReveal,
   defaultExpanded = true,
+  events = [],
 }) => {
   const { t } = useTranslation();
   const outputRef = useRef<HTMLDivElement>(null);
@@ -99,6 +110,21 @@ export const AgentRunRow: React.FC<AgentRunRowProps> = ({
   const [copiedRaw, setCopiedRaw] = useState(false);
 
   const isRunning = run.status.status === "running";
+
+  // Task 11: structured ACP events, alongside the always-present text buffer.
+  // `hasStructuredEvents` is false for every raw CLI/remote run (they never
+  // emit `agent-run-event`), and the Output section below renders EXACTLY as
+  // it did before this feature existed in that case — this is the one branch
+  // point where the richer view can diverge from the legacy one.
+  const hasStructuredEvents = events.length > 0;
+  const eventRows = useMemo(
+    () => buildEventRows(events, isTurnOver(events, isRunning)),
+    [events, isRunning],
+  );
+  const openPermissionRequests = useMemo(
+    () => openPermissionRows(eventRows),
+    [eventRows],
+  );
 
   // Live-updating elapsed counter for running rows.
   useEffect(() => {
@@ -295,7 +321,14 @@ export const AgentRunRow: React.FC<AgentRunRowProps> = ({
               ref={outputRef}
               className="max-h-96 overflow-y-auto rounded-md border border-mid-gray/20 bg-mid-gray/5 p-3 space-y-2"
             >
-              {!run.output ? (
+              {hasStructuredEvents ? (
+                // Task 11: an ACP run's richer structured view. A run with NO
+                // structured events (every raw CLI/remote run) never takes
+                // this branch — see `hasStructuredEvents` above — so the
+                // three branches below are BYTE-FOR-BYTE what rendered before
+                // this feature existed.
+                <RunEventList rows={eventRows} />
+              ) : !run.output ? (
                 <p className="text-xs text-mid-gray font-mono">
                   {t("settings.agentRuns.output.empty")}
                 </p>
@@ -419,6 +452,15 @@ export const AgentRunRow: React.FC<AgentRunRowProps> = ({
           )}
         </div>
       )}
+
+      {/*
+        Non-modal, pinned to the bottom of the run regardless of whether the
+        Output section is collapsed — a modal would cover the very output the
+        user needs in order to decide. Renders nothing when there is no open
+        request (every raw CLI/remote run, and every ACP run outside a
+        permission ask).
+      */}
+      <PermissionPrompt runId={run.run_id} requests={openPermissionRequests} />
     </div>
   );
 };

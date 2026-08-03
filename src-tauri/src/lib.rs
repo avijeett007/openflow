@@ -739,6 +739,7 @@ pub fn run(cli_args: CliArgs) {
             commands::agent_runs::list_agent_runs,
             commands::agent_runs::stop_agent_run,
             commands::agent_runs::clear_finished_agent_runs,
+            commands::agent_runs::send_agent_followup,
             commands::audio::update_microphone_mode,
             commands::audio::get_microphone_mode,
             commands::audio::get_windows_microphone_permission_status,
