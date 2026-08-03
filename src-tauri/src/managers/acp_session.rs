@@ -689,6 +689,96 @@ impl AcpSessionManager {
     }
 }
 
+impl AcpSessionManager {
+    /// Spawn the agent binary, send ONLY `initialize`, then close it —
+    /// NEVER `session/new`, never a prompt. Task 9's `test_acp_agent` command
+    /// is the only caller: it mirrors
+    /// `commands::remote_agents::test_remote_agent`'s deliberate restraint,
+    /// since a real turn may cost money or trigger real work on the user's
+    /// machine.
+    ///
+    /// Reuses `pending_children` for the exact orphan-safety `acquire` gets:
+    /// if the app quits mid-test, `shutdown_all` still finds and kills this
+    /// child. Deliberately never touches `sessions` — this spawn is never a
+    /// warm, reusable session, so it must not be reachable via `acquire`.
+    pub async fn test_handshake(
+        &self,
+        agent: &AgentDefinition,
+    ) -> Result<InitializeResult, String> {
+        let binary = resolve_acp_binary(agent)?;
+        let argv = build_acp_argv(&agent.acp_command_template);
+
+        let plan = spawn_plan(&binary, cfg!(windows));
+        let mut cmd = Command::new(&plan.program);
+        cmd.args(&plan.pre_args)
+            .args(&argv)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        apply_baseline_env(&mut cmd);
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn ACP agent '{binary}': {e}"))?;
+
+        let stdin = child.stdin.take().expect("stdin was piped");
+        let stdout = child.stdout.take().expect("stdout was piped");
+        let stderr = child.stderr.take();
+        let child = Arc::new(tokio::sync::Mutex::new(child));
+
+        // Same registration as `spawn_session`: from this instant, `shutdown_all`
+        // can always find and kill this child, even mid-`initialize`.
+        let pending_id = {
+            let child_for_kill = Arc::clone(&child);
+            let kill: PendingKill = Box::new(move || {
+                Box::pin(async move {
+                    let mut c = child_for_kill.lock().await;
+                    terminate_child(&mut c).await;
+                })
+            });
+            self.register_pending_child(kill, &agent.name).await?
+        };
+        let mut pending_guard = PendingSpawnGuard {
+            manager: self,
+            pending_id,
+            armed: true,
+        };
+
+        if let Some(stderr) = stderr {
+            let agent_id = agent.id.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    log::debug!("acp[{agent_id}] test stderr: {line}");
+                }
+            });
+        }
+
+        let transport = StdioTransport::new(stdin, stdout);
+        let client = AcpClient::new(transport);
+
+        let init = tokio::time::timeout(COLD_START_TIMEOUT, do_initialize(&client)).await;
+        // Past the only `.await` that can be cancelled while this child is
+        // pending; clean up explicitly from here on, same as `spawn_session`'s
+        // `Err` arm — this test spawn is ALWAYS torn down, success or failure.
+        pending_guard.disarm();
+        self.pending_children.lock().unwrap().remove(&pending_id);
+        {
+            let mut c = child.lock().await;
+            terminate_child(&mut c).await;
+        }
+
+        match init {
+            Ok(result) => result,
+            Err(_elapsed) => Err(format!(
+                "'{}' never responded to ACP initialize within {}s.",
+                agent.name,
+                COLD_START_TIMEOUT.as_secs()
+            )),
+        }
+    }
+}
+
 /// Spawn the agent binary as an ACP server, run the handshake (`initialize`
 /// then `session/new`), and wrap the result as a `LiveSession`. Any failure
 /// after the child is spawned kills it before returning — a

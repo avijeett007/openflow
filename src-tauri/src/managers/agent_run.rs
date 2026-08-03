@@ -253,10 +253,8 @@ impl AgentRunManager {
     /// a half-applied change. Stop is the escape hatch, and it resolves every
     /// parked prompt as `cancelled`.
     ///
-    /// Exercised by this module's tests; its production caller is Task 9's
-    /// `respond_agent_permission` command, so silence dead-code until then —
-    /// the same pattern the `acp` modules use while a layer awaits its consumer.
-    #[allow(dead_code)]
+    /// Exercised by this module's tests; its production caller is
+    /// `commands::acp_agents::respond_agent_permission`.
     pub fn respond_permission(
         &self,
         run_id: &str,
