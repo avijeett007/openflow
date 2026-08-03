@@ -252,6 +252,32 @@ mod tests {
     }
 
     #[test]
+    fn malformed_permission_params_still_surface_so_the_agent_is_never_left_hanging() {
+        // `toolCall` must be an object (`ToolCallWire`); a number can never
+        // deserialize into it, regardless of the container's `#[serde(default)]`
+        // (that only fills in *missing* fields, not badly-typed present ones).
+        // This must still come out as `Unsupported`, not `RequestPermission` and
+        // not silently dropped — an unanswered permission request hangs the
+        // agent's turn forever.
+        block_on(async {
+            let c = AcpClient::new(FakeTransport::new(vec![
+                r#"{"jsonrpc":"2.0","id":9,"method":"session/request_permission",
+                    "params":{"toolCall":123}}"#,
+            ]));
+            match c.pump().await.unwrap() {
+                PumpItem::Event(ClientEvent::Inbound(InboundRequest::Unsupported {
+                    id,
+                    method,
+                })) => {
+                    assert_eq!(id, json!(9));
+                    assert_eq!(method, "session/request_permission");
+                }
+                other => panic!("expected Unsupported, got {other:?}"),
+            }
+        });
+    }
+
+    #[test]
     fn unsupported_agent_request_is_surfaced_for_a_method_not_found_reply() {
         // We declared fs/terminal capabilities false, so an agent SHOULD NOT call
         // these — but if one does, we must answer, not hang its turn forever.
