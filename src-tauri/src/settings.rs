@@ -2656,16 +2656,21 @@ mod tests {
         ] {
             let (binary, argv) = default_acp_template(cli_type)
                 .unwrap_or_else(|| panic!("{cli_type:?} unexpectedly has no default_acp_template"));
+            // Asserted TOGETHER, not as two independent `contains` checks
+            // (Task 11 review, Important 6): checking `binary` and `argv`
+            // separately has a verified blind spot — e.g. renaming `claude`'s
+            // binary from "npx" to "bunx" in Rust still finds "npx" verbatim
+            // elsewhere in the file (Codex's entry), so the test stays green
+            // on exactly the "stale resolved program" drift it exists to
+            // catch. Requiring the PAIR to appear together, in the object
+            // literal's own `key: "value", key: "value"` shape (Prettier's
+            // formatting of `ACP_DEFAULT_TEMPLATES`), means only a match
+            // against THIS type's own entry can satisfy it.
+            let pair = format!("binary: \"{binary}\", argv: \"{argv}\"");
             assert!(
-                contents.contains(&binary),
-                "settings.rs::default_acp_template's {cli_type:?} binary '{binary}' was not \
+                contents.contains(&pair),
+                "settings.rs::default_acp_template's {cli_type:?} entry (`{pair}`) was not \
                  found verbatim in agentTemplates.ts — update ACP_DEFAULT_TEMPLATES in \
-                 src/components/settings/agents/agentTemplates.ts to match."
-            );
-            assert!(
-                contents.contains(&argv),
-                "settings.rs::default_acp_template's {cli_type:?} argv '{argv}' was not found \
-                 verbatim in agentTemplates.ts — update ACP_DEFAULT_TEMPLATES in \
                  src/components/settings/agents/agentTemplates.ts to match."
             );
         }

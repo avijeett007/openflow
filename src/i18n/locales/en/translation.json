@@ -1163,6 +1163,10 @@
         "used": "Used {{tool}}"
       },
       "acp": {
+        "output": {
+          "showRaw": "Raw output",
+          "showStructured": "Structured view"
+        },
         "thought": {
           "label": "Thinking"
         },

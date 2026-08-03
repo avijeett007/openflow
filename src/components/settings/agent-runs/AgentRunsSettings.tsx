@@ -3,9 +3,10 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { LogOut, MessagesSquare, Send, Trash2 } from "lucide-react";
-import type { AgentRunInfo, RunEvent, RunStatus } from "@/bindings";
+import type { AgentRunInfo, RunStatus } from "@/bindings";
 import { commands, events } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
+import { useAgentRunEventsStore } from "../../../stores/agentRunEventsStore";
 import { Button } from "../../ui/Button";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { Textarea } from "../../ui/Textarea";
@@ -32,18 +33,25 @@ function groupRunsIntoThreads(runs: AgentRunInfo[]): RunThread[] {
 
   for (const run of runs) {
     if (run.session_id) {
-      if (!bySession.has(run.session_id)) {
-        bySession.set(run.session_id, []);
-        sessionOrder.push(run.session_id);
+      // Namespaced by agent id, not the bare `session_id` (Task 11 review,
+      // Minor 8): `session_id` is whatever the agent's own `session/new`
+      // returned, with no cross-agent uniqueness guarantee — two different
+      // custom ACP agents both handing back `"1"` must NOT merge into one
+      // thread, since the follow-up box targets a single `agent_id` and
+      // sending it to the wrong agent would be a real, silent misdirection.
+      const key = `${run.agent_id}::${run.session_id}`;
+      if (!bySession.has(key)) {
+        bySession.set(key, []);
+        sessionOrder.push(key);
       }
-      bySession.get(run.session_id)?.push(run);
+      bySession.get(key)?.push(run);
     } else {
       threads.push({ key: run.run_id, runs: [run] });
     }
   }
-  for (const sessionId of sessionOrder) {
-    const sessionRuns = bySession.get(sessionId) ?? [];
-    threads.push({ key: sessionId, runs: [...sessionRuns].reverse() });
+  for (const sessionKey of sessionOrder) {
+    const sessionRuns = bySession.get(sessionKey) ?? [];
+    threads.push({ key: sessionKey, runs: [...sessionRuns].reverse() });
   }
 
   threads.sort((a, b) => {
@@ -118,18 +126,21 @@ const FollowUpBox: React.FC<{ onSubmit: (text: string) => Promise<void> }> = ({
  * for an unrecognized `run_id` we re-fetch the full list instead of dropping
  * the update.
  *
- * Task 11 adds a third listener (`agent-run-event`, structured ACP events —
- * see `AgentRunRow`'s `hasStructuredEvents` for the non-breaking guarantee
- * this relies on), session-based thread grouping, and the follow-up/End
- * session actions for a still-warm ACP session.
+ * Task 11 adds structured ACP events, session-based thread grouping, and the
+ * follow-up/End session actions for a still-warm ACP session. Structured
+ * events are read from `useAgentRunEventsStore`, NOT a listener owned by this
+ * component: this panel unmounts on every tab switch (only the active
+ * settings section renders — see `App.tsx`), so a listener here would drop
+ * every event, including an unanswerable parked `PermissionRequest`, for as
+ * long as the user was on any other tab. `AgentRunEventListener` (mounted
+ * once at the App root) keeps the store current regardless of which section
+ * is showing — see its doc comment (Task 11 review, Critical 2).
  */
 export const AgentRunsSettings: React.FC = () => {
   const { t } = useTranslation();
   const { settings } = useSettings();
   const [runs, setRuns] = useState<AgentRunInfo[]>([]);
-  const [eventsByRun, setEventsByRun] = useState<Record<string, RunEvent[]>>(
-    {},
-  );
+  const eventsByRun = useAgentRunEventsStore((state) => state.eventsByRun);
   const [isLoading, setIsLoading] = useState(true);
   const [isClearing, setIsClearing] = useState(false);
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
@@ -147,6 +158,12 @@ export const AgentRunsSettings: React.FC = () => {
     const sorted = [...list].sort((a, b) => b.started_at_ms - a.started_at_ms);
     knownIdsRef.current = new Set(sorted.map((run) => run.run_id));
     setRuns(sorted);
+    // Self-heals the persistent event store: a run that's no longer in the
+    // registry (e.g. dropped by "Clear finished") stops accumulating events
+    // forever (Task 11 review, Important 4).
+    useAgentRunEventsStore
+      .getState()
+      .pruneToRunIds(sorted.map((run) => run.run_id));
   }, []);
 
   useEffect(() => {
@@ -180,27 +197,10 @@ export const AgentRunsSettings: React.FC = () => {
       );
     });
 
-    // Structured ACP events, ALONGSIDE the two listeners above — never
-    // replacing them. A run with no structured events never gets an entry
-    // here, and `AgentRunRow` renders that case exactly as it did before this
-    // listener existed (see its `hasStructuredEvents`).
-    const unlistenEvent = events.agentRunEvent.listen((event) => {
-      const { run_id, event: runEvent } = event.payload;
-      if (!knownIdsRef.current.has(run_id)) {
-        void refresh();
-        return;
-      }
-      setEventsByRun((prev) => ({
-        ...prev,
-        [run_id]: [...(prev[run_id] ?? []), runEvent],
-      }));
-    });
-
     return () => {
       cancelled = true;
       unlistenOutput.then((fn) => fn());
       unlistenStatus.then((fn) => fn());
-      unlistenEvent.then((fn) => fn());
     };
   }, [refresh]);
 
@@ -244,7 +244,19 @@ export const AgentRunsSettings: React.FC = () => {
     }
   };
 
-  /** Follow-up submit: same `AgentRunManager::start` path a hotkey trigger uses (`send_agent_followup`), so a still-warm session continues its conversation. */
+  /**
+   * Follow-up submit: same `AgentRunManager::start` path a hotkey trigger
+   * uses (`send_agent_followup`), so a still-warm session continues its
+   * conversation. Deliberately does NOT `refresh()` here (Task 11 review,
+   * Important 3): `start` registers the run and returns immediately, before
+   * `drive_acp_run` has acquired a session and called `set_session_id` — an
+   * immediate refresh would snapshot `session_id: null` AND mark the run
+   * `known`, so no later listener would ever refetch it, and the follow-up
+   * would render as a detached singleton outside its thread forever. Leaving
+   * it `unknown` means the existing output/status listeners' "unrecognized
+   * run_id → refetch" branch (unchanged) picks it up on its first event,
+   * by which point `session_id` is already set.
+   */
   const handleFollowUp = async (agentId: string, instruction: string) => {
     const result = await commands.sendAgentFollowup(agentId, instruction);
     if (result.status === "error") {
@@ -261,7 +273,6 @@ export const AgentRunsSettings: React.FC = () => {
       delete next[agentId];
       return next;
     });
-    await refresh();
   };
 
   const handleEndSession = async (agentId: string) => {

@@ -255,11 +255,24 @@ impl AgentRunManager {
     ///
     /// Exercised by this module's tests; its production caller is
     /// `commands::acp_agents::respond_agent_permission`.
+    ///
+    /// `option_id` is the EXACT agent-supplied option the user clicked, when
+    /// the caller has one (Task 11 review, Important 5). It takes priority
+    /// over `choice`-derived selection in `apply_answer`: `choice` alone only
+    /// carries a kind category (allow/deny x once/always), and when an agent
+    /// offers two options of the SAME kind (e.g. "Allow once" and "Allow for
+    /// this directory", both `allow_once`), picking by kind alone always
+    /// resolves to the first — silently answering with a different option
+    /// than the one the user actually clicked. `choice` is still required: it
+    /// drives the session-scoped "always" bookkeeping and the
+    /// `PermissionResolved` outcome wording, and is the fallback selector if
+    /// `option_id` doesn't match any of this request's current options.
     pub fn respond_permission(
         &self,
         run_id: &str,
         request_id: &str,
         choice: PermissionChoice,
+        option_id: Option<String>,
     ) -> Result<(), String> {
         let runs = self.runs.lock().unwrap();
         let run = runs
@@ -272,6 +285,7 @@ impl AgentRunManager {
         tx.send(PermissionAnswer {
             request_id: request_id.to_string(),
             choice,
+            option_id,
         })
         .map_err(|_| format!("Run '{run_id}' is no longer running"))
     }
@@ -1066,6 +1080,10 @@ impl PermissionChoice {
 pub struct PermissionAnswer {
     pub request_id: String,
     pub choice: PermissionChoice,
+    /// The EXACT agent-supplied option the user clicked, when known. See
+    /// `respond_permission`'s doc comment for why this — not `choice` alone —
+    /// must be preferred when selecting which option to reply with.
+    pub option_id: Option<String>,
 }
 
 /// A permission request the user still has to answer. Holding the agent's
@@ -1530,10 +1548,36 @@ async fn apply_answer<S: AcpSessionOps>(
         session.remember_override(ov);
     }
 
+    // Which option id to actually reply with (Task 11 review, Important 5).
+    //
+    // An `*_always` click is UNCHANGED from before: it never selects the
+    // agent's own persistent option (see this fn's doc comment above), so it
+    // always goes through `pick_option`'s kind-based one-shot selection
+    // regardless of `answer.option_id`.
+    //
+    // An `*_once` click prefers the EXACT option the user clicked. `choice`
+    // alone is only a kind category (allow/deny x once/always) — when an
+    // agent offers two options of the SAME once kind (e.g. "Allow once" and
+    // "Allow for this directory", both `allow_once`), `pick_option` always
+    // resolves to whichever comes first, silently answering with a DIFFERENT
+    // option than the one the user actually clicked. Falls back to
+    // `pick_option` if the id is missing or no longer among this request's
+    // current options (e.g. a stale answer racing a resolved request).
+    let selected_option_id = if answer.choice.is_persistent() {
+        pick_option(&parked.options, answer.choice.allows())
+    } else {
+        answer
+            .option_id
+            .as_ref()
+            .filter(|id| parked.options.iter().any(|o| &o.option_id == *id))
+            .cloned()
+            .or_else(|| pick_option(&parked.options, answer.choice.allows()))
+    };
+
     // A failed write is propagated, never reported as a resolution: the agent
     // never received the answer, so emitting one would tell the user their click
     // landed while the turn quietly stalls.
-    match pick_option(&parked.options, answer.choice.allows()) {
+    match selected_option_id {
         Some(option_id) => {
             bounded_send(
                 "answering a permission request",
@@ -3459,9 +3503,15 @@ mod tests {
             let _ = self.kill.send(());
         }
         fn answer(&self, request_id: &str, choice: PermissionChoice) {
+            // `option_id: None` here — these tests exercise the turn loop's
+            // handling of a choice generically; `apply_answer`'s
+            // `pick_option` fallback reproduces exactly today's selection
+            // when no exact option id is supplied. The exact-id path (Task
+            // 11 review, Important 5) has its own dedicated test.
             let _ = self.answers.send(PermissionAnswer {
                 request_id: request_id.to_string(),
                 choice,
+                option_id: None,
             });
         }
     }
@@ -4157,25 +4207,141 @@ mod tests {
         // A run with no ACP turn loop (every raw CLI / remote run) must refuse
         // rather than silently swallow the answer.
         assert!(mgr
-            .respond_permission("r1", "perm-1", PermissionChoice::AllowOnce)
+            .respond_permission("r1", "perm-1", PermissionChoice::AllowOnce, None)
             .is_err());
         assert!(mgr
-            .respond_permission("nope", "perm-1", PermissionChoice::AllowOnce)
+            .respond_permission("nope", "perm-1", PermissionChoice::AllowOnce, None)
             .is_err());
 
         let (ptx, mut prx) = mpsc::unbounded_channel::<PermissionAnswer>();
         mgr.set_permission_sender("r1", ptx);
-        mgr.respond_permission("r1", "perm-2", PermissionChoice::DenyAlways)
-            .expect("an ACP run's answer must reach its turn loop");
+        mgr.respond_permission(
+            "r1",
+            "perm-2",
+            PermissionChoice::DenyAlways,
+            Some("d1".to_string()),
+        )
+        .expect("an ACP run's answer must reach its turn loop");
         let got = prx.try_recv().expect("the answer must arrive");
         assert_eq!(got.request_id, "perm-2");
         assert_eq!(got.choice, PermissionChoice::DenyAlways);
+        assert_eq!(got.option_id.as_deref(), Some("d1"));
 
         // Finalizing clears the channel: nothing can be answered after the run
         // is terminal.
         mgr.set_status("r1", RunStatus::Finished { code: 0 });
         assert!(mgr
-            .respond_permission("r1", "perm-2", PermissionChoice::AllowOnce)
+            .respond_permission("r1", "perm-2", PermissionChoice::AllowOnce, None)
             .is_err());
+    }
+
+    /// Task 11 review, Important 5: two options of the SAME once-kind must
+    /// not collapse to "whichever comes first" — the exact option the user
+    /// clicked must be the one the agent is answered with.
+    #[test]
+    fn apply_answer_replies_with_the_exact_option_clicked_not_just_a_kind_match() {
+        let options = vec![
+            PermissionOptionWire {
+                option_id: "allow-plain".into(),
+                name: "Allow once".into(),
+                kind: "allow_once".into(),
+            },
+            PermissionOptionWire {
+                option_id: "allow-dir".into(),
+                name: "Allow for this directory".into(),
+                kind: "allow_once".into(),
+            },
+        ];
+        let parked = ParkedPermission {
+            id: json!("req-1"),
+            tool_kind: "edit".into(),
+            options: options.clone(),
+        };
+        let mut events = Vec::new();
+        let mut on_event = |e: RunEvent| events.push(e);
+
+        // The user clicked the SECOND same-kind option, not the first —
+        // `pick_option` alone would always resolve to `allow-plain`.
+        let answer = PermissionAnswer {
+            request_id: "req-1".to_string(),
+            choice: PermissionChoice::AllowOnce,
+            option_id: Some("allow-dir".to_string()),
+        };
+        let session = FakeSession::new(vec![]);
+        block_on(apply_answer(
+            &session,
+            &answer,
+            &parked,
+            &mut on_event,
+            Duration::from_millis(200),
+        ))
+        .expect("answering must succeed");
+        assert_eq!(
+            session.sent().last(),
+            Some(&Sent::Answer {
+                id: json!("req-1"),
+                outcome: PermissionOutcome::Selected {
+                    option_id: "allow-dir".to_string(),
+                },
+            }),
+            "must reply with the EXACT option the user clicked, not the first same-kind option"
+        );
+
+        // A stale/unrecognized option id (e.g. racing a resolved request)
+        // falls back to the existing kind-based selection rather than
+        // silently failing.
+        let stale_answer = PermissionAnswer {
+            request_id: "req-1".to_string(),
+            choice: PermissionChoice::AllowOnce,
+            option_id: Some("no-longer-exists".to_string()),
+        };
+        let session2 = FakeSession::new(vec![]);
+        block_on(apply_answer(
+            &session2,
+            &stale_answer,
+            &parked,
+            &mut on_event,
+            Duration::from_millis(200),
+        ))
+        .expect("answering must still succeed via the fallback");
+        assert_eq!(
+            session2.sent().last(),
+            Some(&Sent::Answer {
+                id: json!("req-1"),
+                outcome: PermissionOutcome::Selected {
+                    option_id: "allow-plain".to_string(),
+                },
+            }),
+            "an unrecognized option id falls back to pick_option's kind-based selection"
+        );
+
+        // An `*_always` click is UNCHANGED: it must still reply with the
+        // one-shot option, NEVER the agent's own persistent option — even
+        // though `answer.option_id` names the (nonexistent, once-only) always
+        // option here, proving the always-branch never even consults it.
+        let always_answer = PermissionAnswer {
+            request_id: "req-1".to_string(),
+            choice: PermissionChoice::AllowAlways,
+            option_id: Some("allow-dir".to_string()),
+        };
+        let session3 = FakeSession::new(vec![]);
+        block_on(apply_answer(
+            &session3,
+            &always_answer,
+            &parked,
+            &mut on_event,
+            Duration::from_millis(200),
+        ))
+        .expect("answering must succeed");
+        assert_eq!(
+            session3.sent().last(),
+            Some(&Sent::Answer {
+                id: json!("req-1"),
+                outcome: PermissionOutcome::Selected {
+                    option_id: "allow-plain".to_string(),
+                },
+            }),
+            "an *_always* click must still reply with pick_option's one-shot choice, never the clicked option id verbatim"
+        );
     }
 }

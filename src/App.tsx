@@ -20,6 +20,7 @@ import {
 } from "./components/Sidebar";
 import { WhatsNewGate } from "./components/whats-new";
 import { MeetingDetectionListener } from "./components/settings";
+import { AgentRunEventListener } from "./components/settings/agent-runs/AgentRunEventListener";
 import { useSettings } from "./hooks/useSettings";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useNavigationStore } from "./stores/navigationStore";
@@ -311,6 +312,7 @@ function App() {
       />
       <WhatsNewGate />
       <MeetingDetectionListener />
+      <AgentRunEventListener />
       {/* Main content area that takes remaining space */}
       <div className="flex-1 flex overflow-hidden">
         <Sidebar

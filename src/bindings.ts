@@ -973,10 +973,17 @@ async testRemoteAgent(agentId: string) : Promise<Result<string, string>> {
  * Answer a parked `session/request_permission` prompt. Routes into Task 8's
  * existing per-run channel (`AgentRunManager::respond_permission`) — there is
  * no second path into the driver's turn loop.
+ * 
+ * `option_id` is the EXACT agent-supplied option the UI button the user
+ * clicked corresponds to (Task 11 review, Important 5). `outcome` still
+ * drives the once/always + allow/deny bookkeeping (`parse_outcome`); it is
+ * no longer solely responsible for selecting which option gets sent back —
+ * see `AgentRunManager::respond_permission`'s doc comment for why `outcome`
+ * alone made two same-kind options indistinguishable.
  */
-async respondAgentPermission(runId: string, requestId: string, outcome: string) : Promise<Result<null, string>> {
+async respondAgentPermission(runId: string, requestId: string, outcome: string, optionId: string) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("respond_agent_permission", { runId, requestId, outcome }) };
+    return { status: "ok", data: await TAURI_INVOKE("respond_agent_permission", { runId, requestId, outcome, optionId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

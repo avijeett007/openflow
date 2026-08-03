@@ -79,27 +79,63 @@ export function buildEventRows(
 
   events.forEach((e, i) => {
     switch (e.kind) {
-      case "text":
-        rows.push({ type: "text", key: `text-${i}`, text: e.text });
+      case "text": {
+        // `Text` is `SessionUpdate::AgentMessageChunk` — a STREAMING DELTA,
+        // not a whole message (Task 11 review, Important 4). Merging
+        // consecutive chunks into the row directly above avoids a one
+        // paragraph reply rendering as dozens of separate `<p>`s. Only merges
+        // with the row IMMEDIATELY above (not "the last text row anywhere"),
+        // so an unrelated row in between (a tool call, a permission ask)
+        // still starts a fresh paragraph.
+        const last = rows[rows.length - 1];
+        if (last !== undefined && last.type === "text") {
+          rows[rows.length - 1] = { ...last, text: last.text + e.text };
+        } else {
+          rows.push({ type: "text", key: `text-${i}`, text: e.text });
+        }
         break;
-      case "thought":
-        rows.push({ type: "thought", key: `thought-${i}`, text: e.text });
+      }
+      case "thought": {
+        // Same streaming-delta shape as `Text` above.
+        const last = rows[rows.length - 1];
+        if (last !== undefined && last.type === "thought") {
+          rows[rows.length - 1] = { ...last, text: last.text + e.text };
+        } else {
+          rows.push({ type: "thought", key: `thought-${i}`, text: e.text });
+        }
         break;
+      }
       case "plan":
         rows.push({ type: "plan", key: `plan-${i}`, entries: e.entries });
         break;
       case "tool_call": {
-        toolIndex.set(e.id, rows.length);
-        rows.push({
-          type: "tool_call",
-          key: `tool-${e.id}`,
-          id: e.id,
-          title: e.title,
-          toolKind: e.tool_kind,
-          status: e.status,
-          locations: e.locations,
-          content: null,
-        });
+        // Some adapters re-send `ToolCall` (rather than `ToolCallUpdate`) for
+        // the same id — update the existing row in place rather than
+        // pushing a second one with a duplicate React key (Task 11 review,
+        // Minor 7, confirmed at runtime).
+        const idx = toolIndex.get(e.id);
+        const existing = idx !== undefined ? rows[idx] : undefined;
+        if (existing !== undefined && existing.type === "tool_call") {
+          rows[idx as number] = {
+            ...existing,
+            title: e.title,
+            toolKind: e.tool_kind,
+            status: e.status,
+            locations: e.locations,
+          };
+        } else {
+          toolIndex.set(e.id, rows.length);
+          rows.push({
+            type: "tool_call",
+            key: `tool-${e.id}`,
+            id: e.id,
+            title: e.title,
+            toolKind: e.tool_kind,
+            status: e.status,
+            locations: e.locations,
+            content: null,
+          });
+        }
         break;
       }
       case "tool_call_update": {

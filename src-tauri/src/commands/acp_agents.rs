@@ -76,6 +76,13 @@ fn to_permission_choice(parsed: ParsedOutcome, persistent: bool) -> PermissionCh
 /// Answer a parked `session/request_permission` prompt. Routes into Task 8's
 /// existing per-run channel (`AgentRunManager::respond_permission`) — there is
 /// no second path into the driver's turn loop.
+///
+/// `option_id` is the EXACT agent-supplied option the UI button the user
+/// clicked corresponds to (Task 11 review, Important 5). `outcome` still
+/// drives the once/always + allow/deny bookkeeping (`parse_outcome`); it is
+/// no longer solely responsible for selecting which option gets sent back —
+/// see `AgentRunManager::respond_permission`'s doc comment for why `outcome`
+/// alone made two same-kind options indistinguishable.
 #[tauri::command]
 #[specta::specta]
 pub fn respond_agent_permission(
@@ -83,13 +90,14 @@ pub fn respond_agent_permission(
     run_id: String,
     request_id: String,
     outcome: String,
+    option_id: String,
 ) -> Result<(), String> {
     let (parsed, persistent) = parse_outcome(&outcome)?;
     let choice = to_permission_choice(parsed, persistent);
     let manager = app
         .try_state::<Arc<AgentRunManager>>()
         .ok_or_else(|| "Agent run manager not initialized".to_string())?;
-    manager.respond_permission(&run_id, &request_id, choice)
+    manager.respond_permission(&run_id, &request_id, choice, Some(option_id))
 }
 
 /// Lightweight reachability test for an ACP agent: spawn it, send

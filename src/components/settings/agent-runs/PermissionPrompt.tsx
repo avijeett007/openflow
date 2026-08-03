@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { ShieldAlert } from "lucide-react";
 import { commands } from "@/bindings";
+import type { PermissionOption } from "@/bindings";
 import { Button } from "../../ui/Button";
 import type { PermissionRow } from "./runEventRows";
 
@@ -47,13 +48,23 @@ export const PermissionPrompt: React.FC<PermissionPromptProps> = ({
 
   if (requests.length === 0) return null;
 
-  const respond = async (requestId: string, outcome: Outcome) => {
+  // Sends the EXACT option the user clicked (Task 11 review, Important 5):
+  // collapsing to just `outcome`'s 4-value vocabulary discarded which of
+  // possibly several same-kind options was actually pressed, so the backend
+  // could only guess (always the first of that kind) — a real trust failure
+  // for a feature that exists to make an agent's actions legible. `outcome`
+  // still travels alongside it: the backend derives the once/always +
+  // allow/deny bookkeeping from it, and falls back to kind-based selection
+  // if `option.option_id` ever fails to match (see
+  // `AgentRunManager::respond_permission`'s doc comment).
+  const respond = async (requestId: string, option: PermissionOption) => {
     setPendingIds((prev) => new Set(prev).add(requestId));
     try {
       const result = await commands.respondAgentPermission(
         runId,
         requestId,
-        outcome,
+        toOutcome(option.kind),
+        option.option_id,
       );
       if (result.status === "error") {
         toast.error(
@@ -111,9 +122,7 @@ export const PermissionPrompt: React.FC<PermissionPromptProps> = ({
                   }
                   size="sm"
                   disabled={busy}
-                  onClick={() =>
-                    void respond(req.requestId, toOutcome(option.kind))
-                  }
+                  onClick={() => void respond(req.requestId, option)}
                 >
                   {option.name}
                 </Button>
