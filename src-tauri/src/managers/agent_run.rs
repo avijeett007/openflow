@@ -12,6 +12,7 @@
 //! plus optional desktop notification and a written run file).
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,15 +21,29 @@ use std::time::Duration;
 
 use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use specta::Type;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
 use crate::a2a::{self, A2aTransport, HttpA2aTransport, RemoteOutcome};
-use crate::settings::{AgentCliType, AgentDefinition, AgentKind, AgentOutputSink, PromptDelivery};
+use crate::acp::client::{ClientEvent, InboundRequest, PumpItem};
+use crate::acp::events::{
+    map_session_update, render_line, AgentRunEvent, PermissionOption, RunEvent,
+};
+use crate::acp::permission::{
+    decide, pick_option, AcpPermissionPolicy, PermissionDecision, PolicyInput, SessionOverride,
+};
+use crate::acp::protocol::{
+    PermissionOptionWire, PermissionOutcome, PromptResult, StopReason, ToolCallWire,
+};
+use crate::managers::acp_session::{AcpSessionManager, LiveSession};
+use crate::settings::{
+    AgentCliType, AgentDefinition, AgentKind, AgentOutputSink, CliProtocol, PromptDelivery,
+};
 
 /// Cap on the rolling per-run output buffer. Enough to keep a useful tail for
 /// the panel and the written file, bounded so a chatty run can't grow memory
@@ -85,6 +100,11 @@ pub struct AgentRunInfo {
     pub instruction: String,
     /// Absolute path to the written run file, once the File sink has run.
     pub output_file: Option<String>,
+    /// The ACP session this run's turn belonged to; `None` for raw CLI and
+    /// remote runs. ADDITIVE on purpose: one ACP turn is one run (`RunStatus`
+    /// gains no variant, so no frontend `switch` breaks — DESIGN §6), and runs
+    /// sharing a session id are one conversation thread in the panel.
+    pub session_id: Option<String>,
 }
 
 /// Live registry entry.
@@ -99,6 +119,12 @@ struct AgentRun {
     output_file: Option<String>,
     /// Send `()` to request a stop; `None` once the run is terminal.
     kill_tx: Option<mpsc::UnboundedSender<()>>,
+    /// The ACP session this run's turn ran on; `None` for every other driver.
+    session_id: Option<String>,
+    /// Set by `drive_acp_run` only: the channel a user's answer to a parked
+    /// permission prompt travels down to reach the turn loop. `None` once the
+    /// run is terminal (nothing can be answered after that).
+    permission_tx: Option<mpsc::UnboundedSender<PermissionAnswer>>,
 }
 
 impl AgentRun {
@@ -114,6 +140,7 @@ impl AgentRun {
             output: self.output.clone(),
             instruction: self.instruction.clone(),
             output_file: self.output_file.clone(),
+            session_id: self.session_id.clone(),
         }
     }
 }
@@ -195,7 +222,60 @@ impl AgentRunManager {
         if let Some(run) = runs.get_mut(run_id) {
             run.status = status;
             run.kill_tx = None;
+            // A terminal run has no turn loop left to receive an answer.
+            run.permission_tx = None;
         }
+    }
+
+    /// Bind a run to the ACP session its turn ran on (ACP driver only).
+    fn set_session_id(&self, run_id: &str, session_id: &str) {
+        let mut runs = self.runs.lock().unwrap();
+        if let Some(run) = runs.get_mut(run_id) {
+            run.session_id = Some(session_id.to_string());
+        }
+    }
+
+    /// Install the channel a user's permission answer travels down to reach
+    /// this run's turn loop (ACP driver only).
+    fn set_permission_sender(&self, run_id: &str, tx: mpsc::UnboundedSender<PermissionAnswer>) {
+        let mut runs = self.runs.lock().unwrap();
+        if let Some(run) = runs.get_mut(run_id) {
+            run.permission_tx = Some(tx);
+        }
+    }
+
+    /// Hand the user's answer to a parked permission prompt to the run's turn
+    /// loop, which replies to the agent. The backend half of Task 9's
+    /// `respond_agent_permission` command.
+    ///
+    /// There is deliberately NO timeout on a parked prompt (DESIGN §8): a
+    /// blocked agent is recoverable, a silent auto-deny at minute ten may leave
+    /// a half-applied change. Stop is the escape hatch, and it resolves every
+    /// parked prompt as `cancelled`.
+    ///
+    /// Exercised by this module's tests; its production caller is Task 9's
+    /// `respond_agent_permission` command, so silence dead-code until then —
+    /// the same pattern the `acp` modules use while a layer awaits its consumer.
+    #[allow(dead_code)]
+    pub fn respond_permission(
+        &self,
+        run_id: &str,
+        request_id: &str,
+        choice: PermissionChoice,
+    ) -> Result<(), String> {
+        let runs = self.runs.lock().unwrap();
+        let run = runs
+            .get(run_id)
+            .ok_or_else(|| format!("Run '{run_id}' not found"))?;
+        let tx = run
+            .permission_tx
+            .as_ref()
+            .ok_or_else(|| format!("Run '{run_id}' is not waiting on a permission prompt"))?;
+        tx.send(PermissionAnswer {
+            request_id: request_id.to_string(),
+            choice,
+        })
+        .map_err(|_| format!("Run '{run_id}' is no longer running"))
     }
 
     /// Snapshot the current rolling output buffer for a run (for classifying a
@@ -283,6 +363,10 @@ impl AgentRunManager {
                     instruction: instruction.clone(),
                     output_file: None,
                     kill_tx: Some(kill_tx),
+                    // Filled in by `drive_acp_run` once its session is warm;
+                    // every other driver leaves both `None`.
+                    session_id: None,
+                    permission_tx: None,
                 },
             );
         }
@@ -302,6 +386,17 @@ impl AgentRunManager {
                 tauri::async_runtime::spawn(async move {
                     manager
                         .drive_remote_run(app, run_id_task, agent, instruction, kill_rx)
+                        .await;
+                });
+            }
+            // C0: a CLI agent configured for ACP takes the session driver. A
+            // third sibling behind the same seam — same registry entry, same
+            // run id, same kill wiring, same two events — so the run panel
+            // needs nothing. Every other agent falls through unchanged.
+            _ if uses_acp_driver(&agent) => {
+                tauri::async_runtime::spawn(async move {
+                    manager
+                        .drive_acp_run(app, run_id_task, agent, instruction, kill_rx)
                         .await;
                 });
             }
@@ -552,6 +647,154 @@ impl AgentRunManager {
         self.finalize(&app, &run_id, &agent, status, started).await;
     }
 
+    /// Drive ONE ACP turn behind the SAME run seam as `drive_run` /
+    /// `drive_remote_run`: same registry entry, same kill channel, same
+    /// `finalize` + sinks, same two pre-existing events. A turn is a run
+    /// (DESIGN §6) — when `session/prompt` returns, this run is terminal while
+    /// the SESSION stays warm for the next instruction, and the two are tied
+    /// together only by the additive `session_id`.
+    ///
+    /// The protocol turn itself lives in `run_acp_turn`, which is generic over
+    /// `AcpSessionOps` and emits through a closure — the same shape
+    /// `a2a::run_remote_protocol` uses — so it is unit-tested with no process,
+    /// no network and no Tauri app. This method is the thin glue: session
+    /// acquisition, the header line, dual emission, status mapping, and
+    /// dropping a session whose child died.
+    async fn drive_acp_run(
+        self: Arc<Self>,
+        app: AppHandle,
+        run_id: String,
+        agent: AgentDefinition,
+        instruction: String,
+        mut kill_rx: mpsc::UnboundedReceiver<()>,
+    ) {
+        let started = std::time::Instant::now();
+
+        let sessions = match app.try_state::<Arc<AcpSessionManager>>() {
+            Some(state) => Arc::clone(state.inner()),
+            None => {
+                let err = "The ACP session manager is not initialized.".to_string();
+                self.emit_line(&app, &run_id, &err);
+                self.finalize(
+                    &app,
+                    &run_id,
+                    &agent,
+                    RunStatus::Failed { error: err },
+                    started,
+                )
+                .await;
+                return;
+            }
+        };
+
+        // 1. The warm session — spawn + handshake on this agent's first run,
+        //    a reused live child on every one after it.
+        let cwd = resolve_cwd(&app, &agent.project_path);
+        let session = match sessions.acquire(&agent, &cwd).await {
+            Ok(s) => s,
+            Err(e) => {
+                self.emit_line(&app, &run_id, &e);
+                log::error!("acp run {run_id}: {e}");
+                if let Some(diag) = self.classify_run_failure(&e, &agent.binary_path, &agent) {
+                    self.emit_diagnostic(&app, &run_id, &diag);
+                }
+                self.finalize(
+                    &app,
+                    &run_id,
+                    &agent,
+                    RunStatus::Failed { error: e },
+                    started,
+                )
+                .await;
+                return;
+            }
+        };
+
+        // 2. Bind the run to its session + the header line (same convention as
+        //    `drive_remote_run`'s `→ {name} @ {endpoint}`).
+        self.set_session_id(&run_id, &session.session_id);
+        self.emit_line(
+            &app,
+            &run_id,
+            &format!("→ {} · ACP session {}", agent.name, session.session_id),
+        );
+
+        // 3. The channel Task 9's `respond_agent_permission` command uses to
+        //    answer a parked prompt. Registered before the prompt is sent so no
+        //    answer can arrive with nowhere to go.
+        let (answer_tx, mut answer_rx) = mpsc::unbounded_channel::<PermissionAnswer>();
+        self.set_permission_sender(&run_id, answer_tx);
+
+        let manager = Arc::clone(&self);
+        let app_events = app.clone();
+        let run_id_events = run_id.clone();
+        let mut on_event = move |event: RunEvent| {
+            manager.emit_run_event(&app_events, &run_id_events, event);
+        };
+
+        let outcome = run_acp_turn(
+            session.as_ref(),
+            &instruction,
+            agent.acp_permission_policy,
+            &mut kill_rx,
+            &mut answer_rx,
+            &mut on_event,
+            CANCEL_GRACE,
+        )
+        .await;
+
+        // 4. Terminal status. `drop_session` marks the cases where the child is
+        //    dead or wedged: NEVER auto-retry the turn (it may have half-applied
+        //    edits) — drop the session and let the next run spawn fresh.
+        let (status, drop_session) = match outcome {
+            TurnOutcome::Ended(reason) => {
+                on_event(RunEvent::TurnEnd {
+                    stop_reason: stop_reason_label(reason).to_string(),
+                });
+                (stop_reason_to_status(reason), false)
+            }
+            TurnOutcome::CancelTimedOut => {
+                on_event(RunEvent::TurnEnd {
+                    stop_reason: stop_reason_label(StopReason::Cancelled).to_string(),
+                });
+                self.emit_line(
+                    &app,
+                    &run_id,
+                    "The agent never acknowledged the cancel — ending its session.",
+                );
+                (RunStatus::Stopped, true)
+            }
+            TurnOutcome::Crashed(error) => {
+                self.emit_line(&app, &run_id, &error);
+                log::error!("acp run {run_id}: {error}");
+                // Same actionable-diagnostic path the raw driver uses on a
+                // failure, fed the run's captured output.
+                let captured = self.current_output(&run_id);
+                if let Some(diag) = self.classify_run_failure(&captured, &agent.binary_path, &agent)
+                {
+                    self.emit_diagnostic(&app, &run_id, &diag);
+                }
+                (RunStatus::Failed { error }, true)
+            }
+            TurnOutcome::Failed(error) => {
+                self.emit_line(&app, &run_id, &error);
+                log::error!("acp run {run_id}: {error}");
+                (RunStatus::Failed { error }, false)
+            }
+        };
+        drop(on_event);
+
+        // Identity-checked: we are outside `acquire`'s spawn lock, so removing
+        // by agent id alone could close a healthy replacement a concurrent
+        // `acquire` has already spawned — killing a live agent mid-turn.
+        if drop_session {
+            sessions.end_if_current(&session).await;
+        }
+        // Sinks (Panel/Notify/File) run unchanged — dual emission means the
+        // buffer they read already contains every event's text line.
+        self.finalize(&app, &run_id, &agent, status, started).await;
+    }
+
     /// Resolve a remote agent's JSON-RPC endpoint: the cached `remote_endpoint`
     /// when present, otherwise one card fetch+resolve (with an actionable error
     /// pointing the user at the settings "Fetch card" button).
@@ -587,6 +830,30 @@ impl AgentRunManager {
         let _ = AgentRunOutput {
             run_id: run_id.to_string(),
             chunk: line.to_string(),
+        }
+        .emit(app);
+    }
+
+    /// Emit one ACP run event BOTH ways: the structured `agent-run-event` for
+    /// the new panel rows, and its rendered text line through the existing
+    /// buffer + `agent-run-output` path.
+    ///
+    /// The dual emission is the non-breaking guarantee, and it lives here so no
+    /// call site can forget half of it: `AgentRunInfo.output`, the File sink,
+    /// the Notify summary and every pre-existing panel subscriber keep working
+    /// untouched because an ACP run's buffer reads exactly like a raw CLI run's.
+    fn emit_run_event(&self, app: &AppHandle, run_id: &str, event: RunEvent) {
+        if let Some(line) = render_line(&event) {
+            self.append_output(run_id, &line);
+            let _ = AgentRunOutput {
+                run_id: run_id.to_string(),
+                chunk: line,
+            }
+            .emit(app);
+        }
+        let _ = AgentRunEvent {
+            run_id: run_id.to_string(),
+            event,
         }
         .emit(app);
     }
@@ -655,6 +922,467 @@ impl AgentRunManager {
             status,
         }
         .emit(app);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// C0 — the ACP turn (DESIGN-acp-agents.md §6-§8).
+// ---------------------------------------------------------------------------
+
+/// How long we wait for the agent to acknowledge a `session/cancel` with a
+/// terminal `stopReason` before giving up on it.
+///
+/// Stop is the ONLY escape hatch from a parked permission prompt (there is no
+/// auto-deny timeout, DESIGN §8), and the idle reaper deliberately spares any
+/// session with a turn in flight — so an agent that ignores `session/cancel`
+/// would otherwise pin the turn guard, and its own child, for the life of the
+/// app. Generous, because unwinding a large in-flight edit legitimately takes
+/// a moment; bounded, because "I pressed Stop and nothing happened, ever" is
+/// not a state the user can escape.
+const CANCEL_GRACE: Duration = Duration::from_secs(30);
+
+/// Whether an agent takes the ACP session driver. This is the actual guard
+/// `start`'s match arm evaluates — not a copy of it — so routing is asserted by
+/// test rather than by reading the match.
+pub fn uses_acp_driver(agent: &AgentDefinition) -> bool {
+    agent.kind == AgentKind::Cli && agent.cli_protocol == CliProtocol::Acp
+}
+
+/// A turn's terminal `stopReason` → the run's terminal status. `RunStatus`
+/// gains NO variant (DESIGN §6): a new one would break every frontend `switch`
+/// over the serde-tagged union.
+pub fn stop_reason_to_status(r: StopReason) -> RunStatus {
+    match r {
+        StopReason::Completed => RunStatus::Finished { code: 0 },
+        StopReason::Cancelled => RunStatus::Stopped,
+        StopReason::MaxStepsReached => RunStatus::Failed {
+            error: "The agent hit its step limit before finishing.".into(),
+        },
+        StopReason::RequestTimeout => RunStatus::Failed {
+            error: "The agent timed out while generating a response.".into(),
+        },
+        StopReason::Other => RunStatus::Failed {
+            error: "The agent stopped for a reason this version doesn't recognise.".into(),
+        },
+    }
+}
+
+/// The wire spelling of a stop reason, for `RunEvent::TurnEnd`.
+pub fn stop_reason_label(r: StopReason) -> &'static str {
+    match r {
+        StopReason::Completed => "completed",
+        StopReason::MaxStepsReached => "max_steps_reached",
+        StopReason::Cancelled => "cancelled",
+        StopReason::RequestTimeout => "request_timeout",
+        StopReason::Other => "other",
+    }
+}
+
+/// The user's answer to a parked permission prompt. `*_always` answers are
+/// recorded as a session-scoped override, not as a persistent grant to the
+/// agent — see `apply_answer`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Type, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionChoice {
+    AllowOnce,
+    AllowAlways,
+    DenyOnce,
+    DenyAlways,
+}
+
+impl PermissionChoice {
+    fn allows(self) -> bool {
+        matches!(self, Self::AllowOnce | Self::AllowAlways)
+    }
+    fn is_persistent(self) -> bool {
+        matches!(self, Self::AllowAlways | Self::DenyAlways)
+    }
+}
+
+/// One answer travelling from `respond_permission` to a run's turn loop.
+#[derive(Clone, Debug)]
+pub struct PermissionAnswer {
+    pub request_id: String,
+    pub choice: PermissionChoice,
+}
+
+/// A permission request the user still has to answer. Holding the agent's
+/// JSON-RPC id here is what lets Stop resolve it as `cancelled` instead of
+/// leaking a responder — an unanswered request blocks the agent's turn forever.
+struct ParkedPermission {
+    id: Value,
+    tool_kind: String,
+    options: Vec<PermissionOptionWire>,
+}
+
+/// How a turn ended.
+#[derive(Debug)]
+enum TurnOutcome {
+    /// The agent answered `session/prompt` with a terminal `stopReason`.
+    Ended(StopReason),
+    /// The child exited mid-turn. NEVER retried: it may have half-applied its
+    /// edits. The session is dropped and the next run spawns fresh.
+    Crashed(String),
+    /// The protocol round trip itself failed (couldn't send, or the result was
+    /// unreadable). The session survives; `acquire`'s liveness check handles a
+    /// child that turns out to be dead.
+    Failed(String),
+    /// Stop was pressed and the agent never acknowledged the cancelled turn.
+    CancelTimedOut,
+}
+
+/// The slice of a warm ACP session that one turn drives.
+///
+/// `LiveSession` is the production implementor. It exists as a trait because
+/// `LiveSession` is concretely an `AcpClient<StdioTransport>` over a real
+/// child process — the ONLY seam through which the turn loop (and, critically,
+/// the turn-guard contract below) can be exercised without spawning one.
+trait AcpSessionOps: Sync {
+    /// RAII proof that this turn owns the session.
+    type Turn<'a>: Send
+    where
+        Self: 'a;
+
+    /// Take the one-turn-at-a-time guard. Its lifetime IS the contract — see
+    /// `run_acp_turn`.
+    fn begin_turn(&self) -> impl Future<Output = Self::Turn<'_>> + Send;
+    /// `session/prompt`; the returned id correlates the terminal response.
+    fn prompt(&self, text: &str) -> impl Future<Output = Result<u64, String>> + Send;
+    /// The next actionable frame; `None` once the child's stdout closes.
+    fn next_item(&self) -> impl Future<Output = Option<PumpItem>> + Send;
+    /// `session/cancel` — ends the turn, never the session.
+    fn cancel_turn(&self) -> impl Future<Output = Result<(), String>> + Send;
+    /// Answer an inbound permission request.
+    fn answer(
+        &self,
+        id: &Value,
+        outcome: PermissionOutcome,
+    ) -> impl Future<Output = Result<(), String>> + Send;
+    /// Refuse an inbound request we do not implement. Doctrine (`acp/client.rs`):
+    /// an unanswered request hangs the agent's turn forever, so we ALWAYS reply.
+    fn refuse(&self, id: &Value) -> impl Future<Output = Result<(), String>> + Send;
+    /// The session-scoped permission override, without consuming it.
+    fn permission_override(&self) -> Option<SessionOverride>;
+    fn remember_override(&self, ov: SessionOverride);
+}
+
+impl AcpSessionOps for LiveSession {
+    type Turn<'a> = tokio::sync::MutexGuard<'a, ()>;
+
+    fn begin_turn(&self) -> impl Future<Output = Self::Turn<'_>> + Send {
+        self.turn_guard()
+    }
+    fn prompt(&self, text: &str) -> impl Future<Output = Result<u64, String>> + Send {
+        self.send_prompt(text)
+    }
+    fn next_item(&self) -> impl Future<Output = Option<PumpItem>> + Send {
+        // `client_pump` (not the raw client) on purpose: it `touch`es the
+        // session on every item, the second half of the guard against the idle
+        // reaper killing a long-running turn.
+        self.client_pump()
+    }
+    fn cancel_turn(&self) -> impl Future<Output = Result<(), String>> + Send {
+        self.cancel()
+    }
+    fn answer(
+        &self,
+        id: &Value,
+        outcome: PermissionOutcome,
+    ) -> impl Future<Output = Result<(), String>> + Send {
+        let body = permission_response_body(&outcome);
+        async move { self.reply(id, body).await }
+    }
+    fn refuse(&self, id: &Value) -> impl Future<Output = Result<(), String>> + Send {
+        self.reply_error(id, -32601, "Method not found")
+    }
+    fn permission_override(&self) -> Option<SessionOverride> {
+        // `LiveSession` exposes only `take_override`, so read it and put it
+        // straight back. Safe: the turn guard serializes turns on a session, so
+        // this is the only task touching the override.
+        let ov = self.take_override();
+        if let Some(ov) = &ov {
+            self.set_override(ov.clone());
+        }
+        ov
+    }
+    fn remember_override(&self, ov: SessionOverride) {
+        self.set_override(ov);
+    }
+}
+
+/// Drive ONE ACP turn: `session/prompt` → stream `session/update`s → answer
+/// every inbound request → terminal `stopReason`.
+///
+/// # Contract 1 — the turn guard spans the WHOLE round trip
+///
+/// `begin_turn()`'s guard is taken before the prompt is sent and dropped only
+/// when this function returns, i.e. strictly after the terminal `stopReason`
+/// (or a crash/cancel outcome). `acp_session::is_reapable` spares any session
+/// whose turn lock is held; releasing it early would let the idle reaper
+/// SIGTERM a live agent mid-edit — the 600s default timeout against an
+/// 11-minute refactor — leaving half-applied changes on the user's disk. This
+/// is NOT compile-enforced; it is pinned by
+/// `the_turn_guard_is_held_for_the_whole_prompt_round_trip`.
+///
+/// Generic over the session and emitting through a closure (the shape
+/// `a2a::run_remote_protocol` established) so all of the above is testable
+/// against a scripted double: no process, no network, no Tauri app.
+#[allow(clippy::too_many_arguments)]
+async fn run_acp_turn<S: AcpSessionOps>(
+    session: &S,
+    instruction: &str,
+    policy: AcpPermissionPolicy,
+    kill_rx: &mut mpsc::UnboundedReceiver<()>,
+    answers: &mut mpsc::UnboundedReceiver<PermissionAnswer>,
+    on_event: &mut (impl FnMut(RunEvent) + Send),
+    cancel_grace: Duration,
+) -> TurnOutcome {
+    // CONTRACT 1: held until this function returns. Do not drop it early.
+    let _turn = session.begin_turn().await;
+
+    let prompt_id = match session.prompt(instruction).await {
+        Ok(id) => id,
+        Err(e) => {
+            return TurnOutcome::Failed(format!("Couldn't send the instruction to the agent: {e}"))
+        }
+    };
+
+    let mut parked: HashMap<String, ParkedPermission> = HashMap::new();
+    let mut prompts_seen = 0u64;
+    let mut watch_kill = true;
+    let mut watch_answers = true;
+    let mut cancel_deadline: Option<tokio::time::Instant> = None;
+
+    loop {
+        tokio::select! {
+            item = session.next_item() => {
+                let Some(item) = item else {
+                    return TurnOutcome::Crashed(
+                        "The agent exited before finishing this turn. Nothing was retried — it may \
+                         have applied some of its changes already, so check the project before \
+                         running it again."
+                            .to_string(),
+                    );
+                };
+                match item {
+                    // The turn's own answer: the only frame that ends it.
+                    PumpItem::Response { id, result } if id == prompt_id => {
+                        return match result {
+                            Ok(v) => match serde_json::from_value::<PromptResult>(v) {
+                                Ok(r) => TurnOutcome::Ended(r.stop_reason.unwrap_or(StopReason::Other)),
+                                Err(e) => TurnOutcome::Failed(format!(
+                                    "The agent's session/prompt result was malformed: {e}"
+                                )),
+                            },
+                            Err(e) => TurnOutcome::Failed(format!(
+                                "The agent rejected the instruction: {} ({})",
+                                e.message, e.code
+                            )),
+                        };
+                    }
+                    // A reply to some other request of ours — not this turn's.
+                    PumpItem::Response { .. } => {}
+                    PumpItem::Event(ClientEvent::Update(n)) => {
+                        if let Some(event) = map_session_update(&n.update) {
+                            on_event(event);
+                        }
+                    }
+                    PumpItem::Event(ClientEvent::Inbound(InboundRequest::RequestPermission {
+                        id,
+                        params,
+                    })) => {
+                        prompts_seen += 1;
+                        // OUR request id, not the agent's: the JSON-RPC id may be
+                        // a number or a string, and this one is a stable opaque
+                        // handle the frontend echoes back.
+                        let request_id = format!("perm-{prompts_seen}");
+                        let decision = decide(&PolicyInput {
+                            policy,
+                            tool_kind: params.tool_call.kind.clone(),
+                            session_override: session.permission_override(),
+                            options: params.options.clone(),
+                        });
+                        match decision {
+                            // An automatic decision is still reported, so the user
+                            // can always see afterwards what was allowed on their
+                            // behalf (DESIGN §8).
+                            PermissionDecision::Allow { option_id, automatic } => {
+                                let _ = session
+                                    .answer(&id, PermissionOutcome::Selected { option_id })
+                                    .await;
+                                on_event(RunEvent::PermissionResolved {
+                                    request_id,
+                                    outcome: "allow".to_string(),
+                                    automatic,
+                                });
+                            }
+                            PermissionDecision::Deny { option_id, automatic } => {
+                                let _ = session
+                                    .answer(&id, PermissionOutcome::Selected { option_id })
+                                    .await;
+                                on_event(RunEvent::PermissionResolved {
+                                    request_id,
+                                    outcome: "deny".to_string(),
+                                    automatic,
+                                });
+                            }
+                            // Park it and KEEP PUMPING — updates must keep
+                            // streaming while the user decides.
+                            PermissionDecision::Ask => {
+                                on_event(permission_request_event(&request_id, &params.tool_call, &params.options));
+                                parked.insert(
+                                    request_id,
+                                    ParkedPermission {
+                                        id,
+                                        tool_kind: params.tool_call.kind,
+                                        options: params.options,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    PumpItem::Event(ClientEvent::Inbound(InboundRequest::Unsupported {
+                        id,
+                        method,
+                    })) => {
+                        // We declared no fs/terminal capabilities, so this should
+                        // not happen — but never leave it unanswered.
+                        log::warn!("acp: refusing unsupported agent request '{method}'");
+                        let _ = session.refuse(&id).await;
+                    }
+                    PumpItem::Event(ClientEvent::Closed) => {
+                        return TurnOutcome::Crashed(
+                            "The agent closed the connection before finishing this turn."
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+
+            answer = answers.recv(), if watch_answers => {
+                match answer {
+                    // The registry dropped our sender — nothing more can arrive.
+                    None => watch_answers = false,
+                    Some(answer) => {
+                        if let Some(p) = parked.remove(&answer.request_id) {
+                            apply_answer(session, &answer, &p, on_event).await;
+                        }
+                    }
+                }
+            }
+
+            signal = kill_rx.recv(), if watch_kill => {
+                watch_kill = false;
+                if signal.is_some() {
+                    // Cancel ends the TURN, not the session — it stays warm for
+                    // the next instruction.
+                    let _ = session.cancel_turn().await;
+                    // Resolve every parked prompt so no responder is leaked: an
+                    // unanswered permission request blocks the agent forever.
+                    for (request_id, p) in parked.drain() {
+                        let _ = session.answer(&p.id, PermissionOutcome::Cancelled).await;
+                        on_event(RunEvent::PermissionResolved {
+                            request_id,
+                            outcome: "cancelled".to_string(),
+                            automatic: true,
+                        });
+                    }
+                    cancel_deadline = Some(tokio::time::Instant::now() + cancel_grace);
+                }
+            }
+
+            _ = tokio::time::sleep_until(
+                cancel_deadline.unwrap_or_else(|| tokio::time::Instant::now() + cancel_grace)
+            ), if cancel_deadline.is_some() => {
+                return TurnOutcome::CancelTimedOut;
+            }
+        }
+    }
+}
+
+/// The `session/request_permission` response body. ACP nests the tagged
+/// outcome under an `outcome` field, so the wire shape is
+/// `{"outcome":{"outcome":"selected","optionId":"…"}}` — the inner object is
+/// `PermissionOutcome`'s own serialization. Serializing it cannot fail (plain
+/// strings only); `Null` would be a malformed-but-present answer, which still
+/// beats leaving the agent's request unanswered.
+fn permission_response_body(outcome: &PermissionOutcome) -> Value {
+    serde_json::json!({ "outcome": serde_json::to_value(outcome).unwrap_or(Value::Null) })
+}
+
+/// Build the `PermissionRequest` event for a prompt we're about to park.
+fn permission_request_event(
+    request_id: &str,
+    tool_call: &ToolCallWire,
+    options: &[PermissionOptionWire],
+) -> RunEvent {
+    RunEvent::PermissionRequest {
+        request_id: request_id.to_string(),
+        tool_call_id: (!tool_call.tool_call_id.is_empty()).then(|| tool_call.tool_call_id.clone()),
+        title: tool_call.title.clone(),
+        options: options
+            .iter()
+            .map(|o| PermissionOption {
+                option_id: o.option_id.clone(),
+                name: o.name.clone(),
+                kind: o.kind.clone(),
+            })
+            .collect(),
+    }
+}
+
+/// Apply a user's answer to a parked prompt: record any session-scoped
+/// persistence, then reply to the agent with an option IT offered.
+///
+/// An `*_always` answer is recorded as OUR `SessionOverride` and still replies
+/// with the one-shot option (`pick_option` prefers `*_once`). Keeping the
+/// persistence on our side means "End session" revokes it; selecting the
+/// agent's own `allow_always` would hand it a grant we can neither see nor take
+/// back.
+async fn apply_answer<S: AcpSessionOps>(
+    session: &S,
+    answer: &PermissionAnswer,
+    parked: &ParkedPermission,
+    on_event: &mut (impl FnMut(RunEvent) + Send),
+) {
+    if answer.choice.is_persistent() {
+        let mut ov = session.permission_override().unwrap_or_default();
+        if answer.choice.allows() {
+            ov.allow_all = true;
+        } else if !ov.denied_kinds.contains(&parked.tool_kind) {
+            ov.denied_kinds.push(parked.tool_kind.clone());
+        }
+        session.remember_override(ov);
+    }
+
+    match pick_option(&parked.options, answer.choice.allows()) {
+        Some(option_id) => {
+            let _ = session
+                .answer(&parked.id, PermissionOutcome::Selected { option_id })
+                .await;
+            on_event(RunEvent::PermissionResolved {
+                request_id: answer.request_id.clone(),
+                outcome: if answer.choice.allows() {
+                    "allow"
+                } else {
+                    "deny"
+                }
+                .to_string(),
+                automatic: false,
+            });
+        }
+        // The agent offered nothing matching the answer. Cancelling still
+        // ANSWERS the request — leaving it open would hang the turn.
+        None => {
+            let _ = session
+                .answer(&parked.id, PermissionOutcome::Cancelled)
+                .await;
+            on_event(RunEvent::PermissionResolved {
+                request_id: answer.request_id.clone(),
+                outcome: "cancelled".to_string(),
+                automatic: false,
+            });
+        }
     }
 }
 
@@ -1985,6 +2713,8 @@ mod tests {
                     instruction: "do it".into(),
                     output_file: None,
                     kill_tx: Some(tx),
+                    session_id: None,
+                    permission_tx: None,
                 },
             );
         }
@@ -2025,6 +2755,8 @@ mod tests {
                     instruction: String::new(),
                     output_file: None,
                     kill_tx: Some(tx),
+                    session_id: None,
+                    permission_tx: None,
                 },
             );
         }
@@ -2212,5 +2944,776 @@ mod tests {
             codex_static_vendor_hint("/no/such/codex"),
             CodexVendorStatus::Unknown
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // C0 — the ACP driver.
+    // -----------------------------------------------------------------------
+
+    /// A CLI agent fixture. `AgentDefinition` deliberately has no `Default`
+    /// impl (`enabled` defaults to true via serde, not `bool::default()`), so
+    /// the ACP tests build one explicitly — same shape `acp_session.rs`'s own
+    /// tests use.
+    fn cli_agent() -> AgentDefinition {
+        AgentDefinition {
+            id: "coder".to_string(),
+            name: "Coder".to_string(),
+            enabled: true,
+            binding_id: "agent:coder".to_string(),
+            provider_id: "openrouter".to_string(),
+            model: String::new(),
+            system_prompt: String::new(),
+            output_mode: crate::settings::AgentOutputMode::Inject,
+            kind: AgentKind::Cli,
+            cli_type: Some(AgentCliType::Claude),
+            binary_path: "/usr/local/bin/claude".to_string(),
+            command_template: String::new(),
+            project_path: String::new(),
+            output_sinks: vec![AgentOutputSink::Panel],
+            prompt_via: PromptDelivery::Stdin,
+            remote_url: String::new(),
+            remote_endpoint: String::new(),
+            remote_card_name: String::new(),
+            remote_card_version: String::new(),
+            remote_streaming: false,
+            cli_protocol: CliProtocol::Raw,
+            acp_command_template: String::new(),
+            acp_permission_policy: AcpPermissionPolicy::Ask,
+            acp_idle_timeout_secs: 600,
+        }
+    }
+
+    #[test]
+    fn stop_reason_maps_to_run_status() {
+        assert_eq!(
+            stop_reason_to_status(StopReason::Completed),
+            RunStatus::Finished { code: 0 }
+        );
+        assert_eq!(
+            stop_reason_to_status(StopReason::Cancelled),
+            RunStatus::Stopped
+        );
+        match stop_reason_to_status(StopReason::MaxStepsReached) {
+            RunStatus::Failed { error } => assert!(error.contains("step limit")),
+            s => panic!("expected Failed, got {s:?}"),
+        }
+        match stop_reason_to_status(StopReason::RequestTimeout) {
+            RunStatus::Failed { error } => assert!(error.contains("timed out")),
+            s => panic!("expected Failed, got {s:?}"),
+        }
+        match stop_reason_to_status(StopReason::Other) {
+            RunStatus::Failed { error } => assert!(!error.is_empty()),
+            s => panic!("expected Failed, got {s:?}"),
+        }
+    }
+
+    #[test]
+    fn run_info_exposes_session_id_and_defaults_to_none_for_raw_runs() {
+        let run = AgentRun {
+            agent_id: "a".into(),
+            agent_name: "A".into(),
+            project_path: "/p".into(),
+            status: RunStatus::Running,
+            started_at: Local::now(),
+            output: String::new(),
+            instruction: "hi".into(),
+            output_file: None,
+            kill_tx: None,
+            session_id: None,
+            permission_tx: None,
+        };
+        assert_eq!(run.to_info("r1").session_id, None);
+
+        let acp = AgentRun {
+            session_id: Some("s1".into()),
+            ..run
+        };
+        assert_eq!(acp.to_info("r2").session_id.as_deref(), Some("s1"));
+    }
+
+    #[test]
+    fn acp_agents_route_to_the_acp_driver_and_everything_else_does_not() {
+        // `uses_acp_driver` is not a mirror of the dispatch guard — it IS the
+        // guard `start`'s match arm evaluates, so this asserts the production
+        // routing decision rather than a copy of it.
+        let mut a = cli_agent();
+        a.kind = AgentKind::Cli;
+        a.cli_protocol = CliProtocol::Acp;
+        assert!(uses_acp_driver(&a));
+
+        a.cli_protocol = CliProtocol::Raw;
+        assert!(
+            !uses_acp_driver(&a),
+            "raw CLI agents keep the existing driver"
+        );
+
+        // The `AgentKind::Remote` arm sits BEFORE this guard in `start`, so a
+        // remote agent never reaches it — and the guard itself also rejects it,
+        // which keeps the routing correct even if the arms are ever reordered.
+        a.kind = AgentKind::Remote;
+        a.cli_protocol = CliProtocol::Acp;
+        assert!(!uses_acp_driver(&a), "remote agents keep the A2A driver");
+
+        a.kind = AgentKind::Prompt;
+        assert!(!uses_acp_driver(&a));
+    }
+
+    // ---- the turn loop, against a scripted session (no process, no Tauri) ----
+
+    use crate::acp::codec::JsonRpcError;
+    use crate::acp::protocol::{
+        RequestPermissionParams, SessionNotification, SessionUpdate, TextContent,
+    };
+    use serde_json::json;
+    use std::collections::VecDeque;
+
+    /// Run a future on a current-thread runtime with the time driver enabled —
+    /// this repo uses no `#[tokio::test]` (see `a2a.rs`, `acp/client.rs`).
+    fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(fut)
+    }
+
+    /// Everything the turn loop sent back to the agent, in order.
+    #[derive(Debug, PartialEq)]
+    enum Sent {
+        Prompt(String),
+        Answer {
+            id: Value,
+            outcome: PermissionOutcome,
+        },
+        Refused(Value),
+        Cancel,
+    }
+
+    /// A scripted ACP session.
+    ///
+    /// Reply-driven and therefore fully deterministic: `replies[n]` is what the
+    /// agent says after the n-th thing WE send it (`replies[0]` after the
+    /// prompt). An inner `None` scripts the child exiting. Once the script is
+    /// exhausted the agent simply goes quiet, so a test can only end by
+    /// scripting a terminal frame, a crash, or a timeout — never by falling off
+    /// the end into an accidental "crash".
+    struct FakeSession {
+        turn_lock: tokio::sync::Mutex<()>,
+        inbound: tokio::sync::Mutex<mpsc::UnboundedReceiver<Option<PumpItem>>>,
+        feed: mpsc::UnboundedSender<Option<PumpItem>>,
+        replies: Mutex<VecDeque<Vec<Option<PumpItem>>>>,
+        sent: Mutex<Vec<Sent>>,
+        /// Whether the turn guard was held at each delivery — literally
+        /// `is_reapable`'s check, which is why this pins Contract 1.
+        guard_held: Mutex<Vec<bool>>,
+        session_override: Mutex<Option<SessionOverride>>,
+    }
+
+    /// The id `FakeSession::prompt` hands back, so scripted responses can
+    /// correlate with the turn (and a different id can prove they don't).
+    const FAKE_PROMPT_ID: u64 = 1;
+
+    impl FakeSession {
+        fn new(replies: Vec<Vec<Option<PumpItem>>>) -> Self {
+            let (feed, rx) = mpsc::unbounded_channel();
+            Self {
+                turn_lock: tokio::sync::Mutex::new(()),
+                inbound: tokio::sync::Mutex::new(rx),
+                feed,
+                replies: Mutex::new(replies.into()),
+                sent: Mutex::new(Vec::new()),
+                guard_held: Mutex::new(Vec::new()),
+                session_override: Mutex::new(None),
+            }
+        }
+
+        /// Record what we sent, then let the agent respond to it.
+        fn record(&self, s: Sent) {
+            self.sent.lock().unwrap().push(s);
+            if let Some(batch) = self.replies.lock().unwrap().pop_front() {
+                for item in batch {
+                    let _ = self.feed.send(item);
+                }
+            }
+        }
+
+        fn sent(&self) -> std::sync::MutexGuard<'_, Vec<Sent>> {
+            self.sent.lock().unwrap()
+        }
+    }
+
+    impl AcpSessionOps for FakeSession {
+        type Turn<'a> = tokio::sync::MutexGuard<'a, ()>;
+
+        fn begin_turn(&self) -> impl Future<Output = Self::Turn<'_>> + Send {
+            self.turn_lock.lock()
+        }
+        fn prompt(&self, text: &str) -> impl Future<Output = Result<u64, String>> + Send {
+            let text = text.to_string();
+            async move {
+                self.record(Sent::Prompt(text));
+                Ok(FAKE_PROMPT_ID)
+            }
+        }
+        async fn next_item(&self) -> Option<PumpItem> {
+            self.guard_held
+                .lock()
+                .unwrap()
+                .push(self.turn_lock.try_lock().is_err());
+            match self.inbound.lock().await.recv().await {
+                Some(item) => item,
+                // The internal sender is never dropped: an exhausted script
+                // means "the agent has nothing more to say", not "it died".
+                None => std::future::pending().await,
+            }
+        }
+        async fn cancel_turn(&self) -> Result<(), String> {
+            self.record(Sent::Cancel);
+            Ok(())
+        }
+        fn answer(
+            &self,
+            id: &Value,
+            outcome: PermissionOutcome,
+        ) -> impl Future<Output = Result<(), String>> + Send {
+            let id = id.clone();
+            async move {
+                self.record(Sent::Answer { id, outcome });
+                Ok(())
+            }
+        }
+        fn refuse(&self, id: &Value) -> impl Future<Output = Result<(), String>> + Send {
+            let id = id.clone();
+            async move {
+                self.record(Sent::Refused(id));
+                Ok(())
+            }
+        }
+        fn permission_override(&self) -> Option<SessionOverride> {
+            self.session_override.lock().unwrap().clone()
+        }
+        fn remember_override(&self, ov: SessionOverride) {
+            *self.session_override.lock().unwrap() = Some(ov);
+        }
+    }
+
+    fn text_update(text: &str) -> Option<PumpItem> {
+        Some(PumpItem::Event(ClientEvent::Update(SessionNotification {
+            session_id: "s1".to_string(),
+            update: SessionUpdate::AgentMessageChunk {
+                content: TextContent {
+                    text: text.to_string(),
+                },
+            },
+        })))
+    }
+
+    fn stop(reason: &str) -> Option<PumpItem> {
+        Some(PumpItem::Response {
+            id: FAKE_PROMPT_ID,
+            result: Ok(json!({ "stopReason": reason })),
+        })
+    }
+
+    fn allow_deny_options() -> Vec<PermissionOptionWire> {
+        vec![
+            PermissionOptionWire {
+                option_id: "a1".into(),
+                name: "Allow".into(),
+                kind: "allow_once".into(),
+            },
+            PermissionOptionWire {
+                option_id: "d1".into(),
+                name: "Deny".into(),
+                kind: "reject_once".into(),
+            },
+        ]
+    }
+
+    fn permission_request(id: Value, kind: &str) -> Option<PumpItem> {
+        Some(PumpItem::Event(ClientEvent::Inbound(
+            InboundRequest::RequestPermission {
+                id,
+                params: RequestPermissionParams {
+                    session_id: "s1".into(),
+                    tool_call: ToolCallWire {
+                        tool_call_id: "t1".into(),
+                        title: "Edit src/main.rs".into(),
+                        kind: kind.into(),
+                        ..Default::default()
+                    },
+                    options: allow_deny_options(),
+                },
+            },
+        )))
+    }
+
+    /// The test's side of a live run: press Stop, or answer a parked prompt.
+    struct Ctl {
+        kill: mpsc::UnboundedSender<()>,
+        answers: mpsc::UnboundedSender<PermissionAnswer>,
+    }
+
+    impl Ctl {
+        fn stop(&self) {
+            let _ = self.kill.send(());
+        }
+        fn answer(&self, request_id: &str, choice: PermissionChoice) {
+            let _ = self.answers.send(PermissionAnswer {
+                request_id: request_id.to_string(),
+                choice,
+            });
+        }
+    }
+
+    /// Drive one turn against a scripted session, collecting every emitted
+    /// event. `on_step` sees each event as it is emitted and injects a Stop
+    /// press or a permission answer through `Ctl` at a deterministic point (the
+    /// loop parks/continues immediately after the callback returns, and nothing
+    /// else is ready at that moment).
+    ///
+    /// The turn is wrapped in a 1s timeout, which hardens the TESTS and not just
+    /// their assertions: `cargo test` has no per-test timeout, so a regression
+    /// that leaves an agent request unanswered — the exact failure mode that
+    /// blocks a real agent forever — must fail by assertion in ~1s rather than
+    /// hang CI.
+    fn drive(
+        session: &FakeSession,
+        policy: AcpPermissionPolicy,
+        grace: Duration,
+        mut on_step: impl FnMut(&RunEvent, &Ctl) + Send,
+    ) -> (TurnOutcome, Vec<RunEvent>) {
+        let (kill, mut kill_rx) = mpsc::unbounded_channel::<()>();
+        let (answers, mut answer_rx) = mpsc::unbounded_channel::<PermissionAnswer>();
+        let ctl = Ctl { kill, answers };
+        let mut events: Vec<RunEvent> = Vec::new();
+        let outcome = {
+            let mut on_event = |e: RunEvent| {
+                on_step(&e, &ctl);
+                events.push(e);
+            };
+            // Built INSIDE the runtime: `tokio::time::timeout` needs a reactor
+            // at construction, not just when polled.
+            block_on(async {
+                tokio::time::timeout(
+                    Duration::from_secs(1),
+                    run_acp_turn(
+                        session,
+                        "do the thing",
+                        policy,
+                        &mut kill_rx,
+                        &mut answer_rx,
+                        &mut on_event,
+                        grace,
+                    ),
+                )
+                .await
+            })
+        };
+        let outcome = outcome
+            .expect("the turn must finish, not hang — an agent left waiting on us never replies");
+        (outcome, events)
+    }
+
+    #[test]
+    fn the_turn_guard_is_held_for_the_whole_prompt_round_trip() {
+        // CONTRACT 1 (Task 7, not compile-enforced). `acp_session::is_reapable`
+        // spares a session whose `turn_lock` is held; the fake performs exactly
+        // that `try_lock` check on every frame it delivers. If the driver ever
+        // released the guard early, an idle-expired session would be reaped
+        // MID-TURN and its agent SIGTERM'd mid-edit (600s default timeout vs an
+        // 11-minute refactor) — half-applied changes on the user's disk.
+        let session = FakeSession::new(vec![vec![
+            text_update("working"),
+            text_update("still working"),
+            stop("completed"),
+        ]]);
+        let (outcome, _events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+
+        let held = session.guard_held.lock().unwrap();
+        assert!(
+            !held.is_empty(),
+            "the turn must have pumped at least once, or this proves nothing"
+        );
+        assert!(
+            held.iter().all(|h| *h),
+            "the turn guard must be held at EVERY frame of the round trip, including the \
+             terminal stopReason — observed {held:?}"
+        );
+    }
+
+    #[test]
+    fn every_update_is_dual_emitted_and_the_turn_ends_with_a_stop_reason() {
+        let session = FakeSession::new(vec![vec![text_update("hello"), stop("completed")]]);
+        let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], RunEvent::Text { text } if text == "hello"));
+        // Dual emission's other half is `emit_run_event`; every event the loop
+        // produces must have a text line or it vanishes from the buffer/File sink.
+        assert!(events.iter().all(|e| render_line(e).is_some()));
+        assert_eq!(*session.sent(), vec![Sent::Prompt("do the thing".into())]);
+    }
+
+    #[test]
+    fn a_response_to_another_request_never_ends_this_turn() {
+        // Only the prompt's own id is terminal; a stray response must be skipped.
+        let session = FakeSession::new(vec![vec![
+            Some(PumpItem::Response {
+                id: FAKE_PROMPT_ID + 99,
+                result: Ok(json!({ "stopReason": "completed" })),
+            }),
+            text_update("still going"),
+            stop("cancelled"),
+        ]]);
+        let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        assert!(
+            matches!(outcome, TurnOutcome::Ended(StopReason::Cancelled)),
+            "the turn must end on ITS OWN prompt response, got {outcome:?}"
+        );
+        assert_eq!(events.len(), 1, "the update after it must still stream");
+    }
+
+    #[test]
+    fn an_auto_approved_permission_is_answered_with_an_offered_option_and_reported() {
+        let session = FakeSession::new(vec![
+            vec![permission_request(json!("a1"), "edit")],
+            vec![stop("completed")],
+        ]);
+        let (outcome, events) = drive(
+            &session,
+            AcpPermissionPolicy::AutoEdits,
+            CANCEL_GRACE,
+            |_, _| {},
+        );
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+        match &events[0] {
+            RunEvent::PermissionResolved {
+                outcome, automatic, ..
+            } => {
+                assert_eq!(outcome, "allow");
+                // The user must be able to see, after the fact, what was allowed
+                // on their behalf (DESIGN §8).
+                assert!(*automatic);
+            }
+            e => panic!("expected an automatic PermissionResolved, got {e:?}"),
+        }
+        assert_eq!(
+            session.sent()[1],
+            Sent::Answer {
+                id: json!("a1"),
+                // Never a persistent grant: `pick_option` prefers `allow_once`.
+                outcome: PermissionOutcome::Selected {
+                    option_id: "a1".into()
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn an_ask_policy_parks_the_prompt_and_the_user_answer_resolves_it() {
+        let session = FakeSession::new(vec![
+            vec![permission_request(json!(7), "execute")],
+            vec![stop("completed")],
+        ]);
+        // Answer the moment the prompt is surfaced — the loop parks it right
+        // after the callback returns and picks the answer up next round.
+        let (outcome, events) = drive(
+            &session,
+            AcpPermissionPolicy::Ask,
+            CANCEL_GRACE,
+            |e, ctl| {
+                if let RunEvent::PermissionRequest { request_id, .. } = e {
+                    ctl.answer(request_id, PermissionChoice::DenyOnce);
+                }
+            },
+        );
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+
+        match &events[0] {
+            RunEvent::PermissionRequest {
+                title,
+                tool_call_id,
+                options,
+                ..
+            } => {
+                assert_eq!(title, "Edit src/main.rs");
+                assert_eq!(tool_call_id.as_deref(), Some("t1"));
+                assert_eq!(options.len(), 2);
+            }
+            e => panic!("expected PermissionRequest, got {e:?}"),
+        }
+        match &events[1] {
+            RunEvent::PermissionResolved {
+                outcome, automatic, ..
+            } => {
+                assert_eq!(outcome, "deny");
+                assert!(!automatic, "a user answer is never automatic");
+            }
+            e => panic!("expected PermissionResolved, got {e:?}"),
+        }
+        assert_eq!(
+            session.sent()[1],
+            Sent::Answer {
+                id: json!(7),
+                outcome: PermissionOutcome::Selected {
+                    option_id: "d1".into()
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn an_always_answer_is_recorded_as_a_session_override_not_a_grant_to_the_agent() {
+        for (choice, expect) in [
+            (
+                PermissionChoice::AllowAlways,
+                SessionOverride {
+                    allow_all: true,
+                    denied_kinds: vec![],
+                },
+            ),
+            (
+                PermissionChoice::DenyAlways,
+                SessionOverride {
+                    allow_all: false,
+                    denied_kinds: vec!["execute".to_string()],
+                },
+            ),
+        ] {
+            let session = FakeSession::new(vec![
+                vec![permission_request(json!(7), "execute")],
+                vec![stop("completed")],
+            ]);
+            drive(
+                &session,
+                AcpPermissionPolicy::Ask,
+                CANCEL_GRACE,
+                |e, ctl| {
+                    if let RunEvent::PermissionRequest { request_id, .. } = e {
+                        ctl.answer(request_id, choice);
+                    }
+                },
+            );
+
+            assert_eq!(
+                session.session_override.lock().unwrap().clone(),
+                Some(expect),
+                "an *_always answer must persist as OUR session override for {choice:?}"
+            );
+            // …and the agent still gets the ONE-SHOT option, so it never holds a
+            // persistent grant we can't revoke by ending the session.
+            let expected_option = if choice.allows() { "a1" } else { "d1" };
+            assert_eq!(
+                session.sent()[1],
+                Sent::Answer {
+                    id: json!(7),
+                    outcome: PermissionOutcome::Selected {
+                        option_id: expected_option.into()
+                    },
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn an_unsupported_agent_request_is_always_answered() {
+        // client.rs's doctrine: an unanswered request hangs the agent's turn
+        // forever. We declared no fs/terminal capabilities, so this shouldn't
+        // happen — but it must never be dropped silently.
+        let session = FakeSession::new(vec![
+            vec![Some(PumpItem::Event(ClientEvent::Inbound(
+                InboundRequest::Unsupported {
+                    id: json!(42),
+                    method: "fs/write_text_file".to_string(),
+                },
+            )))],
+            vec![stop("completed")],
+        ]);
+        let (outcome, _events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Completed)));
+        assert_eq!(session.sent()[1], Sent::Refused(json!(42)));
+    }
+
+    #[test]
+    fn stopping_a_run_cancels_the_turn_and_resolves_every_parked_prompt() {
+        let session = FakeSession::new(vec![
+            vec![permission_request(json!("p9"), "execute")],
+            vec![stop("cancelled")],
+        ]);
+        // Stop is the ONLY escape hatch from a parked prompt (there is no
+        // auto-deny timeout — DESIGN §8).
+        let (outcome, events) = drive(
+            &session,
+            AcpPermissionPolicy::Ask,
+            CANCEL_GRACE,
+            |e, ctl| {
+                if matches!(e, RunEvent::PermissionRequest { .. }) {
+                    ctl.stop();
+                }
+            },
+        );
+        // Cancel ends the TURN, not the session: `Stopped`, session stays warm.
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Cancelled)));
+        assert_eq!(
+            stop_reason_to_status(StopReason::Cancelled),
+            RunStatus::Stopped
+        );
+
+        let sent = session.sent();
+        assert_eq!(sent[1], Sent::Cancel);
+        assert_eq!(
+            sent[2],
+            Sent::Answer {
+                id: json!("p9"),
+                outcome: PermissionOutcome::Cancelled,
+            },
+            "every parked prompt must be resolved as cancelled — an unanswered \
+             one leaks a responder and blocks the agent forever"
+        );
+        assert!(matches!(
+            &events[1],
+            RunEvent::PermissionResolved { outcome, .. } if outcome == "cancelled"
+        ));
+    }
+
+    #[test]
+    fn a_cancel_the_agent_never_acknowledges_is_bounded() {
+        // Stop was already pressed, so there is no second escape hatch, and the
+        // idle reaper deliberately spares a session with a turn in flight — the
+        // turn guard would otherwise be held for the life of the app.
+        // The agent goes quiet after one line and never acknowledges the cancel.
+        // `drive`'s own 1s bound is what turns a regression here into a failed
+        // assertion rather than a hung CI run; the 20ms grace is the thing
+        // actually under test and stays far inside it.
+        let session = FakeSession::new(vec![vec![text_update("working")]]);
+        let (outcome, _events) = drive(
+            &session,
+            AcpPermissionPolicy::Ask,
+            Duration::from_millis(20),
+            |e, ctl| {
+                if matches!(e, RunEvent::Text { .. }) {
+                    ctl.stop();
+                }
+            },
+        );
+        assert!(matches!(outcome, TurnOutcome::CancelTimedOut));
+        assert_eq!(session.sent()[1], Sent::Cancel);
+    }
+
+    #[test]
+    fn a_child_that_dies_mid_turn_fails_the_run_and_is_never_retried() {
+        let session = FakeSession::new(vec![vec![text_update("halfway through"), None]]);
+        let (outcome, events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        match outcome {
+            TurnOutcome::Crashed(msg) => {
+                assert!(msg.contains("exited"), "message must name the cause: {msg}");
+                assert!(
+                    msg.contains("check the project"),
+                    "a crash may have half-applied edits — the message must say so: {msg}"
+                );
+            }
+            o => panic!("expected Crashed, got {o:?}"),
+        }
+        // Exactly one prompt: a crashed turn is NEVER auto-retried.
+        assert_eq!(
+            session
+                .sent()
+                .iter()
+                .filter(|s| matches!(s, Sent::Prompt(_)))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events.len(),
+            1,
+            "output before the crash is never swallowed"
+        );
+    }
+
+    #[test]
+    fn an_agent_error_on_the_prompt_fails_the_run_rather_than_hanging() {
+        let session = FakeSession::new(vec![vec![Some(PumpItem::Response {
+            id: FAKE_PROMPT_ID,
+            result: Err(JsonRpcError {
+                code: -32602,
+                message: "Invalid params".to_string(),
+            }),
+        })]]);
+        let (outcome, _events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        match outcome {
+            TurnOutcome::Failed(msg) => assert!(msg.contains("Invalid params")),
+            o => panic!("expected Failed, got {o:?}"),
+        }
+    }
+
+    #[test]
+    fn a_missing_stop_reason_is_not_fatal() {
+        let session = FakeSession::new(vec![vec![Some(PumpItem::Response {
+            id: FAKE_PROMPT_ID,
+            result: Ok(json!({})),
+        })]]);
+        let (outcome, _events) = drive(&session, AcpPermissionPolicy::Ask, CANCEL_GRACE, |_, _| {});
+        assert!(matches!(outcome, TurnOutcome::Ended(StopReason::Other)));
+    }
+
+    #[test]
+    fn permission_response_body_nests_the_outcome_the_way_acp_expects() {
+        let body = permission_response_body(&PermissionOutcome::Selected {
+            option_id: "a1".into(),
+        });
+        assert_eq!(body["outcome"]["outcome"], json!("selected"));
+        assert_eq!(body["outcome"]["optionId"], json!("a1"));
+        let body = permission_response_body(&PermissionOutcome::Cancelled);
+        assert_eq!(body["outcome"]["outcome"], json!("cancelled"));
+    }
+
+    #[test]
+    fn respond_permission_reaches_the_turn_loop_and_errors_when_it_cannot() {
+        let mgr = AgentRunManager::new();
+        let (tx, _rx) = mpsc::unbounded_channel::<()>();
+        {
+            let mut runs = mgr.runs.lock().unwrap();
+            runs.insert(
+                "r1".to_string(),
+                AgentRun {
+                    agent_id: "coder".into(),
+                    agent_name: "Coder".into(),
+                    project_path: String::new(),
+                    status: RunStatus::Running,
+                    started_at: Local::now(),
+                    output: String::new(),
+                    instruction: String::new(),
+                    output_file: None,
+                    kill_tx: Some(tx),
+                    session_id: None,
+                    permission_tx: None,
+                },
+            );
+        }
+        // A run with no ACP turn loop (every raw CLI / remote run) must refuse
+        // rather than silently swallow the answer.
+        assert!(mgr
+            .respond_permission("r1", "perm-1", PermissionChoice::AllowOnce)
+            .is_err());
+        assert!(mgr
+            .respond_permission("nope", "perm-1", PermissionChoice::AllowOnce)
+            .is_err());
+
+        let (ptx, mut prx) = mpsc::unbounded_channel::<PermissionAnswer>();
+        mgr.set_permission_sender("r1", ptx);
+        mgr.respond_permission("r1", "perm-2", PermissionChoice::DenyAlways)
+            .expect("an ACP run's answer must reach its turn loop");
+        let got = prx.try_recv().expect("the answer must arrive");
+        assert_eq!(got.request_id, "perm-2");
+        assert_eq!(got.choice, PermissionChoice::DenyAlways);
+
+        // Finalizing clears the channel: nothing can be answered after the run
+        // is terminal.
+        mgr.set_status("r1", RunStatus::Finished { code: 0 });
+        assert!(mgr
+            .respond_permission("r1", "perm-2", PermissionChoice::AllowOnce)
+            .is_err());
     }
 }

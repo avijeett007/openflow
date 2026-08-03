@@ -1,9 +1,8 @@
 //! The pure allow/deny/ask decision. No I/O, no Tauri — so the whole matrix is
 //! table-testable. DESIGN-acp-agents.md §8.
 //!
-//! No production caller exists yet (that's the client.rs task); silence
-//! dead-code until it's wired up, same as `protocol.rs`.
-#![allow(dead_code)]
+//! Consumed by `managers::agent_run::run_acp_turn`, which feeds `decide` the
+//! agent's offered options and never invents one of its own.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;

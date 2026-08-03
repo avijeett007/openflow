@@ -26,7 +26,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc;
@@ -277,6 +277,20 @@ impl LiveSession {
         };
         let value = serde_json::to_value(&params).map_err(|e| e.to_string())?;
         self.client.send_request("session/prompt", value).await
+    }
+
+    /// Answer an inbound agent request (in practice
+    /// `session/request_permission`). `client` is private, so this and
+    /// `reply_error` are the driver's ONLY way to answer one — and it must
+    /// always answer: an unanswered request blocks the agent's turn forever
+    /// (`acp/client.rs`'s doctrine).
+    pub async fn reply(&self, id: &Value, result: Value) -> Result<(), String> {
+        self.client.reply(id, result).await
+    }
+
+    /// Refuse an inbound request we do not implement, rather than dropping it.
+    pub async fn reply_error(&self, id: &Value, code: i64, message: &str) -> Result<(), String> {
+        self.client.reply_error(id, code, message).await
     }
 
     /// `session/cancel` — ends the in-flight turn only; the session itself
@@ -550,6 +564,28 @@ impl AcpSessionManager {
             .unwrap()
             .remove(&session.pending_id);
         Ok(session)
+    }
+
+    /// End `session` — but only if it is STILL the registered session for its
+    /// agent. Removal by key alone is only safe while `acquire`'s spawn guard is
+    /// held (see `acquire`); a caller outside that lock — the run driver, which
+    /// drops a session whose child crashed or wedged — could otherwise close a
+    /// healthy replacement a concurrent `acquire` had already spawned, SIGTERMing
+    /// a live agent mid-turn. `Arc::ptr_eq` makes that impossible: we only ever
+    /// end the exact session we were driving.
+    pub async fn end_if_current(&self, session: &Arc<LiveSession>) {
+        let removed = {
+            let mut sessions = self.sessions.lock().unwrap();
+            match sessions.get(&session.agent_id) {
+                Some(current) if Arc::ptr_eq(current, session) => {
+                    sessions.remove(&session.agent_id)
+                }
+                _ => None,
+            }
+        };
+        if let Some(session) = removed {
+            session.close().await;
+        }
     }
 
     /// `session/close` + the SIGTERM→SIGKILL ladder, then drop the registry

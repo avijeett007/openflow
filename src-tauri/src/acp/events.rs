@@ -7,11 +7,10 @@
 //! summary and any panel code that predates structured events all keep working
 //! untouched. A variant with no line would silently vanish from all of them.
 //!
-//! Exercised end-to-end by this file's tests, but the driver that actually
-//! constructs `AgentRunEvent` and calls these functions from a live run is a
-//! later task — same situation as `protocol.rs`. Silence dead-code until it's
-//! wired up.
-#![allow(dead_code)]
+//! `managers::agent_run::drive_acp_run` is the driver that constructs these
+//! from a live run; its `emit_run_event` is the single place the dual emission
+//! happens, so no call site can forget half of it. Fully consumed, so this
+//! module carries no dead-code allowance — an unused item here is a real one.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;

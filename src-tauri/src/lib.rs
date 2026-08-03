@@ -797,6 +797,11 @@ pub fn run(cli_args: CliArgs) {
             managers::transcription::StreamPhaseEvent,
             managers::agent_run::AgentRunOutput,
             managers::agent_run::AgentRunStatus,
+            // C0: structured ACP run events, ALONGSIDE the two above (which the
+            // ACP driver still emits for every event — dual emission). Must be
+            // registered here: tauri-specta's `Event::emit` panics on an event
+            // missing from the registry.
+            acp::events::AgentRunEvent,
             managers::meeting::MeetingDetected,
             managers::meeting::MeetingState,
             managers::meeting::MeetingSegmentEvent,
