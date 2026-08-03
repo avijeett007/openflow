@@ -13,9 +13,12 @@ import {
   X,
 } from "lucide-react";
 import type {
+  AcpAgentTest,
+  AcpPermissionPolicy,
   AgentCliType,
   AgentDefinition,
   AgentOutputSink,
+  CliProtocol,
 } from "@/bindings";
 import { commands } from "@/bindings";
 import { useSettings } from "../../../hooks/useSettings";
@@ -27,7 +30,9 @@ import { Alert } from "../../ui/Alert";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Dropdown } from "../../ui/Dropdown";
 import { ShortcutInput } from "../ShortcutInput";
+import { ModeToggle } from "../model-setup/ModeToggle";
 import { AgentInlineToggle } from "./AgentInlineToggle";
+import { ACP_DEFAULT_TEMPLATES, supportsAcpProtocol } from "./agentTemplates";
 
 interface CliAgentCardProps {
   agent: AgentDefinition;
@@ -43,6 +48,12 @@ const CLI_TYPES: AgentCliType[] = [
 ];
 
 const OUTPUT_SINKS: AgentOutputSink[] = ["panel", "notify", "file"];
+
+const ACP_PERMISSION_POLICIES: AcpPermissionPolicy[] = [
+  "ask",
+  "auto_edits",
+  "auto_all",
+];
 
 /**
  * CLI-agent card (Flow OS increment 2): configures a real coding-agent
@@ -76,6 +87,16 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
   // isn't left with a silently-stale path (they can type one or Browse).
   const [detectNotFound, setDetectNotFound] = useState(false);
 
+  // ---- ACP mode ----
+  const [acpCommandTemplateDraft, setAcpCommandTemplateDraft] = useState(
+    agent.acp_command_template ?? "",
+  );
+  const [acpIdleTimeoutDraft, setAcpIdleTimeoutDraft] = useState(
+    String(agent.acp_idle_timeout_secs ?? 600),
+  );
+  const [acpTestResult, setAcpTestResult] = useState<AcpAgentTest | null>(null);
+  const [acpTestError, setAcpTestError] = useState<string | null>(null);
+
   useEffect(() => setNameDraft(agent.name), [agent.name]);
   useEffect(
     () => setBinaryPathDraft(agent.binary_path ?? ""),
@@ -84,6 +105,14 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
   useEffect(
     () => setCommandTemplateDraft(agent.command_template ?? ""),
     [agent.command_template],
+  );
+  useEffect(
+    () => setAcpCommandTemplateDraft(agent.acp_command_template ?? ""),
+    [agent.acp_command_template],
+  );
+  useEffect(
+    () => setAcpIdleTimeoutDraft(String(agent.acp_idle_timeout_secs ?? 600)),
+    [agent.acp_idle_timeout_secs],
   );
 
   const isPending = (field: string) => pending[field] ?? false;
@@ -132,6 +161,77 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
     );
   };
 
+  const commitAcpCommandTemplate = () => {
+    if (acpCommandTemplateDraft === (agent.acp_command_template ?? "")) return;
+    void persist(
+      { acp_command_template: acpCommandTemplateDraft },
+      "acp_command_template",
+    );
+  };
+
+  const commitAcpIdleTimeout = () => {
+    const parsed = Number.parseInt(acpIdleTimeoutDraft, 10);
+    const next = Number.isNaN(parsed) || parsed < 0 ? 0 : parsed;
+    if (next === (agent.acp_idle_timeout_secs ?? 600)) {
+      setAcpIdleTimeoutDraft(String(next));
+      return;
+    }
+    void persist({ acp_idle_timeout_secs: next }, "acp_idle_timeout_secs");
+  };
+
+  const handleProtocolChange = async (value: string) => {
+    const protocol = value as CliProtocol;
+    if (protocol === (agent.cli_protocol ?? "raw")) return;
+    setPending((prev) => ({ ...prev, cli_protocol: true }));
+    setAcpTestResult(null);
+    setAcpTestError(null);
+    try {
+      const patch: Partial<AgentDefinition> = { cli_protocol: protocol };
+      // Prefill the ACP command template the FIRST time the agent switches
+      // to ACP mode (never overwrite an already-customized template).
+      // `command_template` (one-shot mode) is deliberately never touched
+      // here - the two templates are separate fields precisely so toggling
+      // back and forth never loses either mode's configuration.
+      if (protocol === "acp" && !(agent.acp_command_template ?? "").trim()) {
+        const effectiveCliType = agent.cli_type ?? "custom";
+        const preset = ACP_DEFAULT_TEMPLATES[effectiveCliType];
+        if (preset) {
+          patch.acp_command_template = preset.argv;
+        }
+      }
+      await persist(patch, "cli_protocol");
+    } finally {
+      setPending((prev) => ({ ...prev, cli_protocol: false }));
+    }
+  };
+
+  const handleTestAcpAgent = async () => {
+    setPending((prev) => ({ ...prev, acpTest: true }));
+    setAcpTestResult(null);
+    setAcpTestError(null);
+    try {
+      // Commit any unsaved ACP command-template edit first so the handshake
+      // actually exercises what's about to be tested, not stale state.
+      if (acpCommandTemplateDraft !== (agent.acp_command_template ?? "")) {
+        const ok = await persist(
+          { acp_command_template: acpCommandTemplateDraft },
+          "acp_command_template",
+        );
+        if (!ok) return;
+      }
+      const result = await commands.testAcpAgent(agent.id);
+      if (result.status === "error") {
+        setAcpTestError(result.error);
+        return;
+      }
+      setAcpTestResult(result.data);
+    } catch (err) {
+      setAcpTestError(String(err));
+    } finally {
+      setPending((prev) => ({ ...prev, acpTest: false }));
+    }
+  };
+
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
@@ -158,6 +258,8 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
     setBinaryTestResult(null);
     setBinaryTestError(null);
     setDetectNotFound(false);
+    setAcpTestResult(null);
+    setAcpTestError(null);
     try {
       // Always refresh the template + delivery for the new type…
       const patch: Partial<AgentDefinition> = { cli_type: cliType };
@@ -308,6 +410,32 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
 
   const activeOutputSinks = agent.output_sinks ?? ["panel"];
   const projectPath = agent.project_path ?? "";
+
+  // ---- ACP mode ----
+  const effectiveCliType: AgentCliType = agent.cli_type ?? "custom";
+  const acpOffered = supportsAcpProtocol(effectiveCliType);
+  const protocol: CliProtocol = agent.cli_protocol ?? "raw";
+  const isAcp = acpOffered && protocol === "acp";
+  const acpPreset = ACP_DEFAULT_TEMPLATES[effectiveCliType];
+  // The program actually launched in ACP mode: the cli_type's hint binary
+  // wins when one exists (Claude/Codex/Kimi); otherwise it falls back to
+  // `binary_path`, mirroring `resolve_acp_binary` on the backend exactly.
+  // This is what makes the field honest - a user who left `binary_path` set
+  // to the raw `claude` binary must see that a DIFFERENT program (npx ...)
+  // is what actually gets spawned in ACP mode.
+  const resolvedAcpBinary =
+    acpPreset?.binary ??
+    (binaryPathDraft.trim() ||
+      t("settings.agents.acp.resolvedProgram.binaryUnset"));
+  const resolvedAcpProgram =
+    `${resolvedAcpBinary} ${acpCommandTemplateDraft}`.trim();
+
+  const permissionOptions = ACP_PERMISSION_POLICIES.map((policy) => ({
+    value: policy,
+    label: t(`settings.agents.acp.permission.options.${policy}`),
+  }));
+  const permissionPolicy: AcpPermissionPolicy =
+    agent.acp_permission_policy ?? "ask";
 
   return (
     <div className="bg-background border border-mid-gray/20 rounded-lg divide-y divide-mid-gray/20">
@@ -464,6 +592,162 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
           )}
         </div>
       </SettingContainer>
+
+      {acpOffered && (
+        <SettingContainer
+          title={t("settings.agents.acp.protocol.label")}
+          description={t("settings.agents.acp.protocol.description")}
+          descriptionMode="tooltip"
+          grouped
+          layout="horizontal"
+        >
+          <ModeToggle
+            value={protocol}
+            options={[
+              {
+                value: "raw",
+                label: t("settings.agents.acp.protocol.raw"),
+              },
+              {
+                value: "acp",
+                label: t("settings.agents.acp.protocol.acp"),
+              },
+            ]}
+            onChange={(value) => void handleProtocolChange(value)}
+            disabled={isPending("cli_type") || isPending("cli_protocol")}
+          />
+        </SettingContainer>
+      )}
+
+      {isAcp && (
+        <>
+          <SettingContainer
+            title={t("settings.agents.acp.command.label")}
+            description={t("settings.agents.acp.command.description")}
+            descriptionMode="tooltip"
+            grouped
+            layout="stacked"
+          >
+            <div className="space-y-2">
+              <Textarea
+                value={acpCommandTemplateDraft}
+                disabled={isPending("acp_command_template")}
+                onChange={(event) =>
+                  setAcpCommandTemplateDraft(event.target.value)
+                }
+                onBlur={commitAcpCommandTemplate}
+                placeholder={t("settings.agents.acp.command.placeholder")}
+                className="w-full font-mono"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <p className="text-xs text-mid-gray">
+                {t("settings.agents.acp.resolvedProgram.label")}{" "}
+                <code className="rounded bg-mid-gray/10 px-1 py-0.5 font-mono">
+                  {resolvedAcpProgram}
+                </code>
+              </p>
+            </div>
+          </SettingContainer>
+
+          <SettingContainer
+            title={t("settings.agents.acp.permission.label")}
+            description={t("settings.agents.acp.permission.description")}
+            descriptionMode="tooltip"
+            grouped
+            layout="stacked"
+          >
+            <div className="space-y-2">
+              <Dropdown
+                options={permissionOptions}
+                selectedValue={permissionPolicy}
+                onSelect={(value) =>
+                  void persist(
+                    {
+                      acp_permission_policy: value as AcpPermissionPolicy,
+                    },
+                    "acp_permission_policy",
+                  )
+                }
+                disabled={isPending("acp_permission_policy")}
+                className="min-w-[260px]"
+              />
+              {permissionPolicy === "auto_all" && (
+                <Alert variant="warning" contained>
+                  {t("settings.agents.acp.permission.autoAllWarning")}
+                </Alert>
+              )}
+            </div>
+          </SettingContainer>
+
+          <SettingContainer
+            title={t("settings.agents.acp.idleTimeout.label")}
+            description={t("settings.agents.acp.idleTimeout.description")}
+            descriptionMode="tooltip"
+            grouped
+            layout="horizontal"
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="0"
+                variant="compact"
+                value={acpIdleTimeoutDraft}
+                disabled={isPending("acp_idle_timeout_secs")}
+                onChange={(event) => setAcpIdleTimeoutDraft(event.target.value)}
+                onBlur={commitAcpIdleTimeout}
+                className="w-24"
+                aria-label={t("settings.agents.acp.idleTimeout.label")}
+              />
+              <span className="text-sm text-mid-gray">
+                {t("settings.agents.acp.idleTimeout.seconds")}
+              </span>
+            </div>
+          </SettingContainer>
+
+          <SettingContainer
+            title={t("settings.agents.acp.test.label")}
+            description={t("settings.agents.acp.test.description")}
+            descriptionMode="tooltip"
+            grouped
+            layout="stacked"
+          >
+            <div className="space-y-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={() => void handleTestAcpAgent()}
+                disabled={isPending("acpTest")}
+                className="inline-flex shrink-0 items-center gap-1.5"
+              >
+                <FlaskConical className="h-4 w-4" />
+                {isPending("acpTest")
+                  ? t("settings.agents.acp.test.testing")
+                  : t("settings.agents.acp.test.run")}
+              </Button>
+              {acpTestError && (
+                <Alert variant="error" contained>
+                  {t("settings.agents.acp.test.error", {
+                    error: acpTestError,
+                  })}
+                </Alert>
+              )}
+              {acpTestResult && (
+                <Alert variant="success" contained>
+                  {t("settings.agents.acp.test.ok", {
+                    name: acpTestResult.agent_name,
+                    version: acpTestResult.agent_version,
+                    protocolVersion: acpTestResult.protocol_version,
+                  })}
+                </Alert>
+              )}
+            </div>
+          </SettingContainer>
+        </>
+      )}
 
       <SettingContainer
         title={t("settings.agents.card.cli.projectPath.label")}

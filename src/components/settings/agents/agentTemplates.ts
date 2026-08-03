@@ -1,4 +1,4 @@
-import type { AgentOutputMode } from "@/bindings";
+import type { AgentCliType, AgentOutputMode } from "@/bindings";
 
 // ---------------------------------------------------------------------------
 // Id helpers
@@ -53,6 +53,53 @@ export interface AgentTemplate {
   systemPrompt: string;
   outputMode: AgentOutputMode;
 }
+
+// ---------------------------------------------------------------------------
+// ACP (Agent Client Protocol) defaults
+// ---------------------------------------------------------------------------
+
+/** Prefilled ACP invocation for a CLI type: the resolved binary + argv template. */
+export interface AcpDefaultTemplate {
+  binary: string;
+  argv: string;
+}
+
+/**
+ * Frontend mirror of `default_acp_template` in `src-tauri/src/settings.rs`.
+ *
+ * This table exists only because there is no Tauri command exposing
+ * `default_acp_template` to the frontend (it's a pure Rust function, not a
+ * command) — so it must be duplicated by hand here for two UI purposes: (1)
+ * prefilling `acp_command_template` the first time a user switches an agent
+ * to ACP mode, and (2) showing the "resolved program" that will actually be
+ * launched, since ACP resolution is hint-first (`resolve_acp_binary`: the
+ * `cli_type` hint always wins over `binary_path` when one exists).
+ *
+ * KEEP THIS IN SYNC with `default_acp_template` by hand. It covers only the
+ * types with a confirmed adapter (Claude, Codex, Kimi) — `Openclaw`/`Hermes`
+ * have none and must not be offered ACP mode at all; `Custom` has no fixed
+ * program either (its resolved binary is always the user's `binary_path`).
+ * If the Rust table changes (a new adapter, a package rename), this table
+ * drifts silently until someone notices the UI showing a stale program — the
+ * Rust `resolve_acp_binary` remains the actual source of truth for what gets
+ * spawned; this is a display/prefill convenience only.
+ */
+export const ACP_DEFAULT_TEMPLATES: Partial<
+  Record<AgentCliType, AcpDefaultTemplate>
+> = {
+  claude: { binary: "npx", argv: "-y @agentclientprotocol/claude-agent-acp" },
+  codex: { binary: "npx", argv: "-y @agentclientprotocol/codex-acp" },
+  kimi: { binary: "kimi", argv: "acp" },
+};
+
+/**
+ * Whether ACP mode should be offered for a CLI type. Only agents with a
+ * confirmed adapter (Claude/Codex/Kimi) plus `Custom` (the user's own
+ * escape hatch via `binary_path`) — never `Openclaw`/`Hermes`, which have no
+ * verified ACP adapter.
+ */
+export const supportsAcpProtocol = (cliType: AgentCliType): boolean =>
+  cliType in ACP_DEFAULT_TEMPLATES || cliType === "custom";
 
 export const AGENT_TEMPLATES: AgentTemplate[] = [
   {

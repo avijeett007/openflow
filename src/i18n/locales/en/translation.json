@@ -846,6 +846,46 @@
             "file": "File"
           }
         }
+      },
+      "acp": {
+        "protocol": {
+          "label": "Protocol",
+          "description": "One-shot spawns the CLI, feeds it one prompt, and exits when it's done. ACP session keeps the agent running between instructions so it remembers context, streams what it's doing (thinking, plan, tool calls), and asks permission before it acts.",
+          "raw": "One-shot",
+          "acp": "ACP session"
+        },
+        "command": {
+          "label": "ACP command",
+          "description": "Advanced: the argv template appended after the resolved ACP program. Separate from the one-shot command template - switching protocols never overwrites the other mode's configuration.",
+          "placeholder": "e.g. -y @agentclientprotocol/claude-agent-acp"
+        },
+        "resolvedProgram": {
+          "label": "Resolved program:",
+          "binaryUnset": "(no binary set)"
+        },
+        "permission": {
+          "label": "Permissions",
+          "description": "What to do when the agent asks permission before acting. This is ACP's real approval gate, replacing one-shot mode's silent auto-accept.",
+          "options": {
+            "ask": "Ask",
+            "auto_edits": "Auto-approve edits",
+            "auto_all": "Auto-approve everything"
+          },
+          "autoAllWarning": "The agent can act without asking - including running commands and deleting files - with no approval step. Only use this if you fully trust this agent and its project folder."
+        },
+        "idleTimeout": {
+          "label": "Idle timeout",
+          "description": "How long a warm ACP session may sit idle before OpenFlow closes it and frees its process. 0 means never - the session stays warm indefinitely.",
+          "seconds": "seconds (0 = never)"
+        },
+        "test": {
+          "label": "Test connection",
+          "description": "Launches the agent and performs the ACP handshake only - it never starts a session or sends a prompt, so this can't cost money or trigger real work.",
+          "run": "Test",
+          "testing": "Testing…",
+          "ok": "Connected to {{name}} {{version}} (ACP protocol v{{protocolVersion}}).",
+          "error": "Test failed: {{error}}"
+        }
       }
     },
     "history": {
