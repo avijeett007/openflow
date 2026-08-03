@@ -1457,12 +1457,6 @@ async fn drive_one_turn<S: AcpSessionOps>(
                             return broken_stream(e);
                         }
                     }
-                    PumpItem::Event(ClientEvent::Closed) => {
-                        return TurnOutcome::Crashed(
-                            "The agent closed the connection before finishing this turn."
-                                .to_string(),
-                        );
-                    }
                 }
             }
 

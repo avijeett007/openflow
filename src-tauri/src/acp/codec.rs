@@ -1,12 +1,6 @@
 //! JSON-RPC 2.0 envelope handling for ACP's newline-delimited stdio framing.
 //! Envelope-only: this module never interprets `params`, so protocol changes
 //! land in `protocol.rs` and never here.
-//!
-//! Nothing in the crate calls into this module outside its own tests yet:
-//! `client.rs` (a later task) is what drives the read loop and answers
-//! inbound requests. Silence dead-code until it's wired up, same as
-//! `protocol.rs`.
-#![allow(dead_code)]
 
 use serde::Deserialize;
 use serde_json::{json, Value};

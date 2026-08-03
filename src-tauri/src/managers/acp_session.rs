@@ -8,14 +8,6 @@
 //! permission dance) is Task 8's driver — it owns the event emission and calls
 //! back into `LiveSession`. This module owns only: spawn, handshake
 //! (`initialize` + `session/new`), warm reuse, idle reaping, and shutdown.
-//!
-//! `AcpSessionManager` is constructed and managed as Tauri state, and its
-//! idle-reaper/shutdown paths are already wired up in `lib.rs` — but nothing
-//! calls `acquire()` yet: that seam (`AgentKind::Cli` + `CliProtocol::Acp` in
-//! `agent_run.rs::start`) is Task 8's `drive_acp_run`. Silence dead-code on the
-//! acquire→spawn→handshake→`LiveSession` subtree until it is wired up, same as
-//! `acp/protocol.rs`, `acp/codec.rs`, `acp/permission.rs` and `acp/client.rs`.
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -39,7 +31,7 @@ use crate::acp::protocol::{
     NewSessionParams, NewSessionResult, PromptParams, SUPPORTED_PROTOCOL_VERSION,
 };
 use crate::managers::agent_run::{apply_baseline_env, spawn_plan, terminate_child};
-use crate::settings::{default_acp_template, AgentDefinition};
+use crate::settings::{default_acp_template, AgentCliType, AgentDefinition};
 
 /// Cap on receiving the FIRST response from the agent (the `initialize`
 /// reply). Deliberately generous: for `npx`-launched adapters (Claude, Codex)
@@ -362,6 +354,15 @@ impl LiveSession {
 /// parameter (production always passes `CLOSE_COURTESY_TIMEOUT`) so this is
 /// testable with a short duration against a transport whose `send` never
 /// resolves, without waiting out the real 2s budget or spawning a process.
+///
+/// KNOWN, ACCEPTED (logged, not fixed): `session/close` is capability-gated in
+/// ACP (`agentCapabilities.sessionCapabilities.close`) and Kimi 0.31.0 does not
+/// advertise it, so for that agent this request always comes back `-32601
+/// Method not found` and teardown falls straight through to the
+/// SIGTERM→SIGKILL ladder. That is the designed outcome, not a failure: the
+/// ladder is the guarantee and the reply is discarded regardless. Gating the
+/// send on the advertised capability would save one wasted frame per teardown
+/// and nothing else. Claude Code and Codex both DO advertise `close`.
 async fn send_close_courtesy<T: AcpTransport>(
     client: &AcpClient<T>,
     session_id: &str,
@@ -885,7 +886,7 @@ impl AcpSessionManager {
         // Bounded, in two phases — see `run_handshake`'s doc comment for why a
         // single budget doesn't work here (an `npx` cold install can dwarf
         // the handshake itself).
-        let handshake = run_handshake(&client, cwd, &agent.name).await;
+        let handshake = run_handshake(&client, cwd, &agent.name, agent.cli_type).await;
         // Past the only `.await` that can be cancelled while this child is
         // pending; both arms below clean up explicitly.
         pending_guard.disarm();
@@ -914,6 +915,51 @@ impl AcpSessionManager {
     }
 }
 
+/// The terminal command that logs this agent in, when we know one.
+///
+/// ACP has an `authenticate` method and OpenFlow implements none of it (see
+/// `DESIGN-acp-agents.md` §3). That is a deliberate scope call, not an
+/// oversight — but it means an unauthenticated agent is a dead end, and the
+/// user deserves to be told which command reopens it rather than being handed
+/// a JSON-RPC error string.
+fn login_command(cli_type: Option<AgentCliType>) -> Option<&'static str> {
+    match cli_type? {
+        // Verified live: `codex-acp` 1.1.9 advertises `authMethods`
+        // (`api-key`, `chat-gpt`) and answers `session/new` with
+        // `-32000 "Authentication required"` until `codex login` has been run.
+        AgentCliType::Codex => Some("codex login"),
+        AgentCliType::Claude => Some("claude"),
+        AgentCliType::Kimi => Some("kimi"),
+        AgentCliType::Openclaw | AgentCliType::Hermes | AgentCliType::Custom => None,
+    }
+}
+
+fn not_logged_in_message(agent_name: &str, cli_type: Option<AgentCliType>) -> String {
+    match login_command(cli_type) {
+        Some(cmd) => format!(
+            "'{agent_name}' is not logged in. Run `{cmd}` in a terminal, complete the sign-in, \
+             then try again. OpenFlow cannot sign in on your behalf."
+        ),
+        None => format!(
+            "'{agent_name}' needs to be logged in first — run it once in a terminal and \
+             complete its sign-in, then try again."
+        ),
+    }
+}
+
+/// Whether a handshake error is really "you are not logged in".
+///
+/// Matched on the message rather than the code: `-32000` is the generic
+/// JSON-RPC "server error" slot, so the code alone would misclassify unrelated
+/// failures, while the message is what the adapter actually chose to say.
+fn is_auth_required(error: &str) -> bool {
+    let e = error.to_ascii_lowercase();
+    e.contains("authentication required")
+        || e.contains("not authenticated")
+        || e.contains("not logged in")
+        || e.contains("unauthorized")
+}
+
 /// `initialize` then `session/new`, with a deliberately two-phase timeout
 /// budget rather than one flat one: `initialize` gets the generous
 /// `COLD_START_TIMEOUT` (an `npx -y`-launched adapter can spend most of that
@@ -933,6 +979,7 @@ async fn run_handshake<T: AcpTransport>(
     client: &AcpClient<T>,
     cwd: &Path,
     agent_name: &str,
+    cli_type: Option<AgentCliType>,
 ) -> Result<String, String> {
     let init = match tokio::time::timeout(COLD_START_TIMEOUT, do_initialize(client)).await {
         Ok(result) => result?,
@@ -952,11 +999,15 @@ async fn run_handshake<T: AcpTransport>(
         ));
     }
     if !init.auth_methods.is_empty() {
-        return Err(
-            "This agent needs to be logged in first — run it once in a terminal.".to_string(),
-        );
+        return Err(not_logged_in_message(agent_name, cli_type));
     }
     match tokio::time::timeout(HANDSHAKE_TIMEOUT, do_session_new(client, cwd)).await {
+        // An agent that did NOT advertise `authMethods` can still refuse
+        // `session/new` for want of a login — a raw JSON-RPC string is not
+        // something a user can act on. `authenticate` is a real ACP method
+        // (`AuthenticateRequest`) that OpenFlow does not implement; until it
+        // does, the honest answer is to say which terminal command fixes it.
+        Ok(Err(e)) if is_auth_required(&e) => Err(not_logged_in_message(agent_name, cli_type)),
         Ok(result) => result,
         Err(_elapsed) => Err(format!(
             "'{agent_name}' answered ACP initialize but did not complete session/new within \
@@ -1187,6 +1238,47 @@ mod tests {
             !is_reapable(start, now, 600, &lock),
             "a session with an in-flight turn must never be reaped, even if expired"
         );
+    }
+
+    /// F2. Codex ships as a preset that cannot work until the user has logged
+    /// in, and `authenticate` is a real ACP method OpenFlow does not implement.
+    /// The one thing we owe the user is the command that fixes it — not the
+    /// adapter's raw JSON-RPC string.
+    #[test]
+    fn an_unauthenticated_agent_is_told_which_command_to_run() {
+        // Verified live: codex-acp 1.1.9 answers session/new with exactly this.
+        assert!(is_auth_required(
+            "session/new failed: Authentication required (-32000)"
+        ));
+        assert!(is_auth_required("Not authenticated"));
+        assert!(is_auth_required("unauthorized"));
+        // …and nothing else is misread as a login problem. `-32000` is the
+        // generic JSON-RPC server-error slot, so the code alone would.
+        assert!(!is_auth_required(
+            "session/new failed: cwd does not exist (-32000)"
+        ));
+        assert!(!is_auth_required(
+            "The agent exited before completing session/new."
+        ));
+
+        let msg = not_logged_in_message("Codex", Some(AgentCliType::Codex));
+        assert!(
+            msg.contains("codex login"),
+            "the message must name the command that fixes it, got {msg:?}"
+        );
+        assert!(msg.contains("Codex"));
+        assert!(
+            !msg.contains("-32000"),
+            "the raw JSON-RPC error is not something a user can act on"
+        );
+
+        // An agent we have no verified login command for still gets actionable
+        // guidance rather than a protocol string.
+        let msg = not_logged_in_message("My Agent", Some(AgentCliType::Custom));
+        assert!(msg.contains("logged in"));
+        assert!(msg.contains("My Agent"));
+        assert_eq!(login_command(Some(AgentCliType::Custom)), None);
+        assert_eq!(login_command(None), None);
     }
 
     #[test]

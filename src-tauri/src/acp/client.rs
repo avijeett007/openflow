@@ -4,10 +4,6 @@
 //! keeps `tokio::spawn` out of this file, so every test is deterministic with
 //! no sleeps and no timing flakes.
 //!
-//! Nothing outside this module's own tests drives `pump()` yet — Task 7's
-//! session manager is the caller that owns the loop. Silence dead-code until
-//! it's wired up, same as `protocol.rs` and `codec.rs`.
-#![allow(dead_code)]
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -36,11 +32,17 @@ pub enum InboundRequest {
     Unsupported { id: Value, method: String },
 }
 
+/// An agent-originated frame the pump surfaced.
+///
+/// There is deliberately no `Closed` variant: the pump reports a closed stream
+/// as `None` from `pump()`, which is the single signal every caller already
+/// handles. A second, never-constructed way of saying the same thing left the
+/// driver with an unreachable arm claiming "the agent closed the connection"
+/// that no run could ever show.
 #[derive(Debug)]
 pub enum ClientEvent {
     Update(SessionNotification),
     Inbound(InboundRequest),
-    Closed,
 }
 
 #[derive(Debug)]
@@ -128,7 +130,15 @@ impl<T: AcpTransport> AcpClient<T> {
                     // Any other notification is not actionable in C0 — skip.
                 }
                 Err(CodecError::TooLong) => log::warn!("acp: dropped oversized frame"),
-                Err(e) => log::debug!("acp: skipping unparseable line: {e:?}"),
+                // The reason is logged, not just the variant: when an agent
+                // sends something we cannot read, "why" is the only thing that
+                // makes the next bug findable.
+                Err(CodecError::Malformed(why)) => {
+                    log::debug!("acp: skipping malformed frame: {why}")
+                }
+                Err(CodecError::NotJsonRpc) => {
+                    log::debug!("acp: skipping a line that is not a JSON-RPC frame")
+                }
             }
         }
     }

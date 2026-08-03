@@ -167,10 +167,11 @@ fn default_acp_idle_timeout_secs() -> u32 {
 /// no adapter is confirmed and it cannot be verified here. Shipping a guessed
 /// template is the exact mistake already made once with Hermes/OpenClaw.
 ///
-/// No production caller yet — the ACP session-mode wiring (client.rs + the
-/// agent-editor command) is a later task in this plan, same as the dead-code
-/// allowances in `acp/protocol.rs` and `acp/permission.rs`.
-#[allow(dead_code)]
+/// Called in production by `acp_session::resolve_acp_binary` (the hint always
+/// wins over `binary_path`), and mirrored by hand into
+/// `ACP_DEFAULT_TEMPLATES` in `src/components/settings/agents/agentTemplates.ts`
+/// for the settings card's "resolved program" display — a mirror that
+/// `acp_default_templates_match_the_frontend_mirror` pins entry by entry.
 pub fn default_acp_template(cli_type: AgentCliType) -> Option<(String, String)> {
     match cli_type {
         // Built-in subcommand, no extra install.
@@ -2649,29 +2650,45 @@ mod tests {
         // Only the types with a confirmed adapter have an entry to mirror —
         // Openclaw/Hermes/Custom return `None` and have nothing in
         // ACP_DEFAULT_TEMPLATES to check.
-        for cli_type in [
-            AgentCliType::Kimi,
-            AgentCliType::Claude,
-            AgentCliType::Codex,
+        for (cli_type, key) in [
+            (AgentCliType::Kimi, "kimi"),
+            (AgentCliType::Claude, "claude"),
+            (AgentCliType::Codex, "codex"),
         ] {
             let (binary, argv) = default_acp_template(cli_type)
                 .unwrap_or_else(|| panic!("{cli_type:?} unexpectedly has no default_acp_template"));
-            // Asserted TOGETHER, not as two independent `contains` checks
-            // (Task 11 review, Important 6): checking `binary` and `argv`
-            // separately has a verified blind spot — e.g. renaming `claude`'s
-            // binary from "npx" to "bunx" in Rust still finds "npx" verbatim
-            // elsewhere in the file (Codex's entry), so the test stays green
-            // on exactly the "stale resolved program" drift it exists to
-            // catch. Requiring the PAIR to appear together, in the object
-            // literal's own `key: "value", key: "value"` shape (Prettier's
-            // formatting of `ACP_DEFAULT_TEMPLATES`), means only a match
-            // against THIS type's own entry can satisfy it.
-            let pair = format!("binary: \"{binary}\", argv: \"{argv}\"");
-            assert!(
-                contents.contains(&pair),
-                "settings.rs::default_acp_template's {cli_type:?} entry (`{pair}`) was not \
-                 found verbatim in agentTemplates.ts — update ACP_DEFAULT_TEMPLATES in \
-                 src/components/settings/agents/agentTemplates.ts to match."
+
+            // ANCHORED TO THIS TYPE'S OWN KEY. The previous version searched
+            // the whole file for the `binary: "…", argv: "…"` pair, which
+            // FAILED OPEN in the case it most needed to catch: swapping
+            // claude's and codex's argv in Rust left every assertion green,
+            // because each swapped pair still appeared verbatim — in the OTHER
+            // entry. A drift guard that only detects deletion is not a drift
+            // guard. The regex below matches `<key>: { binary: "…", argv: "…" }`
+            // and nothing else, so a value can only satisfy it from the entry
+            // it actually belongs to. `(?s)` + `\s*` so Prettier is free to
+            // wrap the entry across lines.
+            let re = regex::Regex::new(&format!(
+                r#"(?s)\b{}\s*:\s*\{{\s*binary\s*:\s*"([^"]*)"\s*,\s*argv\s*:\s*"([^"]*)"\s*,?\s*\}}"#,
+                regex::escape(key)
+            ))
+            .unwrap();
+            let caps = re.captures(&contents).unwrap_or_else(|| {
+                panic!(
+                    "ACP_DEFAULT_TEMPLATES in agentTemplates.ts has no `{key}: {{ binary, argv }}` \
+                     entry (settings.rs::default_acp_template defines one for {cli_type:?})"
+                )
+            });
+            assert_eq!(
+                &caps[1], binary,
+                "agentTemplates.ts's `{key}` binary has drifted from \
+                 settings.rs::default_acp_template — the settings card's \"resolved program\" \
+                 display would show a value that is not what gets spawned"
+            );
+            assert_eq!(
+                &caps[2], argv,
+                "agentTemplates.ts's `{key}` argv has drifted from \
+                 settings.rs::default_acp_template"
             );
         }
     }
