@@ -783,6 +783,11 @@ pub fn run(cli_args: CliArgs) {
             commands::service::test_service_connection,
             commands::service::set_service_sync_transcripts,
             commands::service::set_service_sync_usage,
+            commands::sharing::sharing_status,
+            commands::sharing::set_sharing_enabled,
+            commands::sharing::set_share_grants,
+            commands::sharing::list_service_members,
+            commands::sharing::redeem_service_invite,
             helpers::clamshell::is_laptop,
         ])
         .events(collect_events![

@@ -1591,6 +1591,69 @@ async setServiceSyncUsage(enabled: boolean) : Promise<Result<null, string>> {
 }
 },
 /**
+ * Current status for the Sharing settings UI.
+ */
+async sharingStatus() : Promise<Result<SharingStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sharing_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The master sharing switch. `write_settings` republishes (or tears down)
+ * the host on its own — see the module doc comment.
+ */
+async setSharingEnabled(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_sharing_enabled", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Replace the whole grant list. Validated at this boundary — see
+ * `validate_grants` — so a grant with no folder or nobody allowed is a
+ * rejected save, not a silent one that is never offered.
+ */
+async setShareGrants(grants: ShareGrant[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_share_grants", { grants }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * List the paired service's members: `GET /v2/members`.
+ */
+async listServiceMembers() : Promise<Result<ServiceMember[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_service_members") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Redeem a teammate invite: `POST /v2/invites/redeem`. Binds THIS device's
+ * existing token to a member (spec gap #3) — it does not mint or change any
+ * token, so unlike `pair_service` it has nothing to persist locally and
+ * nothing to nudge: a host loop that has been retrying with a 403 dials
+ * again on its own next backoff step with the SAME token, which the service
+ * now accepts. Returns the new member id.
+ */
+async redeemServiceInvite(code: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("redeem_service_invite", { code }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Checks if the Mac is a laptop by detecting battery presence
  * 
  * This uses pmset to check for battery information.
@@ -1780,7 +1843,15 @@ export type AgentOutputMode = "inject" | "clipboard"
  * fires a desktop notification on completion. `File` writes the full
  * instruction+output to a markdown file in the project.
  */
-export type AgentOutputSink = "panel" | "notify" | "file"
+export type AgentOutputSink = "panel" | "notify" | "file" | 
+/**
+ * C2: a brokered run's terminal status is sent back to the requester over
+ * the relay. NEVER selectable in the UI and NEVER persisted — the agent
+ * host pushes it onto an in-memory clone of the AgentDefinition for a
+ * brokered run only (see `relay::grants::brokered_agent`). Present here so
+ * `finalize` can apply it exactly like `Notify` and `File`.
+ */
+"relay"
 /**
  * A snapshot of a run for the frontend (`list_agent_runs`).
  */
@@ -1804,7 +1875,13 @@ instruction: string;
 /**
  * Absolute path to the written run file, once the File sink has run.
  */
-output_file: string | null }
+output_file: string | null; 
+/**
+ * C2: the display name of the teammate who asked for this run, for the
+ * `← Priya` label on the owner's panel. `None` for every local run — which
+ * is every run unless sharing is on and a teammate brokered one.
+ */
+requested_by: string | null }
 /**
  * Emitted per output line while a run streams. Event name: `agent-run-output`.
  */
@@ -2101,7 +2178,17 @@ service_sync_transcripts?: boolean;
  * Opt-in: push usage events (dictation counts/durations, NO text) to the
  * service. Default OFF. Independent of `service_sync_transcripts`.
  */
-service_sync_usage?: boolean }
+service_sync_usage?: boolean; 
+/**
+ * Sharing configuration. `skip_serializing_if` is deliberate and differs
+ * from the sibling `service_*` fields: DESIGN-shared-agents §6 requires the
+ * settings blob to be **byte-identical** when sharing is absent, which is
+ * only literally true if a dormant config writes no key at all. Safe
+ * because every write path is a read-modify-write of the whole struct
+ * (`get_settings` → mutate → `write_settings`), so a dormant omission is
+ * re-defaulted on the next read with nothing lost.
+ */
+sharing: SharingConfig }
 export type AppUsage = { app: string; dictations: number; words: number }
 export type AudioDevice = { index: string; name: string; is_default: boolean }
 export type AutoSubmitKey = "enter" | "ctrl_enter" | "cmd_enter"
@@ -2376,6 +2463,16 @@ export type SecretMap = Partial<{ [key in string]: string }>
  */
 export type ServiceInfo = { version: string; edition: string; module_stt: boolean; module_llm: boolean; module_memory: boolean }
 /**
+ * A member of the paired service, as shown to the owner when picking who a
+ * grant is for.
+ */
+export type ServiceMember = { member_id: string; display_name: string; role: string; 
+/**
+ * A revoked member must not be offerable in the grants UI even though
+ * the service still lists them (Task 8 filters on this).
+ */
+revoked: boolean }
+/**
  * Status snapshot for the settings UI.
  */
 export type ServiceStatus = { 
@@ -2395,6 +2492,76 @@ last_sync_at: number | null;
  * History rows not yet synced (informational).
  */
 pending_count: number | null }
+/**
+ * One standing grant: this agent, in this folder, invokable by these people.
+ * 
+ * Every field is `#[serde(default)]` and the type is `Default`, because grants
+ * live inside `AppSettings` and the settings store **wipes to defaults on any
+ * parse failure** — one malformed grant must degrade to an empty grant, never
+ * destroy the user's whole configuration.
+ */
+export type ShareGrant = { agent_id?: string; 
+/**
+ * EXPLICIT per grant and **never inherited** from the agent's own
+ * `project_path`: the blast radius of a brokered run is a directory the
+ * owner chose for this grant (DESIGN-shared-agents §3).
+ */
+project_path?: string; 
+/**
+ * Service member ids allowed to invoke it.
+ */
+allowed_members?: string[] }
+/**
+ * Sharing (C2). Default OFF: with `enabled == false` **no socket is ever
+ * opened and no task is ever spawned** — asserted by
+ * `agent_host::tests::no_connect_attempt_when_sharing_is_off`.
+ */
+export type SharingConfig = { 
+/**
+ * Master switch. False ⇒ no socket, no publish, nothing.
+ */
+enabled?: boolean; 
+/**
+ * Per-agent grants. Empty ⇒ nothing is offered even if `enabled`.
+ */
+grants?: ShareGrant[] }
+/**
+ * Status snapshot for the Sharing settings UI and the run panel.
+ */
+export type SharingStatus = { 
+/**
+ * The master switch (`settings.sharing.enabled`).
+ */
+enabled: boolean; 
+/**
+ * A device is paired with a self-hosted service (`settings.service_enabled`).
+ */
+service_paired: boolean; 
+/**
+ * Best-effort: this device is believed to be bound to a service member,
+ * derived from the most recent dial's outcome. `true` until a dial is
+ * actually refused with the specific "not bound to a member" answer
+ * (spec gap #3) — there is no endpoint that answers this directly, so
+ * an owner who has never dialled yet reads as a member rather than as
+ * definitely-not-one.
+ */
+is_member: boolean; 
+/**
+ * A live, published connection to the relay exists right now.
+ */
+connected: boolean; 
+/**
+ * How many offers the current settings would publish (or are publishing).
+ */
+offer_count: number; 
+/**
+ * How many teammate sessions are live right now.
+ */
+active_sessions: number; 
+/**
+ * The most recent dial/publish failure, verbatim, if any.
+ */
+last_error: string | null }
 export type ShortcutBinding = { id: string; name: string; description: string; default_binding: string; current_binding: string }
 export type SoundTheme = "marimba" | "pop" | "custom"
 /**

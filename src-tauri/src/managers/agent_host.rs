@@ -204,6 +204,17 @@ pub struct HostState {
     /// "spec gaps" #1: `action_id` is present on every real service's `open`,
     /// but an older service may send only `offer_id`.
     offer_actions: Mutex<HashMap<String, String>>,
+    /// True only between a successful `publish` (offers sent on a live
+    /// socket) and the next `on_disconnect`. Read by `sharing_status` (Task
+    /// 7) as `connected` — it is deliberately narrower than "a loop is
+    /// running", which stays true through backoff retries too.
+    connected: AtomicBool,
+    /// The most recent dial-or-publish failure, verbatim. Cleared only by a
+    /// SUCCESSFUL connect (`record_connected`) — NOT by `on_disconnect`, so a
+    /// session that connected fine and later dropped does not overwrite a
+    /// standing "why can't I reach it" answer with silence, and the settings
+    /// UI (Task 8) has something to show between attempts.
+    last_error: Mutex<Option<String>>,
 }
 
 impl HostState {
@@ -211,6 +222,8 @@ impl HostState {
         Self {
             config: Mutex::new(HostConfig { sharing, agents }),
             sessions: Mutex::new(HashMap::new()),
+            connected: AtomicBool::new(false),
+            last_error: Mutex::new(None),
             by_run: Mutex::new(HashMap::new()),
             offer_actions: Mutex::new(HashMap::new()),
         }
@@ -319,6 +332,39 @@ impl HostState {
             .collect()
     }
 
+    /// How many teammate sessions are live right now. Read by `sharing_status`
+    /// (Task 7) as `active_sessions`.
+    pub fn session_count(&self) -> usize {
+        self.sessions.lock().unwrap().len()
+    }
+
+    /// A dial (`connect`) or `publish` failed. Called from `run_host_loop`,
+    /// never from a test directly manipulating state — see
+    /// `a_refused_dial_is_recorded_as_the_last_error`.
+    fn record_dial_error(&self, err: String) {
+        self.connected.store(false, Ordering::SeqCst);
+        *self.last_error.lock().unwrap() = Some(err);
+    }
+
+    /// Offers were published on a live socket. The one place `connected`
+    /// becomes true, and the one place a standing `last_error` is cleared.
+    fn record_connected(&self) {
+        self.connected.store(true, Ordering::SeqCst);
+        *self.last_error.lock().unwrap() = None;
+    }
+
+    /// Whether the host currently has a live, published connection to the
+    /// relay. Narrower than "a loop is running" — see the field doc comment.
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::SeqCst)
+    }
+
+    /// The most recent dial/publish failure, if the last attempt did not end
+    /// in a successful connect.
+    pub fn last_error(&self) -> Option<String> {
+        self.last_error.lock().unwrap().clone()
+    }
+
     fn snapshot(&self) -> (SharingConfig, Vec<AgentDefinition>) {
         let cfg = self.config.lock().unwrap();
         (cfg.sharing.clone(), cfg.agents.clone())
@@ -373,6 +419,11 @@ impl HostState {
     /// letting it finish in the owner's own panel — and no run is ever
     /// re-launched on reconnect. The service reports `host_disconnected`.
     pub fn on_disconnect(&self) {
+        // Deliberately does NOT touch `last_error`: the reason a live socket
+        // later dropped is not known here, and overwriting a standing "why
+        // can't I reach it" with `None` would make the settings UI show
+        // nothing between attempts instead of the last real answer.
+        self.connected.store(false, Ordering::SeqCst);
         self.sessions.lock().unwrap().clear();
         self.by_run.lock().unwrap().clear();
         // Offer ids are minted per connection; a stale mapping would resolve an
@@ -887,6 +938,28 @@ impl AgentHostManager {
         }
     }
 
+    /// Whether the host currently has a live, published connection to the
+    /// relay. `false` with no `HostState` at all (never started, or paused).
+    /// Read by the `sharing_status` command (Task 7).
+    pub fn is_connected(&self) -> bool {
+        self.state().is_some_and(|s| s.is_connected())
+    }
+
+    /// How many teammate sessions this host is serving right now. `0` with no
+    /// live `HostState`. Read by the `sharing_status` command (Task 7).
+    pub fn active_sessions(&self) -> u32 {
+        self.state().map(|s| s.session_count()).unwrap_or(0) as u32
+    }
+
+    /// The most recent dial/publish failure, if any — cleared by the next
+    /// successful connect, kept across an ordinary disconnect (see
+    /// `HostState::on_disconnect`'s doc comment). `None` with no `HostState`
+    /// at all: nothing has ever attempted a connection. Read by the
+    /// `sharing_status` command (Task 7).
+    pub fn last_error(&self) -> Option<String> {
+        self.state().and_then(|s| s.last_error())
+    }
+
     /// Stop a batch of runs via the production launcher. Used by
     /// [`Self::republish`]'s revoke/disable/delete path — the narrower
     /// `sessions_to_stop` `HostState::apply_settings` returns when the loop
@@ -1117,6 +1190,7 @@ async fn run_host_loop<C: RelayConnector, L: RunLauncher>(
                         backoff.as_secs()
                     );
                 }
+                state.record_dial_error(e);
                 sleep_interruptible(backoff, &running).await;
                 continue;
             }
@@ -1134,8 +1208,14 @@ async fn run_host_loop<C: RelayConnector, L: RunLauncher>(
         let session_started = std::time::Instant::now();
 
         match state.publish(conn.as_ref()).await {
-            Ok(()) => serve_connection(&conn, &launcher, &state, &running, &mut outbound).await,
-            Err(e) => log::warn!("relay: could not publish offers ({e})"),
+            Ok(()) => {
+                state.record_connected();
+                serve_connection(&conn, &launcher, &state, &running, &mut outbound).await;
+            }
+            Err(e) => {
+                log::warn!("relay: could not publish offers ({e})");
+                state.record_dial_error(format!("could not publish offers ({e})"));
+            }
         }
 
         conn.close().await;
@@ -2331,6 +2411,114 @@ mod tests {
         assert_eq!(frame["kind"], json!("output"));
         assert_eq!(frame["payload"]["chunk"], json!("hello from the agent"));
         assert!(!running.load(Ordering::SeqCst), "the loop stopped cleanly");
+    }
+
+    // ---- Status the `sharing_status` command reads (Task 7) ----
+
+    #[test]
+    fn session_count_reflects_live_sessions() {
+        let state = HostState::new(sharing_with_grant(), vec![agent("coder")]);
+        assert_eq!(state.session_count(), 0);
+
+        let t = FakeTransport::new(vec![]);
+        let l = FakeLauncher::default();
+        let outcome = block_on(state.handle_service_message(open_msg("s1", "m-priya"), &t, &l));
+        assert!(outcome.is_continue(), "the open must have been accepted");
+        assert_eq!(state.session_count(), 1);
+
+        state.close_run("run-1", "finished");
+        assert_eq!(
+            state.session_count(),
+            0,
+            "a closed run must not still count as an active session"
+        );
+    }
+
+    #[test]
+    fn run_host_loop_marks_connected_once_offers_are_published() {
+        // `is_connected` must become true on a real publish, not merely once a
+        // slot exists — `is_hosting` already covers the latter and would not
+        // catch a manager that forgot to call `record_connected`.
+        let running = Arc::new(AtomicBool::new(true));
+        let transport = FakeTransport::idle(vec![]);
+        let connector = FakeConnector::new(vec![transport]);
+        let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        let launcher = Arc::new(FakeLauncher::default());
+        let (tx, rx) = mpsc::unbounded_channel::<HostMessage>();
+
+        block_on(async {
+            assert!(!state.is_connected(), "nothing has dialled yet");
+
+            let handle = tokio::spawn(run_host_loop(
+                connector,
+                launcher,
+                Arc::clone(&state),
+                Arc::clone(&running),
+                true,
+                true,
+                rx,
+            ));
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            assert!(
+                state.is_connected(),
+                "offers were published on a live idle socket"
+            );
+            assert!(state.last_error().is_none());
+
+            // Dropping `tx` is what ends an idle loop deterministically (see
+            // `the_loop_writes_queued_frames_to_the_socket_after_the_hello`):
+            // it trips the outbound channel's `None` arm inside
+            // `serve_connection`, which stops the loop without waiting out a
+            // real reconnect backoff.
+            drop(tx);
+            let joined = tokio::time::timeout(Duration::from_secs(3), handle).await;
+            assert!(joined.is_ok(), "the loop never exited");
+            assert!(
+                !state.is_connected(),
+                "on_disconnect must clear it when the socket goes away"
+            );
+        });
+    }
+
+    #[test]
+    fn a_refused_dial_is_recorded_as_the_last_error() {
+        // The single production edit this catches: deleting the
+        // `state.record_dial_error(e)` call in `run_host_loop`'s `Err` arm.
+        struct RefusingConnector;
+        impl RelayConnector for RefusingConnector {
+            type Conn = FakeTransport;
+            async fn connect(&self) -> Result<FakeTransport, String> {
+                Err("the relay refused this device: HTTP 403, its device \
+                     token is valid but not allowed to host — this device \
+                     is probably not bound to a member yet; redeem an invite"
+                    .to_string())
+            }
+        }
+
+        let running = Arc::new(AtomicBool::new(true));
+        let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        let launcher = Arc::new(FakeLauncher::default());
+        let (_tx, rx) = mpsc::unbounded_channel::<HostMessage>();
+
+        block_on(async {
+            let handle = tokio::spawn(run_host_loop(
+                RefusingConnector,
+                launcher,
+                Arc::clone(&state),
+                Arc::clone(&running),
+                true,
+                true,
+                rx,
+            ));
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            assert!(!state.is_connected());
+            let err = state.last_error().expect("a refused dial must be recorded");
+            assert!(err.contains("not bound to a member"), "got: {err}");
+
+            running.store(false, Ordering::SeqCst);
+            let joined = tokio::time::timeout(Duration::from_secs(3), handle).await;
+            assert!(joined.is_ok(), "the loop never exited");
+        });
     }
 
     #[test]
