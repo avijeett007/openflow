@@ -742,5 +742,143 @@ mod tests {
                 other => panic!("expected Open for a real captured `open`, got {other:?}"),
             }
         }
+
+        // ---- The OUTBOUND half, owed by the live end-to-end task and now
+        // paid. ----
+
+        /// Bytes this crate's OWN `HostMessage`/`session_frame` produced and
+        /// `WsRelayTransport::send` put on a real WebSocket to a real running
+        /// `openflow-service` (branch `feat/relay-v0.2`), captured by wrapping
+        /// the production transport — see
+        /// `managers::agent_host::tests::live_end_to_end_against_a_real_openflow_service`
+        /// and the full transcript in `verification/shared-agents/RESULTS.md`.
+        /// The unabridged capture is committed at
+        /// `verification/shared-agents/capture/outbound.jsonl`.
+        ///
+        /// **These are not hand-written, and the service ACCEPTED them**: the
+        /// `hello` came back as `{"t":"ready","offers":1}` and the offer it
+        /// created is in `GET /v2/offers`; every frame below came back out of
+        /// `GET /v2/sessions/{id}/events` to a `curl` teammate; the `closed`
+        /// is the audit row's `outcome`. That is the gap the module doc above
+        /// described — `HostFrame` is internally tagged, so only something
+        /// that really sends it over a socket can capture it honestly.
+        const RAW_OUT_HELLO: &str = r#"{"t":"hello","offers":[{"action_id":"agent:coder","label":"Coder","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo","allowed":["b62c9540-67fe-4fdc-833f-c89b3b7649d5"]}]}"#;
+        const RAW_OUT_HEADER: &str = r#"{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"header","payload":{"agent":"Coder","kind":"header","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo"},"sealed":false}"#;
+        const RAW_OUT_OUTPUT: &str = r#"{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"output","payload":{"chunk":"coder: edited README.md","kind":"output"},"sealed":false}"#;
+        const RAW_OUT_STATUS: &str = r#"{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"status","payload":{"kind":"status","status":"finished"},"sealed":false}"#;
+        const RAW_OUT_CLOSED: &str = r#"{"t":"closed","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","outcome":"finished"}"#;
+        /// The same three-frame shape from the SECOND live session, whose run
+        /// the requester stopped — so the terminal `status`/`closed` pair
+        /// below is a real `stopped`, not a re-typed `finished`.
+        const RAW_OUT_STATUS_STOPPED: &str = r#"{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"status","payload":{"kind":"status","status":"stopped"},"sealed":false}"#;
+        const RAW_OUT_CLOSED_STOPPED: &str = r#"{"t":"closed","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","outcome":"stopped"}"#;
+
+        #[test]
+        fn the_real_hello_this_crate_sent_round_trips_through_its_own_types() {
+            // The question nothing could answer before the live task: does the
+            // shape we construct survive a round trip, and is it the shape the
+            // service's `OfferIn` reads? The service's answer is recorded
+            // alongside — it replied `ready:1` and created exactly this offer.
+            let parsed: HostMessage = serde_json::from_str(RAW_OUT_HELLO).unwrap();
+            let HostMessage::Hello { offers } = &parsed else {
+                panic!("expected Hello, got {parsed:?}");
+            };
+            assert_eq!(offers.len(), 1);
+            assert_eq!(offers[0].action_id, "agent:coder");
+            assert_eq!(offers[0].label, "Coder");
+            assert!(
+                offers[0].project.ends_with("/live/shared-repo"),
+                "the GRANT's folder is published, never the agent's own \
+                 project_path: {}",
+                offers[0].project
+            );
+            assert_eq!(offers[0].allowed, ["b62c9540-67fe-4fdc-833f-c89b3b7649d5"]);
+            // Re-serializing reproduces the captured bytes exactly, so the
+            // fixture cannot silently drift from what `send_message` emits.
+            assert_eq!(serde_json::to_string(&parsed).unwrap(), RAW_OUT_HELLO);
+        }
+
+        #[test]
+        fn every_real_session_frame_this_crate_sent_parses_as_its_own_host_frame() {
+            // Task 2 could only do this for the INBOUND direction. `HostFrame`
+            // is internally tagged, so a capture of it is only genuine once
+            // something in this crate has actually written it to a socket —
+            // which is exactly where these bytes come from.
+            for (raw, want_kind) in [
+                (RAW_OUT_HEADER, "header"),
+                (RAW_OUT_OUTPUT, "output"),
+                (RAW_OUT_STATUS, "status"),
+                (RAW_OUT_STATUS_STOPPED, "status"),
+            ] {
+                let parsed: HostMessage = serde_json::from_str(raw).unwrap();
+                let HostMessage::Frame {
+                    kind,
+                    payload,
+                    sealed,
+                    ..
+                } = &parsed
+                else {
+                    panic!("expected Frame for {raw}");
+                };
+                assert_eq!(kind, want_kind);
+                assert!(!sealed, "DESIGN-relay-v02 §8: v0.2 is never sealed");
+                // The payload really is a `HostFrame` — the whole point, and
+                // the assertion the two removed staged tests only pretended to.
+                let frame: HostFrame = serde_json::from_value(payload.clone()).unwrap();
+                assert_eq!(
+                    frame.kind_str(),
+                    want_kind,
+                    "the envelope kind and the payload's own tag disagree on the wire"
+                );
+                // …and the envelope this crate would build for that frame is
+                // byte-identical to the one it actually sent.
+                assert_eq!(
+                    serde_json::to_string(&session_frame(
+                        match &parsed {
+                            HostMessage::Frame { session_id, .. } => session_id,
+                            _ => unreachable!(),
+                        },
+                        frame
+                    ))
+                    .unwrap(),
+                    raw
+                );
+            }
+        }
+
+        #[test]
+        fn the_real_terminal_frames_carry_the_outcome_the_audit_row_recorded() {
+            for (raw, want) in [
+                (RAW_OUT_CLOSED, "finished"),
+                (RAW_OUT_CLOSED_STOPPED, "stopped"),
+            ] {
+                match serde_json::from_str::<HostMessage>(raw).unwrap() {
+                    HostMessage::Closed { outcome, .. } => assert_eq!(outcome, want),
+                    other => panic!("expected Closed, got {other:?}"),
+                }
+            }
+            // The status frame that preceded each `closed` agrees with it —
+            // the requester's stream and the service's audit row can never
+            // disagree about how a run ended.
+            for (frame_raw, closed_raw) in [
+                (RAW_OUT_STATUS, RAW_OUT_CLOSED),
+                (RAW_OUT_STATUS_STOPPED, RAW_OUT_CLOSED_STOPPED),
+            ] {
+                let HostMessage::Frame { payload, .. } =
+                    serde_json::from_str::<HostMessage>(frame_raw).unwrap()
+                else {
+                    panic!("expected Frame");
+                };
+                let HostFrame::Status { status } = serde_json::from_value(payload).unwrap() else {
+                    panic!("expected Status");
+                };
+                let HostMessage::Closed { outcome, .. } =
+                    serde_json::from_str::<HostMessage>(closed_raw).unwrap()
+                else {
+                    panic!("expected Closed");
+                };
+                assert_eq!(status, outcome);
+            }
+        }
     }
 }

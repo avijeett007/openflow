@@ -36,6 +36,31 @@ pub fn next_backoff(current: Duration) -> Duration {
     }
 }
 
+/// Prefix on a dial error the SERVICE refused, as opposed to one it never
+/// answered. See [`dial_was_refused`].
+pub const REFUSED_PREFIX: &str = "the service refused this device";
+
+/// Whether a failed dial was **refused** (a bad/revoked credential) rather than
+/// merely unreachable (an outage).
+///
+/// Established live, not from prose: `openflow-service` (`feat/relay-v0.2`)
+/// answers the `GET /v2/relay/host` upgrade for a revoked *or* never-issued
+/// device token with `HTTP/1.1 401 Unauthorized` and
+/// `{"error":{"code":"unauthorized","message":"invalid or revoked token"}}`,
+/// while a service that is down surfaces as `Connection refused (os error 61)`.
+/// Before this, `WsConnector` flattened both into one string and `run_host_loop`
+/// logged both at `warn` and retried both forever — so an owner whose device had
+/// been revoked saw exactly what an owner with a flaky network saw.
+///
+/// **The retry itself is deliberately unchanged.** A 401 is not always
+/// permanent (the service may be mid-restore, or the owner may be about to
+/// re-pair), and giving up would replace a noisy log with a host that silently
+/// never comes back. What changes is that the log now says which of the two it
+/// is. Surfacing it in the UI belongs to the settings task, not here.
+pub fn dial_was_refused(error: &str) -> bool {
+    error.starts_with(REFUSED_PREFIX)
+}
+
 /// The host socket URL for a configured service base URL.
 /// `GET /v2/relay/host` per DESIGN-relay-v02 §5.
 pub fn relay_ws_url(base: &str) -> String {
@@ -136,7 +161,16 @@ impl RelayConnector for WsConnector {
                         CONNECT_TIMEOUT.as_secs()
                     )
                 })?
-                .map_err(|e| format!("could not open the relay socket: {e}"))?;
+                .map_err(|e| match &e {
+                    // The service ANSWERED and said no. Kept distinguishable
+                    // from "nobody answered" — see `dial_was_refused`.
+                    tokio_tungstenite::tungstenite::Error::Http(resp)
+                        if resp.status().is_client_error() =>
+                    {
+                        format!("{REFUSED_PREFIX}'s token (HTTP {})", resp.status().as_u16())
+                    }
+                    _ => format!("could not open the relay socket: {e}"),
+                })?;
         let (tx, rx) = stream.split();
         Ok(WsRelayTransport {
             tx: Mutex::new(tx),
@@ -166,6 +200,25 @@ mod tests {
         );
         // Already-ws URLs pass through rather than being double-prefixed.
         assert_eq!(relay_ws_url("wss://x.io"), "wss://x.io/v2/relay/host");
+    }
+
+    #[test]
+    fn a_refused_device_token_is_told_apart_from_an_unreachable_service() {
+        // Both strings below are VERBATIM from a live dial against a real
+        // openflow-service on `feat/relay-v0.2` (see
+        // verification/shared-agents/RESULTS.md): the first from a device
+        // revoked with `DELETE /v1/devices/{id}`, the second from a port with
+        // nothing listening on it.
+        assert!(dial_was_refused(
+            "the service refused this device's token (HTTP 401)"
+        ));
+        assert!(!dial_was_refused(
+            "could not open the relay socket: IO error: Connection refused (os error 61)"
+        ));
+        // A dial that timed out is an outage too, not a refusal.
+        assert!(!dial_was_refused(
+            "the relay socket did not open within 15s"
+        ));
     }
 
     #[test]

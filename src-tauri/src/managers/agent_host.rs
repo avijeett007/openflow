@@ -52,7 +52,8 @@ use crate::relay::protocol::{
     parse_open_payload, session_frame, HostFrame, HostMessage, OfferWire, ServiceMessage,
 };
 use crate::relay::transport::{
-    next_backoff, relay_ws_url, RelayConnector, RelayTransport, WsConnector, BACKOFF_MIN,
+    dial_was_refused, next_backoff, relay_ws_url, RelayConnector, RelayTransport, WsConnector,
+    BACKOFF_MIN,
 };
 use crate::settings::{AgentDefinition, AppSettings, SharingConfig};
 
@@ -855,10 +856,24 @@ async fn run_host_loop<C: RelayConnector, L: RunLauncher>(
             Some(Ok(conn)) => Arc::new(conn),
             Some(Err(e)) => {
                 backoff = next_backoff(backoff);
-                log::warn!(
-                    "relay: connect failed ({e}); retrying in {}s",
-                    backoff.as_secs()
-                );
+                // A credential the service REFUSED and a service that never
+                // answered are the same retry, but they are not the same
+                // problem, and until the live end-to-end task nothing could
+                // tell them apart in the log. Verified against a real
+                // openflow-service: a revoked device token gets HTTP 401 on
+                // the upgrade; an outage gets `Connection refused`.
+                if dial_was_refused(&e) {
+                    log::error!(
+                        "relay: {e}; retrying in {}s — if this persists, re-pair \
+                         this device in Settings → Service",
+                        backoff.as_secs()
+                    );
+                } else {
+                    log::warn!(
+                        "relay: connect failed ({e}); retrying in {}s",
+                        backoff.as_secs()
+                    );
+                }
                 sleep_interruptible(backoff, &running).await;
                 continue;
             }
@@ -2047,5 +2062,431 @@ mod tests {
              is BACKOFF_MIN = 1s, so anything near that means the wait was not \
              sliced against the running flag"
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // The live harness (Task 5): the SAME production code above, but against a
+    // real running `openflow-service` over a real WebSocket.
+    // ---------------------------------------------------------------------
+
+    /// A live end-to-end against a real `openflow-service` (branch
+    /// `feat/relay-v0.2`).
+    ///
+    /// **Why this exists, and what it is honest about.** Every other test in
+    /// this file scripts the transport. This one uses the production
+    /// [`WsConnector`]/[`WsRelayTransport`], the production [`run_host_loop`],
+    /// the production [`HostState`] (hello, dispatch, `authorize_open`,
+    /// `brokered_agent`, session bookkeeping) and a REAL subprocess in a REAL
+    /// git repo, against a REAL service that answers back. It closes the
+    /// outbound-capture debt `relay/protocol.rs`'s module doc records: nothing
+    /// had ever fed this crate's own `HostMessage` bytes to the service's
+    /// deserializer.
+    ///
+    /// **The one seam it cannot cross.** `AgentRunManager::start` takes a
+    /// `tauri::AppHandle` (= `AppHandle<Wry>`), and streams output through
+    /// `AgentRunOutput::emit`/`listen`. A `Wry` app cannot be constructed off
+    /// the process main thread, and libtest runs every `#[test]` on a spawned
+    /// thread; `tauri::test::mock_app()` yields an `App<MockRuntime>`, a
+    /// different type this codebase's signatures do not accept. So
+    /// [`LiveLauncher`] below stands in for `AgentRunLauncher`: it spawns the
+    /// same process with the app's OWN [`spawn_plan`], [`build_argv`] and
+    /// [`apply_baseline_env`], and it feeds the output/terminal frames through
+    /// exactly the two `HostState` entry points the production wiring uses
+    /// (`frame_for_run` from `wire_run_pipeline`'s listener, `frame_for_run` +
+    /// `close_run` from `RelayFrameSink::on_terminal`). What is NOT covered
+    /// live is `AgentRunManager::start` itself and the Tauri event hop between
+    /// them. See the task report for the human runbook that covers it.
+    ///
+    /// Skipped (returns immediately, no socket) unless
+    /// `OPENFLOW_LIVE_SERVICE_URL` is set, so `cargo test` in CI is unaffected.
+    #[test]
+    fn live_end_to_end_against_a_real_openflow_service() {
+        let Some(env) = LiveEnv::from_env() else {
+            eprintln!(
+                "live: SKIPPED — set OPENFLOW_LIVE_SERVICE_URL, \
+                 OPENFLOW_LIVE_DEVICE_TOKEN, OPENFLOW_LIVE_MEMBER_ID, \
+                 OPENFLOW_LIVE_PROJECT, OPENFLOW_LIVE_AGENT_BIN to run it"
+            );
+            return;
+        };
+        eprintln!("live: service={} project={}", env.url, env.project);
+
+        let sharing = SharingConfig {
+            enabled: true,
+            grants: vec![ShareGrant {
+                agent_id: "coder".into(),
+                project_path: env.project.clone(),
+                allowed_members: vec![env.member.clone()],
+            }],
+        };
+        let agents = vec![live_agent(&env.agent_bin)];
+        let state = Arc::new(HostState::new(sharing, agents));
+        let running = Arc::new(AtomicBool::new(true));
+        let (tx, rx) = mpsc::unbounded_channel::<HostMessage>();
+        let launcher = Arc::new(LiveLauncher::new(Arc::clone(&state), tx.clone()));
+
+        let connector = RecordingConnector {
+            inner: WsConnector {
+                url: relay_ws_url(&env.url),
+                token: env.token.clone(),
+            },
+            outbound: Arc::new(Mutex::new(Vec::new())),
+            inbound: Arc::new(Mutex::new(Vec::new())),
+        };
+        let outbound_log = Arc::clone(&connector.outbound);
+        let inbound_log = Arc::clone(&connector.inbound);
+
+        let flag = Arc::clone(&running);
+        let launcher_probe = Arc::clone(&launcher);
+        block_on_with_io(async move {
+            let host = tokio::spawn(run_host_loop(
+                connector,
+                Arc::clone(&launcher),
+                Arc::clone(&state),
+                running,
+                true,
+                true,
+                rx,
+            ));
+            // The owner removes the teammate from the grant on the LIVE state
+            // and — deliberately — never republishes, so the service still
+            // holds the old offer and only the host's own re-check can refuse.
+            // This is the evidence that two independent checks exist.
+            if let Some(after) = env.revoke_after {
+                let state = Arc::clone(&state);
+                let agents = state.snapshot().1;
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(after)).await;
+                    eprintln!("live: revoking the grant's member on the live state (no republish)");
+                    let (mut sharing, _) = state.snapshot();
+                    for g in &mut sharing.grants {
+                        g.allowed_members.clear();
+                    }
+                    state.set_config(sharing, agents);
+                });
+            }
+            // The teammate side is driven from outside this process (curl).
+            tokio::time::sleep(Duration::from_secs(env.seconds)).await;
+            // Clean shutdown: clear the flag AND drop every outbound sender, so
+            // `serve_connection`'s closed-sender arm fires (the invariant
+            // `HostSlots::stop` documents).
+            flag.store(false, Ordering::SeqCst);
+            launcher_probe.shutdown();
+            drop(tx);
+            let _ = tokio::time::timeout(Duration::from_secs(15), host).await;
+        });
+
+        let out = outbound_log.lock().unwrap().clone();
+        let inb = inbound_log.lock().unwrap().clone();
+        std::fs::write(env.capture.join("outbound.jsonl"), out.join("\n") + "\n").unwrap();
+        std::fs::write(env.capture.join("inbound.jsonl"), inb.join("\n") + "\n").unwrap();
+        eprintln!("live: ---- OUTBOUND (this crate -> the real service) ----");
+        for l in &out {
+            eprintln!("live: OUT {l}");
+        }
+        eprintln!("live: ---- INBOUND (the real service -> this crate) ----");
+        for l in &inb {
+            eprintln!("live: IN  {l}");
+        }
+        assert!(!out.is_empty(), "nothing was ever sent to the service");
+        let hello: serde_json::Value = serde_json::from_str(&out[0]).unwrap();
+        assert_eq!(hello["t"], json!("hello"), "the first frame is the hello");
+    }
+
+    /// A live dial with a token the service has revoked. Answers the question
+    /// `run_host_loop` cannot: is a refused credential distinguishable from an
+    /// outage? Skipped unless `OPENFLOW_LIVE_REVOKED_TOKEN` is set.
+    #[test]
+    fn live_dial_with_a_revoked_device_token() {
+        let (Ok(url), Ok(token)) = (
+            std::env::var("OPENFLOW_LIVE_SERVICE_URL"),
+            std::env::var("OPENFLOW_LIVE_REVOKED_TOKEN"),
+        ) else {
+            eprintln!("live: SKIPPED (no OPENFLOW_LIVE_REVOKED_TOKEN)");
+            return;
+        };
+        let connector = WsConnector {
+            url: relay_ws_url(&url),
+            token,
+        };
+        let result = block_on_with_io(connector.connect());
+        match result {
+            Ok(_) => panic!("live: a revoked token OPENED the host socket"),
+            Err(e) => eprintln!("live: revoked-token dial error verbatim: {e}"),
+        }
+    }
+
+    /// The live sibling of [`block_on`]: same explicit-runtime shape (this repo
+    /// uses no `#[tokio::test]`), but with the IO driver enabled, because unlike
+    /// every other test here these two open a REAL socket and spawn a REAL
+    /// process.
+    fn block_on_with_io<F: std::future::Future>(fut: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(fut)
+    }
+
+    struct LiveEnv {
+        url: String,
+        token: String,
+        member: String,
+        project: String,
+        agent_bin: String,
+        capture: std::path::PathBuf,
+        seconds: u64,
+        /// Seconds after which the grant's member list is emptied on the LIVE
+        /// `HostState` without a republish (`OPENFLOW_LIVE_REVOKE_AFTER`).
+        revoke_after: Option<u64>,
+    }
+
+    impl LiveEnv {
+        fn from_env() -> Option<Self> {
+            let var = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+            Some(Self {
+                url: var("OPENFLOW_LIVE_SERVICE_URL")?,
+                token: var("OPENFLOW_LIVE_DEVICE_TOKEN")?,
+                member: var("OPENFLOW_LIVE_MEMBER_ID")?,
+                project: var("OPENFLOW_LIVE_PROJECT")?,
+                agent_bin: var("OPENFLOW_LIVE_AGENT_BIN")?,
+                capture: std::path::PathBuf::from(var("OPENFLOW_LIVE_CAPTURE")?),
+                seconds: var("OPENFLOW_LIVE_SECONDS")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(90),
+                revoke_after: var("OPENFLOW_LIVE_REVOKE_AFTER").and_then(|s| s.parse().ok()),
+            })
+        }
+    }
+
+    fn live_agent(binary: &str) -> AgentDefinition {
+        serde_json::from_value(json!({
+            "id": "coder", "name": "Coder", "enabled": true,
+            "binding_id": "agent:coder", "provider_id": "",
+            "kind": "cli", "cli_type": "claude", "binary_path": binary,
+            // `{cwd}` is substituted by the app's own `build_argv`; the
+            // instruction rides stdin (`PromptDelivery::Stdin`, the default).
+            "command_template": "--cwd {cwd}",
+            "project_path": "/this/must/never/be/used"
+        }))
+        .unwrap()
+    }
+
+    /// Wraps the PRODUCTION transport and records the exact bytes that cross it
+    /// in both directions. The recorded line is the same `String`
+    /// `send_message` produced and handed to `WsRelayTransport::send`, so the
+    /// capture cannot drift from what actually went on the socket.
+    struct RecordingTransport<T: RelayTransport> {
+        inner: T,
+        outbound: Arc<Mutex<Vec<String>>>,
+        inbound: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl<T: RelayTransport> RelayTransport for RecordingTransport<T> {
+        fn send(
+            &self,
+            line: String,
+        ) -> impl std::future::Future<Output = Result<(), String>> + Send {
+            self.outbound.lock().unwrap().push(line.clone());
+            self.inner.send(line)
+        }
+        fn recv(&self) -> impl std::future::Future<Output = Option<String>> + Send {
+            let log = Arc::clone(&self.inbound);
+            let fut = self.inner.recv();
+            async move {
+                let got = fut.await;
+                if let Some(line) = &got {
+                    log.lock().unwrap().push(line.clone());
+                }
+                got
+            }
+        }
+        fn close(&self) -> impl std::future::Future<Output = ()> + Send {
+            self.inner.close()
+        }
+    }
+
+    struct RecordingConnector<C: RelayConnector> {
+        inner: C,
+        outbound: Arc<Mutex<Vec<String>>>,
+        inbound: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl<C: RelayConnector> RelayConnector for RecordingConnector<C> {
+        type Conn = RecordingTransport<C::Conn>;
+        fn connect(&self) -> impl std::future::Future<Output = Result<Self::Conn, String>> + Send {
+            let outbound = Arc::clone(&self.outbound);
+            let inbound = Arc::clone(&self.inbound);
+            let fut = self.inner.connect();
+            async move {
+                fut.await.map(|inner| RecordingTransport {
+                    inner,
+                    outbound,
+                    inbound,
+                })
+            }
+        }
+    }
+
+    /// The live stand-in for [`AgentRunLauncher`]. It really spawns the agent,
+    /// really streams its output, and routes both through the same two
+    /// `HostState` entry points the production wiring uses.
+    struct LiveLauncher {
+        state: Arc<HostState>,
+        outbound: Mutex<Option<mpsc::UnboundedSender<HostMessage>>>,
+        seq: AtomicUsize,
+        kills: Mutex<HashMap<String, mpsc::UnboundedSender<()>>>,
+    }
+
+    impl LiveLauncher {
+        fn new(state: Arc<HostState>, outbound: mpsc::UnboundedSender<HostMessage>) -> Self {
+            Self {
+                state,
+                outbound: Mutex::new(Some(outbound)),
+                seq: AtomicUsize::new(0),
+                kills: Mutex::new(HashMap::new()),
+            }
+        }
+
+        fn shutdown(&self) {
+            self.outbound.lock().unwrap().take();
+        }
+    }
+
+    impl RunLauncher for LiveLauncher {
+        fn launch(&self, agent: BrokeredRun, instruction: String) -> String {
+            use crate::managers::agent_run::{apply_baseline_env, build_argv, spawn_plan};
+            use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+            let run_id = format!("live-run-{}", self.seq.fetch_add(1, Ordering::SeqCst));
+            let def = agent.into_definition();
+            let cwd = std::path::PathBuf::from(&def.project_path);
+            let argv = build_argv(
+                &def.command_template,
+                &cwd.to_string_lossy(),
+                &instruction,
+                def.prompt_via,
+            );
+            let plan = spawn_plan(&def.binary_path, cfg!(windows));
+            eprintln!(
+                "live: launching {run_id}: {} {:?} in {}",
+                plan.program,
+                argv,
+                cwd.display()
+            );
+
+            let (kill_tx, mut kill_rx) = mpsc::unbounded_channel::<()>();
+            self.kills
+                .lock()
+                .unwrap()
+                .insert(run_id.clone(), kill_tx.clone());
+
+            let state = Arc::clone(&self.state);
+            let outbound = self.outbound.lock().unwrap().clone();
+            let run_id_task = run_id.clone();
+            tokio::spawn(async move {
+                let mut cmd = tokio::process::Command::new(&plan.program);
+                cmd.args(&plan.pre_args)
+                    .args(&argv)
+                    .current_dir(&cwd)
+                    .env("NO_COLOR", "1")
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
+                apply_baseline_env(&mut cmd);
+                let mut child = match cmd.spawn() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("live: spawn failed: {e}");
+                        return;
+                    }
+                };
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(instruction.as_bytes()).await;
+                    let _ = stdin.shutdown().await;
+                }
+
+                let (line_tx, mut line_rx) = mpsc::unbounded_channel::<String>();
+                for stream in [
+                    child.stdout.take().map(BufReader::new).map(|r| {
+                        Box::pin(r) as std::pin::Pin<Box<dyn tokio::io::AsyncBufRead + Send>>
+                    }),
+                    child.stderr.take().map(BufReader::new).map(|r| {
+                        Box::pin(r) as std::pin::Pin<Box<dyn tokio::io::AsyncBufRead + Send>>
+                    }),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    let tx = line_tx.clone();
+                    tokio::spawn(async move {
+                        let mut lines = stream.lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            let _ = tx.send(line);
+                        }
+                    });
+                }
+                drop(line_tx);
+
+                // Exactly what `wire_run_pipeline`'s `agent-run-output`
+                // listener does with each chunk.
+                let pump_state = Arc::clone(&state);
+                let pump_out = outbound.clone();
+                let pump_run = run_id_task.clone();
+                let pump = tokio::spawn(async move {
+                    while let Some(chunk) = line_rx.recv().await {
+                        eprintln!("live: [{pump_run}] {chunk}");
+                        if let Some(msg) =
+                            pump_state.frame_for_run(&pump_run, HostFrame::Output { chunk })
+                        {
+                            if let Some(tx) = &pump_out {
+                                let _ = tx.send(msg);
+                            }
+                        }
+                    }
+                });
+
+                let status = tokio::select! {
+                    exit = child.wait() => match exit {
+                        Ok(s) => RunStatus::Finished { code: s.code().unwrap_or(-1) },
+                        Err(e) => RunStatus::Failed { error: e.to_string() },
+                    },
+                    _ = kill_rx.recv() => {
+                        let _ = child.start_kill();
+                        let _ = child.wait().await;
+                        RunStatus::Stopped
+                    }
+                };
+                let _ = pump.await;
+
+                // Exactly what `RelayFrameSink::on_terminal` does.
+                let outcome = run_status_outcome(&status);
+                eprintln!("live: [{run_id_task}] terminal: {outcome}");
+                if let Some(msg) = state.frame_for_run(
+                    &run_id_task,
+                    HostFrame::Status {
+                        status: outcome.clone(),
+                    },
+                ) {
+                    if let Some(tx) = &outbound {
+                        let _ = tx.send(msg);
+                    }
+                }
+                if let Some(msg) = state.close_run(&run_id_task, &outcome) {
+                    if let Some(tx) = &outbound {
+                        let _ = tx.send(msg);
+                    }
+                }
+            });
+
+            run_id
+        }
+
+        fn stop(&self, run_id: &str) {
+            eprintln!("live: stop requested for {run_id}");
+            if let Some(tx) = self.kills.lock().unwrap().get(run_id) {
+                let _ = tx.send(());
+            }
+        }
     }
 }
