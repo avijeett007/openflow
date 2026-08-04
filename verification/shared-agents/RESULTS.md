@@ -782,3 +782,657 @@ On the machine with the real app:
 7. **Owner-side Stop and the Agent Runs panel remain unverified**, and nothing
    downstream should assume otherwise. The runbook above is the only thing
    standing between a later task and an untested claim.
+
+---
+
+---
+
+# Part II — Task 10: the regression proof, the second live verification, and the gates
+
+**Date:** 2026-08-04 · **Branch:** `feat/shared-agents` @ `a98e1ce` (nine commits
+after Task 5) · **Task:** 10
+**Counterparty:** `openflow-service` `feat/relay-v0.2` @ `f192b16`, **rebuilt from
+source for this run** and started on a fresh data dir at `127.0.0.1:8788`.
+
+Everything below is pasted terminal output from runs on 2026-08-04. Long scratch
+paths are abbreviated to `$SCRATCH`; nothing else is edited.
+
+## T10.0 — Where this ran, and what that rules out
+
+This task ran in a **headless sandbox**: no display, no window server, no way to
+launch or click the packaged app. That is not a stylistic caveat — it removes
+roughly half of what the Task 10 brief's Steps 1 and 2 ask for, because those are
+written for a human driving the shipped UI.
+
+Every such item is listed in
+[What could not be run (Task 10)](#what-could-not-be-run-task-10) and appears
+**nowhere else** in this Part as if it had been observed. In particular:
+
+- the packaged app was never started, so no `shasum`-the-file-across-a-restart,
+  no `lsof` on a running process, no `handy.log`, no hotkey, no dictation;
+- the Sharing settings screen, the `← Priya` pill, and the panel's Pause and
+  Stop buttons were never rendered or clicked.
+
+What **was** driven is the Rust side, the real socket, the real service, and a
+real agent subprocess — the same seams Task 5 drove, re-driven on today's tip.
+
+## T10.1 — Gates, against a baseline measured rather than quoted
+
+The 374 / 34-39-1 baseline is the release commit `6957465 chore: release v0.15.7`,
+which is `git merge-base HEAD main`. It was measured here, not taken on trust: a
+worktree at that commit, sharing this repo's `target/` dir, same env, same
+commands.
+
+```console
+$ git worktree add $SCRATCH/baseline 6957465
+HEAD is now at 6957465 chore: release v0.15.7 (service connect #57 + remote agents #58)
+
+$ cd $SCRATCH/baseline/src-tauri && cargo test --lib
+test result: ok. 374 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+$ cargo clippy --all-targets --message-format=short
+warning: `openflow` (lib) generated 34 warnings
+warning: `openflow` (lib test) generated 39 warnings (34 duplicates)
+warning: `openflow` (example "diarize_ground_truth") generated 1 warning
+```
+
+Branch tip, same machine, same env:
+
+```console
+$ cd src-tauri && cargo test --lib
+test result: ok. 463 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+
+$ cargo clippy --all-targets --message-format=short
+warning: `openflow` (lib) generated 34 warnings
+warning: `openflow` (lib test) generated 39 warnings (34 duplicates)
+warning: `openflow` (example "diarize_ground_truth") generated 1 warning
+
+$ cargo fmt -- --check
+(no output — clean)
+```
+
+| Gate                | Baseline `6957465` | Branch `a98e1ce` | Δ                 |
+| ------------------- | ------------------ | ---------------- | ----------------- |
+| `cargo test --lib`  | **374** passed     | **463** passed   | **+89**, 0 failed |
+| clippy lib          | **34**             | **34**           | 0                 |
+| clippy lib test     | **39**             | **39**           | 0                 |
+| clippy example      | **1**              | **1**            | 0                 |
+| `cargo fmt --check` | clean              | clean            | —                 |
+
+The counts matching is necessary but not sufficient — 34 could be 34 different
+warnings. The set diff:
+
+```console
+$ diff clippy-baseline-set.txt clippy-after-set.txt && echo "SET DIFF EMPTY"
+SET DIFF EMPTY
+$ grep -cE 'src/relay/|agent_host' clippy-after.txt
+0
+```
+
+13 distinct warning texts before, the same 13 after, and **no clippy warning
+anywhere in `src/relay/` or `managers/agent_host.rs`** — the code this branch
+adds.
+
+Frontend:
+
+```console
+$ bun run build
+✓ built in 7.60s
+(the pre-existing >500 kB chunk-size advisory, unchanged)
+
+$ bun run lint
+/…/src/devAutomation.ts
+  12:9  warning  Unused eslint-disable directive (no problems were reported from 'no-eval')
+✖ 1 problem (0 errors, 1 warning)
+
+$ bun run format:check
+[warn] .superpowers/sdd/SHARED-AGENTS-PLAN/progress.md
+[warn] .superpowers/sdd/SHARED-AGENTS-PLAN/task-9-report.md
+[warn] Code style issues found in 2 files.
+error: script "format:check" exited with code 1
+```
+
+**`format:check` exits 1, and it is not this branch.** Both files are
+**gitignored**, so CI never sees them:
+
+```console
+$ git check-ignore -v .superpowers/sdd/SHARED-AGENTS-PLAN/progress.md .superpowers/sdd/SHARED-AGENTS-PLAN/task-9-report.md
+.superpowers/sdd/.gitignore:1:*	.superpowers/sdd/SHARED-AGENTS-PLAN/progress.md
+.superpowers/sdd/.gitignore:1:*	.superpowers/sdd/SHARED-AGENTS-PLAN/task-9-report.md
+```
+
+The `devAutomation.ts` lint warning is likewise pre-existing and untouched by
+this branch. Recorded rather than silently reported as "clean".
+
+## T10.2 — The settings regression, against the founder's real settings file
+
+DESIGN §6's "byte-identical" claim is proved here **at code level against two
+real stores that the shipped app wrote**, not against a synthetic fixture. Be
+precise about which claim this is: it is **not** "I started the app twice and the
+file did not change" — the app was never started (T10.0). It is "the real file's
+bytes were parsed by this branch's `AppSettings` and written back, and nothing
+was gained, lost or altered."
+
+The harness was a **temporary** `#[test]` added to `settings.rs` for this run and
+**reverted immediately afterwards** (`git checkout src-tauri/src/settings.rs`);
+it is therefore not reproducible from the committed tree without re-adding it.
+It read the store, parsed `store["settings"]` into `AppSettings`, re-serialised,
+and wrote both sides through the same recursive key-sorting canonicaliser (the
+crate builds `serde_json` with `preserve_order`, so raw key order reflects
+whoever wrote the file, not the struct — sorting both sides is what makes the
+comparison about _content_).
+
+**Store 1 — written by the shipped v0.15.7 build, 2026-08-03:**
+
+```console
+$ ls -l ~/Library/Application\ Support/knotie.ai.openflow/settings_store.json
+-rw-r--r--@ 1 avijitsarkar  staff  11809 Aug  3 07:42 …/settings_store.json
+
+$ shasum -a 256 …/settings_store.json
+a88738921761b5a98a2b805840366d01c6b4e27896b2c5896de6915378cbfd16
+$ grep -c '"sharing"' …/settings_store.json
+0
+
+$ cargo test --lib t10_real_store_round_trips -- --nocapture
+t10: `sharing` key present in the real store BEFORE: false
+t10: `sharing` key present AFTER the round trip:      false
+t10: top-level key count before=87 after=87
+test result: ok. 1 passed; 0 failed
+
+# the source file is untouched by the round trip
+$ shasum -a 256 …/settings_store.json
+a88738921761b5a98a2b805840366d01c6b4e27896b2c5896de6915378cbfd16
+
+$ shasum -a 256 before.canon.json after.canon.json
+f6f4f2f33f437c6d5807ffe43f2ad367d890b9f1c50b729b5f364b15e4b6070c  before.canon.json
+f6f4f2f33f437c6d5807ffe43f2ad367d890b9f1c50b729b5f364b15e4b6070c  after.canon.json
+$ diff before.canon.json after.canon.json && echo IDENTICAL
+IDENTICAL
+```
+
+87 keys in, 87 keys out, identical hash, no `sharing`.
+
+**Store 2 — an older store (Handy-era bundle id, 2026-07-02, 64 keys).** This
+one is _not_ identical, and saying so is the point:
+
+```console
+$ shasum -a 256 …/care.hexai.openflow/settings_store.json   # before AND after
+693d420e1c4e707915c92f0de4834f85993eac7f781c9d418be98c68f0f07f42
+$ grep -c '"sharing"' …  → 0
+t10: top-level key count before=64 after=87
+
+$ diff before.canon.json after.canon.json | grep '^>' | grep -o '"[a-z_]*":' | sort -u
+"advanced_mode" "agents" "ai_modes" "basic_filler_filter" "default_ai_mode_id"
+"dictionary" "dictionary_migrated" "hands_free_enabled" "hands_free_voice_feedback"
+"hotkey_overlay_enabled" "meeting_app_allowlist" "meeting_auto_detect"
+"meetings_diarization" "meetings_diarization_provisional" "meetings_enabled"
+"service_enabled" "service_sync_transcripts" "service_sync_usage" "service_url"
+"wake_word" "wake_word_listen_seconds" "wake_word_sensitivity"
+"wake_word_silence_timeout_ms"
+
+$ diff before.canon.json after.canon.json | grep -c '"sharing"'
+0
+```
+
+The round trip **does** add 23 keys to a store that old — every one of them a
+field added by a _previously shipped_ feature (meetings, wake word, AI modes,
+dictionary, service connect) that this store predates. **`sharing` is not among
+them.** That is exactly the difference `skip_serializing_if` buys, and it is
+visible here as a contrast rather than as an assertion.
+
+The five committed §6 tests, run by name:
+
+```console
+$ cargo test --lib legacy_store_without_sharing_defaults_it_off_and_stays_byte_identical
+test settings::tests::legacy_store_without_sharing_defaults_it_off_and_stays_byte_identical ... ok
+$ cargo test --lib configured_sharing_round_trips_and_is_persisted
+test settings::tests::configured_sharing_round_trips_and_is_persisted ... ok
+$ cargo test --lib a_partial_grant_object_does_not_wipe_the_store
+test settings::tests::a_partial_grant_object_does_not_wipe_the_store ... ok
+$ cargo test --lib adding_the_relay_sink_variant_leaves_existing_sinks_identical
+test settings::tests::adding_the_relay_sink_variant_leaves_existing_sinks_identical ... ok
+$ cargo test --lib no_persisted_agent_ever_carries_the_relay_sink
+test settings::tests::no_persisted_agent_ever_carries_the_relay_sink ... ok
+```
+
+## T10.3 — No socket when sharing is off (the half that is runnable here)
+
+```console
+$ cargo test --lib no_connect_attempt_when_sharing_is_off -- --nocapture
+test managers::agent_host::tests::no_connect_attempt_when_sharing_is_off ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 462 filtered out
+```
+
+The `lsof -i -a -p $(pgrep -f OpenFlow)` half needs the app running and is in
+[What could not be run](#what-could-not-be-run-task-10).
+
+## T10.4 — Live re-run #1: the happy path, on today's tip
+
+The Task 5 harness
+(`managers::agent_host::tests::live_end_to_end_against_a_real_openflow_service`),
+unchanged, against a freshly built service and a fresh throwaway git repo.
+
+```console
+$ curl -s http://127.0.0.1:8788/health
+{"status":"ok","version":"0.1.0"}
+$ git -C $SCRATCH/live/shared-repo log --oneline
+42bf612 initial
+```
+
+Offer published by this crate's own `hello`, as the teammate sees it:
+
+```console
+$ curl -s $U/v2/offers -H "authorization: Bearer $TEAM_TOKEN" | jq
+{"items":[{"offer_id":"856d04a2-871e-4d99-a3d4-77a0558d7d80",
+  "device_id":"b0940f7f-5cee-4f0c-bbde-af3b110f39d7",
+  "action_id":"agent:coder","label":"Coder",
+  "project":"$SCRATCH/live/shared-repo",
+  "allowed":["2656f875-fcee-469c-9ee3-f29b3abc4eca"]}]}
+```
+
+The requester's stream, verbatim
+([`task10/session-happy-path.sse.txt`](task10/session-happy-path.sse.txt)):
+
+```text
+event: frame
+data: {"seq":2,"kind":"header","sealed":false,"payload":{"agent":"Coder","kind":"header","project":"$SCRATCH/live/shared-repo"}}
+
+event: frame
+data: {"seq":3,"kind":"output","sealed":false,"payload":{"chunk":"coder: cwd=$SCRATCH/live/shared-repo","kind":"output"}}
+
+event: frame
+data: {"seq":4,"kind":"output","sealed":false,"payload":{"chunk":"coder: instruction=add a one-line comment to the top of README.md describing this project","kind":"output"}}
+
+event: frame
+data: {"seq":5,"kind":"output","sealed":false,"payload":{"chunk":"coder: edited README.md","kind":"output"}}
+
+event: frame
+data: {"seq":6,"kind":"output","sealed":false,"payload":{"chunk":"coder: done","kind":"output"}}
+
+event: frame
+data: {"seq":7,"kind":"status","sealed":false,"payload":{"kind":"status","status":"finished"}}
+
+event: closed
+data: {"outcome":"finished"}
+```
+
+And the repo, which is what actually proves it:
+
+```console
+$ git -C $SCRATCH/live/shared-repo diff
+@@ -1,3 +1,4 @@
+ # shared-repo
+
+ A throwaway repo used as the grant project folder for the C2 Task 10 re-run.
++<!-- add a one-line comment to the top of README.md describing this project -->
+```
+
+`project` is the **grant's** folder; the agent definition's own `project_path`
+is still `/this/must/never/be/used` and appears nowhere.
+
+## T10.5 — Live re-run #2: two brokered sessions genuinely at the same time
+
+Task 5 never ran two sessions concurrently. This one does, with `LONG:`
+instructions so the two runs are unambiguously alive together.
+
+**Both children alive at once**, sampled with the `$4 == want` form Task 5's
+review established (a shebang script's `args` is `/bin/bash <script> …`):
+
+```console
+$ ps -ax -o pid=,ppid=,args= | awk -v want="$AGENT_BIN" '$4 == want {print}'
+44239 44183 /bin/bash $SCRATCH/live/fake-coder --cwd $SCRATCH/live/shared-repo
+44244 44183 /bin/bash $SCRATCH/live/fake-coder --cwd $SCRATCH/live/shared-repo
+```
+
+Two PIDs, same parent — the host process. The service's `seq` counter is global
+across the device's sessions, so the interleaving is directly visible: **B took
+every even `seq`, C every odd one**, with no line appearing in both.
+
+```console
+$ grep -o '"seq":4[0-9]' task10/session-overlap-b.sse.txt | tr '\n' ' '
+"seq":40 "seq":42 "seq":44 "seq":46 "seq":48
+$ grep -o '"seq":4[0-9]' task10/session-overlap-c.sse.txt | tr '\n' ' '
+"seq":41 "seq":43 "seq":45 "seq":47 "seq":49
+```
+
+**Stop B only; C must be untouched.**
+
+```console
+$ curl -s -i -X POST $U/v2/sessions/$SB/stop -H "authorization: Bearer $TEAM_TOKEN" | head -1
+HTTP/1.1 202 Accepted
+
+--- B stream, tail ---
+data: {"seq":50,"kind":"status","sealed":false,"payload":{"kind":"status","status":"stopped"}}
+event: closed
+data: {"outcome":"stopped"}
+
+--- C stream, tail, at the same moment ---
+data: {"seq":55,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 13","kind":"output"}}
+
+--- the surviving child ---
+$ ps -ax -o pid=,ppid=,args= | awk -v want="$AGENT_BIN" '$4 == want {print}'
+44244 44183 /bin/bash $SCRATCH/live/fake-coder --cwd $SCRATCH/live/shared-repo
+
+--- the audit table at that instant ---
+{"session_id":"7d663688-…","state":"closed","outcome":"stopped"}
+{"session_id":"cd17e813-…","state":"open","outcome":null}
+```
+
+One stopped, one still open, one child left of two. Then C stopped too, and the
+orphan check (the corrected `$4` form, which Task 5 proved capable of failing):
+
+```console
+$ curl -s -i -X POST $U/v2/sessions/$SC/stop … | head -1
+HTTP/1.1 202 Accepted
+$ ps -ax -o pid=,ppid=,args= | awk -v want="$AGENT_BIN" '$4 == want {print "ORPHAN:", $0}'
+(nothing above = no orphan)
+```
+
+Content crossing, checked both ways:
+
+```console
+bravo in B: 1  charlie in B: 0
+bravo in C: 0  charlie in C: 1
+session_id B frames referencing C: 0
+```
+
+**What this is and is not.** It is two concurrent brokered sessions, from the
+same member, against **one grant** — the harness's `SharingConfig` is built from
+one `OPENFLOW_LIVE_PROJECT`/`OPENFLOW_LIVE_MEMBER_ID` pair and cannot express a
+second grant without changing the harness. The brief asks for two grants;
+**that specific variant was not run**, and it is listed below. What is exercised
+is the bookkeeping where crossing would actually occur — `HostState`'s
+`by_run` / `sessions` maps and `frame_for_run`'s session lookup — which is
+grant-agnostic.
+
+Artifacts: [`task10/session-overlap-b.sse.txt`](task10/session-overlap-b.sse.txt),
+[`task10/session-overlap-c.sse.txt`](task10/session-overlap-c.sse.txt),
+[`task10/capture/outbound-overlap.jsonl`](task10/capture/outbound-overlap.jsonl)
+(37 lines), [`task10/capture/inbound-overlap.jsonl`](task10/capture/inbound-overlap.jsonl).
+
+## T10.6 — Live re-run #3, and the mistake in it
+
+Re-run #3 was meant to do three things in one 48-second window: a control
+session, a grant revoke at t+25 (`OPENFLOW_LIVE_REVOKE_AFTER`), a refused open
+after it, and a long run still streaming at shutdown. **The refused-open leg did
+not test what it was supposed to**, and the run is recorded rather than quietly
+repeated:
+
+```console
+$ grep -n 'launching\|revoking the grant' host3.log
+29:live: launching live-run-0: …
+35:live: launching live-run-1: …
+51:live: launching live-run-2: …          ← the "denied" open
+63:live: revoking the grant's member on the live state (no republish)
+```
+
+The third open beat the scheduled revoke — line 51 is before line 63 — so it was
+**correctly** authorised and ran, appending `<!-- after the Task 10 revoke - this
+must never run -->` to the repo. Nothing misbehaved; the _test_ was wrong. It was
+re-run as #4, polling the host log for the revoke line instead of trusting a
+`sleep`.
+
+## T10.7 — Live re-run #4: the host's own re-check refuses, with the service still saying yes
+
+Grant members emptied on the **live** `HostState`, deliberately without a
+republish, so the service keeps advertising the offer:
+
+```console
+$ grep 'revoking the grant' host4.log
+live: revoking the grant's member on the live state (no republish)
+
+$ curl -s $U/v2/offers -H "authorization: Bearer $TEAM_TOKEN" | jq -c '[.items[] | {offer_id, action_id, allowed}]'
+[{"offer_id":"7610d47d-fa36-400f-8f48-eafae2a102e0","action_id":"agent:coder",
+  "allowed":["2656f875-fcee-469c-9ee3-f29b3abc4eca"]}]      ← stale, still says YES
+
+$ launches before the refused open: 0
+$ SD=… ; echo "session_id=$SD (the service ACCEPTED it)"
+session_id=e26afc3b-afee-46de-8eb4-c398c5c692e9
+
+$ curl -N $U/v2/sessions/$SD/events -H "authorization: Bearer $TEAM_TOKEN"
+event: closed
+data: {"outcome":"denied"}                                  ← the HOST refused
+
+$ launches after the refused open: 0
+$ grep -c 'TASK10-DENIED-MUST-NEVER-RUN' $SCRATCH/live/shared-repo/README.md
+0
+```
+
+Audit row ([`task10/session-denied-audit.json`](task10/session-denied-audit.json)):
+
+```json
+{
+  "seq": 9,
+  "session_id": "e26afc3b-afee-46de-8eb4-c398c5c692e9",
+  "offer_id": "7610d47d-fa36-400f-8f48-eafae2a102e0",
+  "host_device": "b0940f7f-5cee-4f0c-bbde-af3b110f39d7",
+  "requester_member": "2656f875-fcee-469c-9ee3-f29b3abc4eca",
+  "requester_device": "df2de662-f47a-4e01-8884-715bb4ecdbbb",
+  "state": "closed",
+  "outcome": "denied",
+  "created_at": "2026-08-04T08:20:03Z",
+  "closed_at": "2026-08-04T08:20:03Z"
+}
+```
+
+The launch counter is unmoved across the refused open and the marker — which
+`fake-coder.sh`'s ordinary branch **would** have appended — is nowhere in the
+repo. `relay::grants::authorize_open` is an independent boundary on today's tip,
+not a restatement of the relay's decision.
+
+**Important limit on what this proves.** The harness revokes via
+`HostState::set_config`, which changes authorisation for _future_ opens and
+stops nothing. The brief also asks that removing a member **while their session
+runs** stops that session. That path is `HostState::apply_settings` →
+`SettingsDelta::sessions_to_stop` → `launcher.stop(...)`, driven in production by
+`AgentHostManager`; the live harness talks to `run_host_loop` directly and never
+constructs an `AgentHostManager`, so **it cannot express that variant**. It is
+covered by unit tests only —
+`config_installs_before_the_stop_list_is_computed_so_a_racing_open_sees_the_new_settings`
+and `pause_via_host_slots_stops_the_socket_and_every_in_flight_run`, both green —
+and is listed below as not live-verified.
+
+## T10.8 — The socket teardown observed while a run streams
+
+In re-run #3 a `LONG:` session was opened early enough to still be streaming when
+the harness performed its shutdown: `running.store(false)`, `LiveLauncher::shutdown()`
+(drop the outbound sender), `drop(tx)` — the same teardown `HostSlots::stop`
+performs, which is the socket half of the Pause kill switch.
+
+```text
+event: frame
+data: {"seq":117,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 40","kind":"output"}}
+
+event: frame
+data: {"seq":118,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 41","kind":"output"}}
+
+event: closed
+data: {"outcome":"host_disconnected"}
+```
+
+The requester's stream **terminated** mid-run rather than hanging, and the audit
+row agrees (`270107d3-…` → `host_disconnected`). Full stream:
+[`task10/session-killswitch.sse.txt`](task10/session-killswitch.sse.txt).
+
+**This is the socket half only.** Real `Pause` is `HostSlots::pause`, which does
+this _plus_ `launcher.stop(run_id)` for every in-flight run, atomically under one
+lock. The harness's shutdown does not call the launcher, so the run-cancellation
+half is proved by
+`pause_via_host_slots_stops_the_socket_and_every_in_flight_run` (unit) and not by
+this observation. Pressing Pause in the UI was not possible here at all.
+
+## T10.9 — The two independent refusals, and a wrong reading corrected
+
+**(a) The service refuses a member outside `allowed`.** The first attempt at this
+(re-run #5) returned `404 no such offer`, not `403`. That was **my harness, not
+the service**: the host loop from re-run #4 had already exited, so the offer table
+was empty and the `offer_id` was `null`.
+
+```console
+$ curl -s $U/v2/offers -H "authorization: Bearer $TEAM_TOKEN"     # no host connected
+{"items":[]}
+```
+
+Re-run with the host connected:
+
+```console
+$ curl -s $U/v2/offers -H "authorization: Bearer $TEAM_TOKEN" | jq -c '.items[] | {offer_id, action_id, allowed}'
+{"offer_id":"c3b76b83-50b1-40b0-92ac-ef8037155d83","action_id":"agent:coder","allowed":["2656f875-…"]}
+
+$ curl -s $U/v2/offers -H "authorization: Bearer $STRANGER_TOKEN"
+{"items":[]}
+
+$ curl -s -i -X POST $U/v2/sessions -H "authorization: Bearer $STRANGER_TOKEN" \
+    -d '{"offer_id":"c3b76b83-…","payload":{"instruction":"rm -rf /"}}'
+HTTP/1.1 403 Forbidden
+content-type: application/json
+
+{"error":{"code":"forbidden","message":"this offer is not shared with you"}}
+
+$ grep -c launching host6.log
+0
+```
+
+(Also worth recording, since it was not known before: **an offer disappears from
+the service's table as soon as its host disconnects.**)
+
+**(b) A revoked device token, dialled through the production `WsConnector`.**
+
+```console
+$ curl -s -i -X DELETE $U/v1/devices/$STRANGER_DEVICE -H "authorization: Bearer $HOST_TOKEN" | head -1
+HTTP/1.1 204 No Content
+
+$ cargo test --lib live_dial_with_a_revoked_device_token -- --nocapture
+### 1. a REVOKED device token
+live: revoked-token dial error verbatim: the relay refused this device: HTTP 401, its device token is invalid or revoked — re-pair this device in Settings → Service
+### 2. a token that never existed
+live: revoked-token dial error verbatim: the relay refused this device: HTTP 401, its device token is invalid or revoked — re-pair this device in Settings → Service
+### 3. the service is DOWN (a genuine outage) — same code path, port 9
+live: revoked-token dial error verbatim: could not open the relay socket: IO error: Connection refused (os error 61)
+```
+
+A refused credential is still told apart from an outage, and the 401 message now
+carries its remedy inline — the wording changed since Task 5 (Task 6's
+`refused_message(status)`), and this is that wording, live.
+
+## T10.10 — The `← Priya` pill
+
+**Not observed.** It is rendered by `AgentRunRow.tsx` from
+`AgentRunInfo.requested_by`, and no page was rendered in this environment. What
+_was_ run is the backend half that decides whether the pill has anything to show:
+
+```console
+$ cargo test --lib requested_by
+test managers::agent_run::tests::requested_by_is_none_for_a_local_run_and_set_for_a_brokered_one ... ok
+test result: ok. 1 passed; 0 failed
+```
+
+`note_brokered_run` sets the label, `requester_label` returns it for a brokered
+run id and `None` for a local one, and `forget_brokered_run` clears it. The
+brief's assertion — pill on the brokered run, no pill on a local run in the same
+session — therefore rests on that test plus Task 9's code review, **not** on an
+observation. Stated plainly so nobody downstream reads it as verified.
+
+## T10.11 — Every live session in this task
+
+| #   | run | outcome             | what it was                                          |
+| --- | --- | ------------------- | ---------------------------------------------------- |
+| 1   | #1  | `finished`          | the happy path, `git diff` proved                    |
+| 2   | #1  | `finished`          | BRAVO (sequential — these two did not overlap)       |
+| 3   | #1  | `finished`          | CHARLIE                                              |
+| 4   | #2  | `stopped`           | overlapping B, stopped by the requester              |
+| 5   | #2  | `stopped`           | overlapping C, still running when B stopped          |
+| 6   | #3  | `finished`          | control before the revoke                            |
+| 7   | #3  | `host_disconnected` | streaming when the host loop tore its socket down    |
+| 8   | #3  | `finished`          | the open that **beat** the revoke — see T10.6        |
+| 9   | #4  | `denied`            | the host's own re-check, service still saying yes    |
+| 10  | #6  | `403` (no session)  | the stranger, refused by the service before the host |
+
+Final state of the grant folder:
+
+```console
+$ git -C $SCRATCH/live/shared-repo diff
+@@ -1,3 +1,8 @@
+ # shared-repo
+
+ A throwaway repo used as the grant project folder for the C2 Task 10 re-run.
++<!-- add a one-line comment to the top of README.md describing this project -->
++<!-- TASK-BRAVO edit -->
++<!-- TASK-CHARLIE edit -->
++<!-- control before the Task 10 revoke -->
++<!-- after the Task 10 revoke - this must never run -->
+```
+
+Five lines from the five sessions whose instructions took `fake-coder.sh`'s
+ordinary branch. The fifth is #8 above — the one that legitimately ran because it
+arrived before the revoke. The `LONG:` sessions never touch `README.md` by
+design, so their absence proves nothing (Task 5 §7 made this correction; it
+applies here unchanged).
+
+## What could not be run (Task 10)
+
+Everything in this list is **unverified**. None of it is described above as if it
+had happened.
+
+**Because there is no GUI in this environment:**
+
+1. **The packaged app was never started.** So: no `shasum` of the settings file
+   across an app start/stop; no `lsof -i -a -p $(pgrep -f OpenFlow)`; no
+   `handy.log` inspection for relay lines. T10.2 and T10.3 are the code-level
+   substitutes and are labelled as such.
+2. **The Sharing settings screen** (Task 8) was never rendered, so the brief's
+   Step 2 — "driven entirely through the shipped Sharing UI rather than
+   hand-edited settings" — **did not happen at all**. Every live run here was
+   driven by the harness's env vars, exactly as Task 5's was.
+3. **The `← Priya` pill** was never rendered (T10.10).
+4. **Pause in the UI** was never clicked. Only the socket half of the teardown
+   was observed live (T10.8), and only via the harness's own shutdown.
+5. **Stop in the Agent Runs panel** was never clicked (unchanged from Task 5
+   §5.2 / Concern 7).
+6. **A local hotkey-driven CLI agent run** — same output, same Panel/File sinks,
+   no requester pill — was not run. Neither was **a prompt agent injecting its
+   persona-LLM result**, **an A2A remote agent**, or **plain dictation
+   (hotkey → capture → STT → cleanup → inject)**. The brief's Step 1 lists all
+   four; all four need a running app with audio and Accessibility permissions.
+   The only evidence for them here is the 463-test suite and the fact that the
+   branch touches none of those paths.
+
+**Because the live harness cannot express them:**
+
+7. **Two concurrent sessions against _different grants_.** The harness builds one
+   grant from one project/member env pair. Two concurrent sessions against **one**
+   grant were run (T10.5).
+8. **Revoking a member while their session runs.** The harness revokes via
+   `set_config`, which does not stop anything;
+   `apply_settings` → `sessions_to_stop` → `launcher.stop` needs an
+   `AgentHostManager`, which needs an `AppHandle`. Unit-tested only.
+9. **Un-pause → offer republished → a new session works.** Same reason: pause and
+   republish live on `AgentHostManager`.
+10. **`AgentRunManager::start`, `drive_run`'s streaming, `finalize`'s relay-sink
+    arm, and the Tauri event hop** — unchanged from Task 5's item 1. `LiveLauncher`
+    still stands in.
+11. **`AgentHostManager::ensure_started` / `republish`** — unchanged from Task 5's
+    item 3 (settings store + OS keyring).
+
+**The human runbook** in Task 5's
+[What could not be run](#what-could-not-be-run) still applies verbatim and is
+still the only thing standing between these gaps and an untested claim. Items 2,
+4, 6, 7, 8 and 9 above are additions to it.
+
+## Concerns (Task 10)
+
+1. **The whole UI half of this feature has never been executed.** Nine tasks of
+   backend evidence and zero renders. The Sharing settings screen, the pill, the
+   Pause control and the panel's Stop button exist only as code and review. The
+   first person to run the packaged app is doing first-execution, not
+   confirmation.
+2. **The live agent is still `fake-coder.sh`**, not a real coding agent (Task 5
+   Concern 4, unchanged).
+3. **Still one machine, localhost, no TLS**, no `wss://`, no NAT, no reverse
+   proxy, no idle-ping deadline (Task 5 Concern 5, unchanged).
+4. **Pause is proved in two halves that have never met** — socket teardown live
+   (T10.8), run cancellation in a unit test. The atomic version that production
+   uses, `HostSlots::pause`, has never run against a real socket.
+5. **`format:check` is red on the branch** for two gitignored files (T10.1). CI
+   will not see them, but anyone running the documented command locally will,
+   and will have to work out why.

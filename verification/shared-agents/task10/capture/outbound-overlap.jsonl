@@ -1,0 +1,37 @@
+{"t":"hello","offers":[{"action_id":"agent:coder","label":"Coder","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/t10/live/shared-repo","allowed":["2656f875-fcee-469c-9ee3-f29b3abc4eca"]}]}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"header","payload":{"agent":"Coder","kind":"header","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/t10/live/shared-repo"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: cwd=/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/t10/live/shared-repo","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: instruction=LONG: bravo-overlap","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: this one takes a while","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: working 0","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"header","payload":{"agent":"Coder","kind":"header","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/t10/live/shared-repo"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: cwd=/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/t10/live/shared-repo","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: instruction=LONG: charlie-overlap","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: this one takes a while","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 0","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: working 1","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 1","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: working 2","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 2","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: working 3","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 3","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: working 4","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 4","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: working 5","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 5","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: working 6","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 6","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: working 7","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 7","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"output","payload":{"chunk":"coder: working 8","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 8","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","kind":"status","payload":{"kind":"status","status":"stopped"},"sealed":false}
+{"t":"closed","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","outcome":"stopped"}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 9","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 10","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 11","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 12","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 13","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"output","payload":{"chunk":"coder: working 14","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","kind":"status","payload":{"kind":"status","status":"stopped"},"sealed":false}
+{"t":"closed","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","outcome":"stopped"}

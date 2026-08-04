@@ -1,0 +1,45 @@
+event: frame
+data: {"seq":23,"kind":"header","sealed":false,"payload":{"agent":"Coder","kind":"header","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/t10/live/shared-repo"}}
+
+event: frame
+data: {"seq":24,"kind":"output","sealed":false,"payload":{"chunk":"coder: cwd=/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/t10/live/shared-repo","kind":"output"}}
+
+event: frame
+data: {"seq":25,"kind":"output","sealed":false,"payload":{"chunk":"coder: instruction=LONG: bravo-overlap","kind":"output"}}
+
+event: frame
+data: {"seq":26,"kind":"output","sealed":false,"payload":{"chunk":"coder: this one takes a while","kind":"output"}}
+
+event: frame
+data: {"seq":27,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 0","kind":"output"}}
+
+event: frame
+data: {"seq":34,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 1","kind":"output"}}
+
+event: frame
+data: {"seq":36,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 2","kind":"output"}}
+
+event: frame
+data: {"seq":38,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 3","kind":"output"}}
+
+event: frame
+data: {"seq":40,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 4","kind":"output"}}
+
+event: frame
+data: {"seq":42,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 5","kind":"output"}}
+
+event: frame
+data: {"seq":44,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 6","kind":"output"}}
+
+event: frame
+data: {"seq":46,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 7","kind":"output"}}
+
+event: frame
+data: {"seq":48,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 8","kind":"output"}}
+
+event: frame
+data: {"seq":50,"kind":"status","sealed":false,"payload":{"kind":"status","status":"stopped"}}
+
+event: closed
+data: {"outcome":"stopped"}
+

@@ -1,0 +1,141 @@
+event: frame
+data: {"seq":66,"kind":"header","sealed":false,"payload":{"agent":"Coder","kind":"header","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/t10/live/shared-repo"}}
+
+event: frame
+data: {"seq":67,"kind":"output","sealed":false,"payload":{"chunk":"coder: cwd=/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/t10/live/shared-repo","kind":"output"}}
+
+event: frame
+data: {"seq":68,"kind":"output","sealed":false,"payload":{"chunk":"coder: instruction=LONG: streaming across the host shutdown","kind":"output"}}
+
+event: frame
+data: {"seq":69,"kind":"output","sealed":false,"payload":{"chunk":"coder: this one takes a while","kind":"output"}}
+
+event: frame
+data: {"seq":70,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 0","kind":"output"}}
+
+event: frame
+data: {"seq":71,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 1","kind":"output"}}
+
+event: frame
+data: {"seq":72,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 2","kind":"output"}}
+
+event: frame
+data: {"seq":73,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 3","kind":"output"}}
+
+event: frame
+data: {"seq":74,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 4","kind":"output"}}
+
+event: frame
+data: {"seq":75,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 5","kind":"output"}}
+
+event: frame
+data: {"seq":76,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 6","kind":"output"}}
+
+event: frame
+data: {"seq":77,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 7","kind":"output"}}
+
+event: frame
+data: {"seq":78,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 8","kind":"output"}}
+
+event: frame
+data: {"seq":79,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 9","kind":"output"}}
+
+event: frame
+data: {"seq":80,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 10","kind":"output"}}
+
+event: frame
+data: {"seq":81,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 11","kind":"output"}}
+
+event: frame
+data: {"seq":89,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 12","kind":"output"}}
+
+event: frame
+data: {"seq":90,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 13","kind":"output"}}
+
+event: frame
+data: {"seq":91,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 14","kind":"output"}}
+
+event: frame
+data: {"seq":92,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 15","kind":"output"}}
+
+event: frame
+data: {"seq":93,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 16","kind":"output"}}
+
+event: frame
+data: {"seq":94,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 17","kind":"output"}}
+
+event: frame
+data: {"seq":95,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 18","kind":"output"}}
+
+event: frame
+data: {"seq":96,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 19","kind":"output"}}
+
+event: frame
+data: {"seq":97,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 20","kind":"output"}}
+
+event: frame
+data: {"seq":98,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 21","kind":"output"}}
+
+event: frame
+data: {"seq":99,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 22","kind":"output"}}
+
+event: frame
+data: {"seq":100,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 23","kind":"output"}}
+
+event: frame
+data: {"seq":101,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 24","kind":"output"}}
+
+event: frame
+data: {"seq":102,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 25","kind":"output"}}
+
+event: frame
+data: {"seq":103,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 26","kind":"output"}}
+
+event: frame
+data: {"seq":104,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 27","kind":"output"}}
+
+event: frame
+data: {"seq":105,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 28","kind":"output"}}
+
+event: frame
+data: {"seq":106,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 29","kind":"output"}}
+
+event: frame
+data: {"seq":107,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 30","kind":"output"}}
+
+event: frame
+data: {"seq":108,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 31","kind":"output"}}
+
+event: frame
+data: {"seq":109,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 32","kind":"output"}}
+
+event: frame
+data: {"seq":110,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 33","kind":"output"}}
+
+event: frame
+data: {"seq":111,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 34","kind":"output"}}
+
+event: frame
+data: {"seq":112,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 35","kind":"output"}}
+
+event: frame
+data: {"seq":113,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 36","kind":"output"}}
+
+event: frame
+data: {"seq":114,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 37","kind":"output"}}
+
+event: frame
+data: {"seq":115,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 38","kind":"output"}}
+
+event: frame
+data: {"seq":116,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 39","kind":"output"}}
+
+event: frame
+data: {"seq":117,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 40","kind":"output"}}
+
+event: frame
+data: {"seq":118,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 41","kind":"output"}}
+
+event: closed
+data: {"outcome":"host_disconnected"}
+
