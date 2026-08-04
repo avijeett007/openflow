@@ -9,38 +9,51 @@
 //!
 //! `HostFrame` reserves C0's richer vocabulary without emitting it, so merging
 //! PR #64 adds capability with no wire break. The reserved variants' names and
-//! field shapes are copied verbatim from C0's `RunEvent`
-//! (documentation/design/acp-agents/PLAN.md Task 3) — they are not paraphrased,
-//! because a paraphrase is exactly how a wire break gets introduced. When #64
-//! merges, replace the local `PlanEntryWire`/`PermissionOptionWire` with
+//! field shapes are copied verbatim from C0's ACTUAL CODE:
+//! `feat/acp-agents:src-tauri/src/acp/events.rs` (`RunEvent`) — NOT from
+//! `documentation/design/acp-agents/PLAN.md` Task 3, which predates C0's own
+//! final-review enrichments to `ToolCallUpdate` and `PermissionRequest` and is
+//! stale (corrected 2026-08-04; DESIGN-shared-agents.md §7 now names the code,
+//! not the plan doc, as authoritative). They are not paraphrased, because a
+//! paraphrase is exactly how a wire break gets introduced. When #64 merges,
+//! replace the local `PlanEntryWire`/`PermissionOptionWire` with
 //! `pub use crate::acp::events::{PlanEntry, PermissionOption};` — identical
 //! shapes, zero wire change.
 //!
 //! Verified against the real counterparty, not derived from prose alone: every
-//! shape below was checked against openflow-service's own
-//! `src/relay/protocol.rs` (branch `feat/relay-v0.2`, PR #1), and the `open`,
-//! `ready`, `frame` and `closed` shapes were additionally captured from a real
-//! running `openflow-service` (paired host + teammate, a real WebSocket, a real
-//! `POST /v2/sessions`, a real SSE read) and are asserted against verbatim in
-//! `real_captured_frames` below.
+//! envelope shape below was checked against openflow-service's own
+//! `src/relay/protocol.rs` (branch `feat/relay-v0.2`, PR #1). The `ready` ack
+//! and `open` frame were additionally captured from a real running
+//! `openflow-service` (paired host + teammate, a real WebSocket, a real
+//! `POST /v2/sessions`) and are deserialized verbatim through this crate's own
+//! `ServiceMessage` in `real_captured_frames` below — genuine round trips, not
+//! hand-written JSON. A live round trip of this crate's OWN `HostFrame`/
+//! `session_frame` output through a real service belongs to `transport.rs`
+//! (a later task): `HostFrame` is internally tagged (`kind` lives inside the
+//! payload), so a capture of it can only be genuine once something in this
+//! crate actually sends it over a socket — protocol.rs itself does no I/O by
+//! design (see `relay/mod.rs`'s layering doc).
 //!
-//! This whole module is exercised only by its own tests today: `grants.rs`
-//! (the host-side authorisation re-check) and `transport.rs` (the WebSocket
-//! loop that actually calls `session_frame` and matches on `ServiceMessage`)
-//! are later tasks in this same plan (see `relay/mod.rs`'s layering doc), so
-//! clippy sees every public item here as unconstructed/unused until they
-//! land. Same shape as `managers/wake_word.rs`'s `#[allow(dead_code)]` on
-//! code "exposed for callers/diagnostics; not yet wired to a command."
-#![allow(dead_code)]
+//! This module is exercised only by its own tests today: `grants.rs` (the
+//! host-side authorisation re-check) and `transport.rs` (the WebSocket loop
+//! that actually calls `session_frame` and matches on `ServiceMessage`) are
+//! later tasks in this same plan, so clippy would otherwise flag every public
+//! item here as unconstructed/unused until they land. Each such item carries
+//! its own `#[allow(dead_code)]`, same shape as `managers/wake_word.rs`'s
+//! "exposed for callers/diagnostics; not yet wired to a command" — scoped
+//! per-item, not a module-wide blanket, so dead code added here later is still
+//! caught.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// The only frame kinds v1 ever emits. Everything else in `HostFrame` is
 /// reserved. Asserted by test so adding an emitter is a deliberate act.
+#[allow(dead_code)] // consumed by `transport.rs` (a later task)
 pub const V1_EMITTED_KINDS: [&str; 3] = ["header", "output", "status"];
 
 /// One published offer (DESIGN-relay-v02 §6 `hello`).
+#[allow(dead_code)] // constructed by `grants.rs` (a later task)
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct OfferWire {
     /// e.g. `agent:coder` — OpenFlow uses the agent's existing `binding_id`.
@@ -54,6 +67,7 @@ pub struct OfferWire {
 }
 
 /// Host → service (DESIGN-relay-v02 §6).
+#[allow(dead_code)] // constructed by `transport.rs` (a later task)
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum HostMessage {
@@ -79,6 +93,7 @@ pub enum HostMessage {
     },
 }
 
+#[allow(dead_code)] // constructed by `transport.rs` (a later task)
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 pub struct Requester {
     #[serde(default)]
@@ -97,6 +112,7 @@ pub struct Requester {
 /// know, which is deliberate: this task defines the wire *types*, not the
 /// connection loop that would await the ack. A later transport task either
 /// adds a `Ready` variant here or matches on the raw JSON before typed parse.
+#[allow(dead_code)] // matched by `transport.rs` (a later task)
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ServiceMessage {
@@ -129,11 +145,13 @@ pub enum ServiceMessage {
 /// What a requester sends to start a run. Not specified by either design doc
 /// (see "spec gaps" #2); defined here, tolerantly, so the `curl` teammate
 /// harness can pass a bare string.
+#[allow(dead_code)] // constructed by `parse_open_payload`, called from `transport.rs`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenPayload {
     pub instruction: String,
 }
 
+#[allow(dead_code)] // called from `transport.rs` (a later task)
 pub fn parse_open_payload(v: &Value) -> Result<OpenPayload, String> {
     let instruction = match v {
         Value::String(s) => s.clone(),
@@ -150,8 +168,14 @@ pub fn parse_open_payload(v: &Value) -> Result<OpenPayload, String> {
     Ok(OpenPayload { instruction })
 }
 
-// ---- Reserved C0 shapes (see the module doc) ----
+// ---- Reserved C0 shapes (see the module doc). Field-for-field from
+// `feat/acp-agents:src-tauri/src/acp/events.rs` — verified against that file
+// directly, not from `documentation/design/acp-agents/PLAN.md`, which is
+// stale for exactly these shapes (corrected 2026-08-04). ----
 
+/// = C0's `PlanEntry`, unchanged from the plan doc — checked against the code
+/// anyway, since that's what's now authoritative.
+#[allow(dead_code)] // constructed by `transport.rs` once `HostFrame::Plan` emits
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PlanEntryWire {
     pub content: String,
@@ -159,6 +183,8 @@ pub struct PlanEntryWire {
     pub status: String,
 }
 
+/// = C0's `PermissionOption`, unchanged from the plan doc.
+#[allow(dead_code)] // constructed by `transport.rs` once `HostFrame::PermissionRequest` emits
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PermissionOptionWire {
     pub option_id: String,
@@ -169,6 +195,7 @@ pub struct PermissionOptionWire {
 /// The frame vocabulary carried inside an envelope's opaque payload.
 /// **Open and versioned:** only `Header`, `Output` and `Status` are emitted in
 /// v1 (`V1_EMITTED_KINDS`). The rest are RESERVED for PR #64 (DESIGN §7).
+#[allow(dead_code)] // constructed by `transport.rs` once PR #64's variants emit
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HostFrame {
@@ -187,7 +214,10 @@ pub enum HostFrame {
     },
 
     // ---- Reserved, unemitted in v1. Names and shapes copied verbatim from
-    // C0's RunEvent (documentation/design/acp-agents/PLAN.md Task 3). ----
+    // C0's ACTUAL CODE, `feat/acp-agents:src-tauri/src/acp/events.rs`
+    // (`RunEvent`) — not from `documentation/design/acp-agents/PLAN.md` Task 3,
+    // which is stale for `ToolCallUpdate` and `PermissionRequest` below
+    // (corrected 2026-08-04). ----
     Text {
         text: String,
     },
@@ -204,15 +234,39 @@ pub enum HostFrame {
         status: String,
         locations: Vec<String>,
     },
+    /// A REFINEMENT of an existing `ToolCall`, not a replacement. Every field
+    /// but `id` is `Option` and `None` means "the agent said nothing about
+    /// this — leave it alone", never "reset it" (copied verbatim from C0's own
+    /// doc comment on `RunEvent::ToolCallUpdate`). The plan doc's version of
+    /// this variant had only `{ id, status: String, content: Option<String> }`
+    /// — three fields, `status` required — which is what C0's code looked like
+    /// *before* its own final review added `title`/`tool_kind`/`locations` and
+    /// made `status` optional too.
     ToolCallUpdate {
         id: String,
-        status: String,
+        status: Option<String>,
+        title: Option<String>,
+        tool_kind: Option<String>,
+        locations: Option<Vec<String>>,
         content: Option<String>,
     },
+    /// `tool_kind` and `locations` are carried HERE rather than left to a
+    /// frontend join on `tool_call_id` (copied verbatim from C0's own doc
+    /// comment on `RunEvent::PermissionRequest`). ACP permits a permission
+    /// request with no preceding `tool_call` at all, and the join then
+    /// silently misses — leaving the card showing a bare title like "Edit
+    /// file" with no indication of WHAT it touches, above an Allow button. The
+    /// agent handed us both fields in the request itself; throwing them away
+    /// and guessing them back is the one thing a permission gate must not do.
+    /// The plan doc's version of this variant omitted both fields entirely —
+    /// exactly the loss C0's final review closed, and exactly what this
+    /// module's own reservation exists to carry forward without a wire break.
     PermissionRequest {
         request_id: String,
         tool_call_id: Option<String>,
         title: String,
+        tool_kind: String,
+        locations: Vec<String>,
         options: Vec<PermissionOptionWire>,
     },
     /// DESIGN §7's list omits this one; C0 defines it. Reserved anyway —
@@ -230,6 +284,7 @@ pub enum HostFrame {
 impl HostFrame {
     /// The envelope `kind` for this frame. Must equal the frame's own serde tag
     /// — pinned by `envelope_kind_never_drifts_from_the_frames_own_tag`.
+    #[allow(dead_code)] // called by `session_frame`, and by `transport.rs` (a later task)
     pub fn kind_str(&self) -> &'static str {
         match self {
             HostFrame::Header { .. } => "header",
@@ -249,6 +304,7 @@ impl HostFrame {
 
 /// Wrap a frame in a session envelope. The ONLY way a `HostMessage::Frame` is
 /// constructed, so `kind` can never be typed by hand and drift from the payload.
+#[allow(dead_code)] // called by `transport.rs` (a later task)
 pub fn session_frame(session_id: &str, frame: HostFrame) -> HostMessage {
     let kind = frame.kind_str().to_string();
     HostMessage::Frame {
@@ -346,9 +402,13 @@ mod tests {
     #[test]
     fn reserved_c0_variants_pin_the_kinds_that_merging_pr_64_will_emit() {
         // DESIGN-shared-agents §7: reserve C0's vocabulary so merging #64 adds
-        // capability with NO wire break. Source of these names:
-        // documentation/design/acp-agents/PLAN.md Task 3 (acp/events.rs RunEvent,
-        // #[serde(tag = "kind", rename_all = "snake_case")]).
+        // capability with NO wire break. Source of these names AND shapes:
+        // `feat/acp-agents:src-tauri/src/acp/events.rs` (RunEvent,
+        // #[serde(tag = "kind", rename_all = "snake_case")]) — the actual code,
+        // not `documentation/design/acp-agents/PLAN.md`, which is stale for
+        // `ToolCallUpdate`/`PermissionRequest` (corrected 2026-08-04; see
+        // `reserved_variants_carry_every_field_c0_actually_emits` below for the
+        // full-field pin).
         assert_eq!(
             HostFrame::Text {
                 text: String::new()
@@ -378,7 +438,10 @@ mod tests {
         assert_eq!(
             HostFrame::ToolCallUpdate {
                 id: String::new(),
-                status: String::new(),
+                status: None,
+                title: None,
+                tool_kind: None,
+                locations: None,
                 content: None,
             }
             .kind_str(),
@@ -389,6 +452,8 @@ mod tests {
                 request_id: String::new(),
                 tool_call_id: None,
                 title: String::new(),
+                tool_kind: String::new(),
+                locations: vec![],
                 options: vec![],
             }
             .kind_str(),
@@ -413,10 +478,78 @@ mod tests {
     }
 
     #[test]
+    fn reserved_variants_carry_every_field_c0_actually_emits() {
+        // Critical review finding: the plan doc this module originally cited
+        // was stale. C0's own final review enriched `ToolCallUpdate` (three
+        // fields, `status` required -> six fields, `status` optional) and
+        // `PermissionRequest` (added `tool_kind`/`locations`, without which "a
+        // permission card could ask a user to approve an action without
+        // showing which file it touches"). This test serializes a
+        // fully-populated instance of each and asserts every field C0's real
+        // `RunEvent` carries is present on the wire by name — not just the
+        // `kind` tag `reserved_c0_variants_pin_the_kinds...` already covers.
+        // Renaming or dropping any key below is exactly the wire break this
+        // reservation exists to prevent; see the break-and-revert evidence in
+        // the task report for a field rename caught by this test, and a field
+        // removal caught at compile time (Rust's exhaustive struct literals
+        // make a silent drop here impossible, which is stronger than a
+        // runtime check).
+        let tcu = serde_json::to_value(HostFrame::ToolCallUpdate {
+            id: "t1".into(),
+            status: Some("completed".into()),
+            title: Some("Edit file".into()),
+            tool_kind: Some("edit".into()),
+            locations: Some(vec!["/a/b.rs".into()]),
+            content: Some("diff".into()),
+        })
+        .unwrap();
+        assert_eq!(tcu["kind"], json!("tool_call_update"));
+        assert_eq!(tcu["id"], json!("t1"));
+        assert_eq!(tcu["status"], json!("completed"));
+        assert_eq!(tcu["title"], json!("Edit file"));
+        assert_eq!(tcu["tool_kind"], json!("edit"));
+        assert_eq!(tcu["locations"], json!(["/a/b.rs"]));
+        assert_eq!(tcu["content"], json!("diff"));
+
+        let pr = serde_json::to_value(HostFrame::PermissionRequest {
+            request_id: "r1".into(),
+            tool_call_id: Some("t1".into()),
+            title: "Edit file".into(),
+            tool_kind: "edit".into(),
+            locations: vec!["/a/b.rs".into()],
+            options: vec![],
+        })
+        .unwrap();
+        assert_eq!(pr["kind"], json!("permission_request"));
+        assert_eq!(pr["request_id"], json!("r1"));
+        assert_eq!(pr["tool_call_id"], json!("t1"));
+        assert_eq!(pr["title"], json!("Edit file"));
+        assert_eq!(
+            pr["tool_kind"],
+            json!("edit"),
+            "without tool_kind, a permission card cannot say WHAT kind of \
+             action it is approving"
+        );
+        assert_eq!(
+            pr["locations"],
+            json!(["/a/b.rs"]),
+            "without locations, a permission card cannot say WHICH file it \
+             touches — the exact gap C0's final review closed"
+        );
+    }
+
+    #[test]
     fn v1_emits_only_header_output_and_status() {
-        // Reserved means reserved: the only constructors v1 exposes are these
-        // three. If a later change adds an emitter for a reserved variant, this
-        // test is where the decision gets made explicitly.
+        // NOT a regression guard: this asserts the const against its own
+        // literal, so nothing external can make it fail — a review correctly
+        // flagged this. It exists purely as a documentation anchor: a reader
+        // who greps `V1_EMITTED_KINDS` lands on a named test that states the
+        // v1/reserved boundary in prose, right next to the tests that DO
+        // enforce something (`v1_frames_pin_their_wire_kinds` and
+        // `reserved_c0_variants_pin_the_kinds_that_merging_pr_64_will_emit`).
+        // If a later change adds an emitter for a reserved variant, editing
+        // this constant (and this test) is where that decision becomes
+        // visible in a diff.
         assert_eq!(V1_EMITTED_KINDS, ["header", "output", "status"]);
     }
 
@@ -529,13 +662,18 @@ mod tests {
             },
             HostFrame::ToolCallUpdate {
                 id: "1".into(),
-                status: "done".into(),
+                status: Some("done".into()),
+                title: None,
+                tool_kind: None,
+                locations: None,
                 content: None,
             },
             HostFrame::PermissionRequest {
                 request_id: "r".into(),
                 tool_call_id: None,
                 title: "T".into(),
+                tool_kind: "edit".into(),
+                locations: vec!["/a/b.rs".into()],
                 options: vec![],
             },
             HostFrame::PermissionResolved {
@@ -551,19 +689,33 @@ mod tests {
 
     /// Bytes captured from a REAL running `openflow-service` (branch
     /// `feat/relay-v0.2`), not hand-written: a paired host + teammate, a real
-    /// WebSocket `hello`, a real `POST /v2/sessions`, and a real
-    /// `GET /v2/sessions/{id}/events` SSE read. This is exactly the class of
-    /// evidence the sibling C0 project skipped — every one of its fixtures was
-    /// written from a spec and nothing real ever answered back — and it is
-    /// what these four constants close for this crate's deserializers.
+    /// WebSocket `hello`, and a real `POST /v2/sessions`. This is exactly the
+    /// class of evidence the sibling C0 project skipped — every one of its
+    /// fixtures was written from a spec and nothing real ever answered back —
+    /// and these two constants are fed directly into this crate's own
+    /// `ServiceMessage` deserializer below, not into hand-written JSON.
+    ///
+    /// Corrected 2026-08-04 (review Critical 2): this module used to also
+    /// carry `RAW_SSE_FRAME`/`RAW_SSE_CLOSED` and two more tests claiming to
+    /// verify `HostFrame`'s round trip against them. That claim was false.
+    /// `HostFrame` is internally tagged (`#[serde(tag = "kind")]`), so its
+    /// `kind` lives INSIDE the payload; the demo host that produced those two
+    /// bytes strings (`openflow-service/examples/fake_host.rs`) is a hand-
+    /// rolled script with no dependency on this crate and sends a FLAT
+    /// payload with no `kind` key at all. `serde_json::from_value::<HostFrame>`
+    /// on that flat shape fails with `missing field "kind"` — the two removed
+    /// tests never actually deserialized it into a `HostFrame`; one hand-built
+    /// a *new* `json!` value with the key injected, the other indexed a bare
+    /// `Value` and constructed no type from this crate at all. A genuine
+    /// capture of `HostFrame`/`session_frame`'s own output requires something
+    /// in this crate to actually send it over a socket, which is `transport.rs`
+    /// (a later task) — `protocol.rs` does no I/O by design (see
+    /// `relay/mod.rs`'s layering doc). Removed rather than left staged.
     mod real_captured_frames {
         use super::*;
 
         const RAW_READY: &str = r#"{"t":"ready","offers":1}"#;
         const RAW_OPEN: &str = r#"{"t":"open","session_id":"d412c101-4783-4bd6-8206-d92a56c7b3ee","offer_id":"7e1662d2-c44c-425a-9102-b97db756ff9f","action_id":"agent:coder","requester":{"member_id":"68ae978a-73e8-4aff-99ab-98270cbe8cb6","display_name":"Capture Teammate"},"sealed":false,"payload":{"instruction":"add a comment to README"}}"#;
-        const RAW_SSE_FRAME: &str =
-            r#"{"seq":2,"kind":"output","sealed":false,"payload":{"chunk":"hello"}}"#;
-        const RAW_SSE_CLOSED: &str = r#"{"outcome":"completed"}"#;
 
         #[test]
         fn a_real_ready_ack_does_not_crash_the_service_message_parser() {
@@ -597,32 +749,6 @@ mod tests {
                 }
                 other => panic!("expected Open for a real captured `open`, got {other:?}"),
             }
-        }
-
-        #[test]
-        fn a_real_output_frame_round_trips_through_our_own_host_frame_shape() {
-            // We sent {"kind":"output","payload":{"chunk":"hello"}} as the WS
-            // frame; this is that exact payload as it came back out the far end
-            // of a real SSE stream. If HostFrame::Output's field were ever
-            // renamed away from `chunk`, this is what would fail.
-            let v: Value = serde_json::from_str(RAW_SSE_FRAME).unwrap();
-            assert_eq!(v["kind"], json!("output"));
-            assert_eq!(v["sealed"], json!(false));
-            let frame: HostFrame =
-                serde_json::from_value(json!({"kind": "output", "chunk": v["payload"]["chunk"]}))
-                    .unwrap();
-            assert_eq!(
-                frame,
-                HostFrame::Output {
-                    chunk: "hello".into()
-                }
-            );
-        }
-
-        #[test]
-        fn a_real_closed_record_carries_the_outcome_we_sent() {
-            let v: Value = serde_json::from_str(RAW_SSE_CLOSED).unwrap();
-            assert_eq!(v["outcome"], json!("completed"));
         }
     }
 }
