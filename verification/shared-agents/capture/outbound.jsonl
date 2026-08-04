@@ -1,0 +1,19 @@
+{"t":"hello","offers":[{"action_id":"agent:coder","label":"Coder","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo","allowed":["b62c9540-67fe-4fdc-833f-c89b3b7649d5"]}]}
+{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"header","payload":{"agent":"Coder","kind":"header","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo"},"sealed":false}
+{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"output","payload":{"chunk":"coder: cwd=/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"output","payload":{"chunk":"coder: instruction=add a one-line comment to the top of README.md describing this project","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"output","payload":{"chunk":"coder: edited README.md","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"output","payload":{"chunk":"coder: done","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"status","payload":{"kind":"status","status":"finished"},"sealed":false}
+{"t":"closed","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","outcome":"finished"}
+{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"header","payload":{"agent":"Coder","kind":"header","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo"},"sealed":false}
+{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"output","payload":{"chunk":"coder: cwd=/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"output","payload":{"chunk":"coder: instruction=LONG: keep working until told to stop","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"output","payload":{"chunk":"coder: this one takes a while","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"output","payload":{"chunk":"coder: working 0","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"output","payload":{"chunk":"coder: working 1","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"output","payload":{"chunk":"coder: working 2","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"output","payload":{"chunk":"coder: working 3","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"output","payload":{"chunk":"coder: working 4","kind":"output"},"sealed":false}
+{"t":"frame","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","kind":"status","payload":{"kind":"status","status":"stopped"},"sealed":false}
+{"t":"closed","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","outcome":"stopped"}
