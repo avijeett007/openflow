@@ -682,7 +682,27 @@ Full verbatim transcripts (every frame sent and received) are in `$SCRATCH/logs/
    Task 7's `pending_children` registry. That code path has never executed.
 4. **Consider surfacing the "agent pre-approved it" case in the UI (§3.1).** With `Ask`
    policy, a user may reasonably believe OpenFlow gates every action; it only gates what
-   the agent chooses to ask about.
+   the agent chooses to ask about. **ADDRESSED (2026-08-04).** By the time this was
+   picked up, §12.1's Codex pass had made the case concrete rather than hypothetical —
+   Codex demonstrably edits inside its workspace root with **zero**
+   `session/request_permission` calls, a second agent doing exactly what §3.1 warned
+   about. `CliAgentCard.tsx`'s ACP permission `SettingContainer` now renders an
+   unconditional `Alert` above the policy `Dropdown` (visible under every policy value,
+   not only when something has already gone unrequested), carrying a new i18n key,
+   `settings.agents.acp.permission.scopeNotice`: "OpenFlow can only prompt for actions
+   an agent chooses to ask about — it does not gate everything an agent does. Some
+   agents edit files inside the project folder without asking, no matter which policy
+   is selected here. Git is your safety net here, exactly as it is for a local agent:
+   commit before a run so you can see, and undo, what changed." Modelled on
+   `SharingSettings.tsx`'s non-dismissible not-encrypted banner (same problem shape: a
+   permission-adjacent setting name implies a stronger guarantee than the protocol
+   delivers) — same register (plain negation, no reassurance words), same closing move
+   (name the real safety net: git, echoing `openclaw-hermes-cli-agents/RESULTS.md`'s
+   "git remains the safety net" for one-shot mode's own bypassed approval gate). No
+   vendor named — this is ACP's shape, not a Codex defect. No permission _behaviour_
+   changed; this is disclosure only. Gates: `bun run build` ✓, `bun run lint` 0 errors
+   (1 pre-existing unrelated warning), `bun run format` clean. No Rust touched, so the
+   488-test baseline is unaffected.
 
 ---
 

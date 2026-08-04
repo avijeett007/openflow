@@ -872,6 +872,7 @@
             "auto_edits": "Auto-approve edits",
             "auto_all": "Auto-approve everything"
           },
+          "scopeNotice": "OpenFlow can <strong>only prompt for actions an agent chooses to ask about</strong> — it does not gate everything an agent does. Some agents edit files inside the project folder without asking, <strong>no matter which policy is selected here</strong>. Git is your safety net here, exactly as it is for a local agent: commit before a run so you can see, and undo, what changed.",
           "autoAllWarning": "The agent can act without asking - including running commands and deleting files - with no approval step. Only use this if you fully trust this agent and its project folder."
         },
         "idleTimeout": {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -671,6 +671,18 @@ export const CliAgentCard: React.FC<CliAgentCardProps> = ({ agent }) => {
             layout="stacked"
           >
             <div className="space-y-2">
+              {/* Unconditional, not gated on which policy is selected: RESULTS.md
+                  §9 recommendation 4 — under `Ask`, a user may reasonably assume
+                  OpenFlow gates every risky action. It only gates what the agent
+                  chooses to send it. Read before choosing, not discovered after
+                  an unrequested edit, mirroring SharingSettings.tsx's disclosure
+                  placement for the same class of problem. */}
+              <Alert variant="warning" contained>
+                <Trans
+                  i18nKey="settings.agents.acp.permission.scopeNotice"
+                  components={{ strong: <strong /> }}
+                />
+              </Alert>
               <Dropdown
                 options={permissionOptions}
                 selectedValue={permissionPolicy}
