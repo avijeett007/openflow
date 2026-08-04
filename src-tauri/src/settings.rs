@@ -145,6 +145,52 @@ pub enum AgentCliType {
     Custom,
 }
 
+pub use crate::acp::permission::AcpPermissionPolicy;
+
+/// How the `Cli` driver talks to the agent binary. `Raw` (default) is today's
+/// one-shot subprocess: spawn, feed the prompt, read stdout to EOF, exit. `Acp`
+/// is a long-lived JSON-RPC session over stdio.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Type, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CliProtocol {
+    #[default]
+    Raw,
+    Acp,
+}
+
+fn default_acp_idle_timeout_secs() -> u32 {
+    600
+}
+
+/// Prefilled ACP invocation per CLI type: `(binary, argv_template)`.
+/// `None` means ACP mode is not offered for that agent — deliberately, because
+/// no adapter is confirmed and it cannot be verified here. Shipping a guessed
+/// template is the exact mistake already made once with Hermes/OpenClaw.
+///
+/// Called in production by `acp_session::resolve_acp_binary` (the hint always
+/// wins over `binary_path`), and mirrored by hand into
+/// `ACP_DEFAULT_TEMPLATES` in `src/components/settings/agents/agentTemplates.ts`
+/// for the settings card's "resolved program" display — a mirror that
+/// `acp_default_templates_match_the_frontend_mirror` pins entry by entry.
+pub fn default_acp_template(cli_type: AgentCliType) -> Option<(String, String)> {
+    match cli_type {
+        // Built-in subcommand, no extra install.
+        AgentCliType::Kimi => Some(("kimi".to_string(), "acp".to_string())),
+        // Official adapter over the Claude Agent SDK.
+        AgentCliType::Claude => Some((
+            "npx".to_string(),
+            "-y @agentclientprotocol/claude-agent-acp".to_string(),
+        )),
+        // NB: @zed-industries/codex-acp was archived 2026-07-22 and moved to the
+        // @agentclientprotocol org. Use the new package.
+        AgentCliType::Codex => Some((
+            "npx".to_string(),
+            "-y @agentclientprotocol/codex-acp".to_string(),
+        )),
+        AgentCliType::Openclaw | AgentCliType::Hermes | AgentCliType::Custom => None,
+    }
+}
+
 /// Where a CLI agent run's output goes (multi-select). `Panel` is the live
 /// streamed in-app view (always effectively on for a running view). `Notify`
 /// fires a desktop notification on completion. `File` writes the full
@@ -291,7 +337,7 @@ pub fn default_cli_template(cli_type: AgentCliType) -> (String, PromptDelivery) 
 /// `agent:<id>`). All optional fields are `#[serde(default)]` so an old settings
 /// store (with no `agents` key, or partial entries) always deserializes cleanly —
 /// the store wipes to defaults on any parse failure.
-#[derive(Serialize, Deserialize, Clone, Debug, Type)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Type)]
 pub struct AgentDefinition {
     /// Stable slug, e.g. "coder"; unique. Matches `^[a-z0-9_-]{1,48}$`.
     pub id: String,
@@ -356,6 +402,21 @@ pub struct AgentDefinition {
     /// Card `capabilities.streaming`, cached — whether we may use `message/stream`.
     #[serde(default)]
     pub remote_streaming: bool,
+
+    // ---- C0: ACP session mode ----
+    /// Raw (default) or Acp. Only meaningful when `kind == Cli`.
+    #[serde(default)]
+    pub cli_protocol: CliProtocol,
+    /// Argv template used in ACP mode. Deliberately SEPARATE from
+    /// `command_template` so toggling protocol never destroys the other mode's
+    /// configuration.
+    #[serde(default)]
+    pub acp_command_template: String,
+    #[serde(default)]
+    pub acp_permission_policy: AcpPermissionPolicy,
+    /// Seconds a warm session may sit idle before it is closed. `0` = never.
+    #[serde(default = "default_acp_idle_timeout_secs")]
+    pub acp_idle_timeout_secs: u32,
 }
 
 /// What an AI Mode does with the raw transcript before it reaches the cursor.
@@ -2497,5 +2558,138 @@ mod tests {
         let out = format!("{:?}", map);
         assert!(!out.contains("secret"));
         assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn legacy_agent_without_acp_fields_defaults_to_raw_protocol() {
+        // A store written by 0.15.7 — no acp fields at all.
+        let json = r#"{
+            "id":"coder","name":"Coder","enabled":true,"binding_id":"agent:coder",
+            "provider_id":"p","kind":"cli","cli_type":"claude","binary_path":"/usr/local/bin/claude",
+            "command_template":"-p","project_path":"/tmp/x"
+        }"#;
+        let a: AgentDefinition = serde_json::from_str(json).unwrap();
+        assert_eq!(a.cli_protocol, CliProtocol::Raw);
+        assert_eq!(a.acp_permission_policy, AcpPermissionPolicy::Ask);
+        assert_eq!(a.acp_command_template, "");
+        assert_eq!(a.acp_idle_timeout_secs, 600);
+        // The raw template must survive untouched — toggling protocol must never
+        // destroy the other mode's configuration.
+        assert_eq!(a.command_template, "-p");
+    }
+
+    #[test]
+    fn acp_agent_round_trips() {
+        let json = r#"{
+            "id":"c","name":"C","enabled":true,"binding_id":"agent:c","provider_id":"",
+            "kind":"cli","cli_type":"kimi","binary_path":"kimi","command_template":"-p {prompt}",
+            "cli_protocol":"acp","acp_command_template":"acp",
+            "acp_permission_policy":"auto_edits","acp_idle_timeout_secs":120
+        }"#;
+        let a: AgentDefinition = serde_json::from_str(json).unwrap();
+        assert_eq!(a.cli_protocol, CliProtocol::Acp);
+        assert_eq!(a.acp_permission_policy, AcpPermissionPolicy::AutoEdits);
+        assert_eq!(a.acp_idle_timeout_secs, 120);
+        let back: AgentDefinition =
+            serde_json::from_str(&serde_json::to_string(&a).unwrap()).unwrap();
+        assert_eq!(back, a);
+    }
+
+    #[test]
+    fn acp_templates_exist_only_for_verified_agents() {
+        // Live-verifiable on the dev machine (V1) — see DESIGN §4.1.
+        assert_eq!(
+            default_acp_template(AgentCliType::Kimi),
+            Some(("kimi".to_string(), "acp".to_string()))
+        );
+        assert_eq!(
+            default_acp_template(AgentCliType::Claude),
+            Some((
+                "npx".to_string(),
+                "-y @agentclientprotocol/claude-agent-acp".to_string()
+            ))
+        );
+        assert_eq!(
+            default_acp_template(AgentCliType::Codex),
+            Some((
+                "npx".to_string(),
+                "-y @agentclientprotocol/codex-acp".to_string()
+            ))
+        );
+        // No confirmed adapter and not installed here to verify — do NOT guess.
+        assert_eq!(default_acp_template(AgentCliType::Openclaw), None);
+        assert_eq!(default_acp_template(AgentCliType::Hermes), None);
+        // Custom is user-supplied.
+        assert_eq!(default_acp_template(AgentCliType::Custom), None);
+    }
+
+    /// Task 10 had to hand-mirror this table into
+    /// `ACP_DEFAULT_TEMPLATES` in
+    /// `src/components/settings/agents/agentTemplates.ts`, because no Tauri
+    /// command exposes `default_acp_template` (a pure Rust function) to the
+    /// frontend. The two match exactly today, but nothing links them: a
+    /// future rename here (a package bump, a newly-verified adapter) would
+    /// leave the settings card's "resolved program" display silently showing
+    /// a stale value — worse than no display at all, since that display's
+    /// entire purpose is to be trustworthy. This is a crude verbatim-substring
+    /// check, not a real TypeScript parse, but it turns that silent drift into
+    /// a failing test instead of a silent one.
+    #[test]
+    fn acp_default_templates_match_the_frontend_mirror() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../src/components/settings/agents/agentTemplates.ts");
+        let contents = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "Couldn't read '{}' to verify it mirrors `default_acp_template`: {e}. If \
+                 agentTemplates.ts moved, update the path in this test \
+                 (settings::tests::acp_default_templates_match_the_frontend_mirror).",
+                path.display()
+            )
+        });
+
+        // Only the types with a confirmed adapter have an entry to mirror —
+        // Openclaw/Hermes/Custom return `None` and have nothing in
+        // ACP_DEFAULT_TEMPLATES to check.
+        for (cli_type, key) in [
+            (AgentCliType::Kimi, "kimi"),
+            (AgentCliType::Claude, "claude"),
+            (AgentCliType::Codex, "codex"),
+        ] {
+            let (binary, argv) = default_acp_template(cli_type)
+                .unwrap_or_else(|| panic!("{cli_type:?} unexpectedly has no default_acp_template"));
+
+            // ANCHORED TO THIS TYPE'S OWN KEY. The previous version searched
+            // the whole file for the `binary: "…", argv: "…"` pair, which
+            // FAILED OPEN in the case it most needed to catch: swapping
+            // claude's and codex's argv in Rust left every assertion green,
+            // because each swapped pair still appeared verbatim — in the OTHER
+            // entry. A drift guard that only detects deletion is not a drift
+            // guard. The regex below matches `<key>: { binary: "…", argv: "…" }`
+            // and nothing else, so a value can only satisfy it from the entry
+            // it actually belongs to. `(?s)` + `\s*` so Prettier is free to
+            // wrap the entry across lines.
+            let re = regex::Regex::new(&format!(
+                r#"(?s)\b{}\s*:\s*\{{\s*binary\s*:\s*"([^"]*)"\s*,\s*argv\s*:\s*"([^"]*)"\s*,?\s*\}}"#,
+                regex::escape(key)
+            ))
+            .unwrap();
+            let caps = re.captures(&contents).unwrap_or_else(|| {
+                panic!(
+                    "ACP_DEFAULT_TEMPLATES in agentTemplates.ts has no `{key}: {{ binary, argv }}` \
+                     entry (settings.rs::default_acp_template defines one for {cli_type:?})"
+                )
+            });
+            assert_eq!(
+                &caps[1], binary,
+                "agentTemplates.ts's `{key}` binary has drifted from \
+                 settings.rs::default_acp_template — the settings card's \"resolved program\" \
+                 display would show a value that is not what gets spawned"
+            );
+            assert_eq!(
+                &caps[2], argv,
+                "agentTemplates.ts's `{key}` argv has drifted from \
+                 settings.rs::default_acp_template"
+            );
+        }
     }
 }

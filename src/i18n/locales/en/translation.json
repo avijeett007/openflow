@@ -846,6 +846,48 @@
             "file": "File"
           }
         }
+      },
+      "acp": {
+        "protocol": {
+          "label": "Protocol",
+          "description": "One-shot spawns the CLI, feeds it one prompt, and exits when it's done. ACP session keeps the agent running between instructions so it remembers context, streams what it's doing (thinking, plan, tool calls), and can ask permission before it acts.",
+          "raw": "One-shot",
+          "acp": "ACP session"
+        },
+        "command": {
+          "label": "ACP command",
+          "description": "Advanced: the argv template appended after the resolved ACP program. Separate from the one-shot command template - switching protocols never overwrites the other mode's configuration.",
+          "placeholder": "e.g. -y @agentclientprotocol/claude-agent-acp"
+        },
+        "resolvedProgram": {
+          "label": "Resolved program:",
+          "binaryUnset": "(no binary set)",
+          "codexLoginNote": "Codex requires its own sign-in: run `codex login` in a terminal once before using ACP mode. OpenFlow cannot sign in on your behalf."
+        },
+        "permission": {
+          "label": "Permissions",
+          "description": "What to do when the agent asks permission before acting. One-shot mode never asks at all; this governs whatever the agent does ask about.",
+          "options": {
+            "ask": "Ask",
+            "auto_edits": "Auto-approve edits",
+            "auto_all": "Auto-approve everything"
+          },
+          "scopeNotice": "OpenFlow can <strong>only prompt for actions an agent chooses to ask about</strong> — it does not gate everything an agent does. Some agents edit files inside the project folder without asking, <strong>no matter which policy is selected here</strong>. Git is your safety net here, exactly as it is for a local agent: commit before a run so you can see, and undo, what changed.",
+          "autoAllWarning": "The agent can act without asking - including running commands and deleting files - with no approval step. Only use this if you fully trust this agent and its project folder."
+        },
+        "idleTimeout": {
+          "label": "Idle timeout",
+          "description": "How long a warm ACP session may sit idle before OpenFlow closes it and frees its process. 0 means never - the session stays warm indefinitely.",
+          "seconds": "seconds (0 = never)"
+        },
+        "test": {
+          "label": "Test connection",
+          "description": "Launches the agent and performs the ACP handshake only - it never starts a session or sends a prompt, so this can't cost money or trigger real work.",
+          "run": "Test",
+          "testing": "Testing…",
+          "ok": "Connected to {{name}} {{version}} (ACP protocol v{{protocolVersion}}).",
+          "error": "Test failed: {{error}}"
+        }
       }
     },
     "history": {
@@ -1121,6 +1163,60 @@
         "ran": "Ran {{command}}",
         "read": "Read {{target}}",
         "used": "Used {{tool}}"
+      },
+      "acp": {
+        "output": {
+          "showRaw": "Raw output",
+          "showStructured": "Structured view"
+        },
+        "thought": {
+          "label": "Thinking"
+        },
+        "plan": {
+          "label": "Plan"
+        },
+        "toolCall": {
+          "failed": "failed"
+        },
+        "turnEnd": {
+          "completed": "Turn complete",
+          "cancelled": "Turn cancelled",
+          "maxTokens": "Stopped — ran out of tokens",
+          "maxTurnRequests": "Stopped — request limit reached",
+          "refusal": "The agent declined the request",
+          "failed": "Turn ended unexpectedly",
+          "other": "Turn ended"
+        },
+        "permission": {
+          "waiting": "Waiting for your response…",
+          "target": "Target: {{path}}",
+          "abandoned": "\"{{title}}\" was never answered — the turn ended first.",
+          "resolved": "{{title}} — {{outcome}}",
+          "automatic": "(automatic)",
+          "outcomeAllow": "Allowed",
+          "outcomeDeny": "Denied",
+          "outcomeCancelled": "Cancelled",
+          "respondError": "Couldn't send your response: {{error}}",
+          "alwaysScope": "\"Always\" applies only to this kind of action for the rest of the session — not everything the agent might ask for.",
+          "alwaysScopeKind": "\"Always\" applies only to {{kind}} actions for the rest of the session — not everything the agent might ask for.",
+          "alwaysScopeOnce": "This agent didn’t say what kind of action this is, so an “always” answer applies to this request only — it won’t be remembered."
+        },
+        "thread": {
+          "label_one": "Conversation · {{count}} run",
+          "label_other": "Conversation · {{count}} runs",
+          "endSession": "End session",
+          "endSessionError": "Couldn't end the session: {{error}}",
+          "endSessionSuccess": "Session ended",
+          "endSessionHint": "Stop the agent and discard this conversation’s context. The next instruction starts a fresh session.",
+          "endSessionBusy": "This agent has a run in progress. Stop it first — ending the session now would kill it mid-task."
+        },
+        "followUp": {
+          "placeholder": "Send a follow-up to continue this conversation…",
+          "send": "Send",
+          "sending": "Sending…",
+          "error": "Couldn't send the follow-up: {{error}}",
+          "placeholderAfterFailure": "Send a new instruction. The last turn didn’t finish cleanly, so this likely starts a fresh session without the earlier context…"
+        }
       }
     },
     "missionControl": {

@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  FileText,
   FolderOpen,
   Pencil,
   Sparkles,
@@ -14,13 +15,16 @@ import {
   Terminal,
   Wrench,
 } from "lucide-react";
-import type { AgentRunInfo, RunStatus } from "@/bindings";
+import type { AgentRunInfo, RunEvent, RunStatus } from "@/bindings";
 import { Button } from "../../ui/Button";
 import {
   assembleReadableText,
   parseAgentOutput,
   type ActionCategory,
 } from "./parseAgentOutput";
+import { PermissionPrompt } from "./PermissionPrompt";
+import { RunEventList } from "./RunEventList";
+import { buildEventRows, isTurnOver, openPermissionRows } from "./runEventRows";
 
 interface AgentRunRowProps {
   run: AgentRunInfo;
@@ -29,6 +33,13 @@ interface AgentRunRowProps {
   onReveal?: () => void;
   /** Whether the Output section should start expanded (most recent / running runs). */
   defaultExpanded?: boolean;
+  /**
+   * Structured `agent-run-event` events for this run, in arrival order.
+   * ALWAYS empty for a raw CLI/remote run (they never emit `agent-run-event`)
+   * — the non-breaking guarantee is that this component renders EXACTLY as it
+   * did before this prop existed whenever this array is empty.
+   */
+  events?: RunEvent[];
 }
 
 const STATUS_PILL_CLASSES: Record<string, string> = {
@@ -89,6 +100,7 @@ export const AgentRunRow: React.FC<AgentRunRowProps> = ({
   onStop,
   onReveal,
   defaultExpanded = true,
+  events = [],
 }) => {
   const { t } = useTranslation();
   const outputRef = useRef<HTMLDivElement>(null);
@@ -97,8 +109,31 @@ export const AgentRunRow: React.FC<AgentRunRowProps> = ({
   const [instructionOpen, setInstructionOpen] = useState(true);
   const [copiedReadable, setCopiedReadable] = useState(false);
   const [copiedRaw, setCopiedRaw] = useState(false);
+  // Task 11 review fix (Critical 1): the structured view is built ONLY from
+  // `RunEvent`s, but `emit_line`/`emit_diagnostic` (the ACP session header, a
+  // crash's actionable diagnostic hint) write ONLY into `run.output` — never
+  // into a `RunEvent`. Replacing the whole Output body with `RunEventList`
+  // therefore hid real, sometimes safety-relevant text with no way to reach
+  // it. This toggle keeps the richer view as the default while making the
+  // full raw buffer one click away, never fully hidden.
+  const [showRawOutput, setShowRawOutput] = useState(false);
 
   const isRunning = run.status.status === "running";
+
+  // Task 11: structured ACP events, alongside the always-present text buffer.
+  // `hasStructuredEvents` is false for every raw CLI/remote run (they never
+  // emit `agent-run-event`), and the Output section below renders EXACTLY as
+  // it did before this feature existed in that case — this is the one branch
+  // point where the richer view can diverge from the legacy one.
+  const hasStructuredEvents = events.length > 0;
+  const eventRows = useMemo(
+    () => buildEventRows(events, isTurnOver(events, isRunning)),
+    [events, isRunning],
+  );
+  const openPermissionRequests = useMemo(
+    () => openPermissionRows(eventRows),
+    [eventRows],
+  );
 
   // Live-updating elapsed counter for running rows.
   useEffect(() => {
@@ -255,35 +290,53 @@ export const AgentRunRow: React.FC<AgentRunRowProps> = ({
               : t("settings.agentRuns.output.show")
           }
           right={
-            run.output && (
+            (run.output || hasStructuredEvents) && (
               <div className="flex items-center gap-1.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void copy(readableText, setCopiedReadable)}
-                  className="inline-flex items-center gap-1"
-                >
-                  {copiedReadable ? (
-                    <Check className="h-3.5 w-3.5" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                  {copiedReadable
-                    ? t("settings.agentRuns.copied")
-                    : t("settings.agentRuns.copyReadable")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void copy(run.output, setCopiedRaw)}
-                  className="inline-flex items-center gap-1"
-                >
-                  {copiedRaw
-                    ? t("settings.agentRuns.copied")
-                    : t("settings.agentRuns.copyRaw")}
-                </Button>
+                {hasStructuredEvents && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowRawOutput((prev) => !prev)}
+                    className="inline-flex items-center gap-1"
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    {showRawOutput
+                      ? t("settings.agentRuns.acp.output.showStructured")
+                      : t("settings.agentRuns.acp.output.showRaw")}
+                  </Button>
+                )}
+                {run.output && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void copy(readableText, setCopiedReadable)}
+                      className="inline-flex items-center gap-1"
+                    >
+                      {copiedReadable ? (
+                        <Check className="h-3.5 w-3.5" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                      {copiedReadable
+                        ? t("settings.agentRuns.copied")
+                        : t("settings.agentRuns.copyReadable")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void copy(run.output, setCopiedRaw)}
+                      className="inline-flex items-center gap-1"
+                    >
+                      {copiedRaw
+                        ? t("settings.agentRuns.copied")
+                        : t("settings.agentRuns.copyRaw")}
+                    </Button>
+                  </>
+                )}
               </div>
             )
           }
@@ -295,7 +348,20 @@ export const AgentRunRow: React.FC<AgentRunRowProps> = ({
               ref={outputRef}
               className="max-h-96 overflow-y-auto rounded-md border border-mid-gray/20 bg-mid-gray/5 p-3 space-y-2"
             >
-              {!run.output ? (
+              {hasStructuredEvents && !showRawOutput ? (
+                // Task 11: an ACP run's richer structured view. A run with NO
+                // structured events (every raw CLI/remote run) never takes
+                // this branch — see `hasStructuredEvents` above — so the
+                // three branches below are BYTE-FOR-BYTE what rendered before
+                // this feature existed, and are also what "Raw output" falls
+                // back to for a structured run (Critical 1 fix: the ACP
+                // session header line, a crash's plain-text error, and the
+                // actionable diagnostic hint on a classified failure are
+                // emitted ONLY into this buffer, never as a `RunEvent`, so
+                // they must stay reachable even when the richer view is
+                // showing).
+                <RunEventList rows={eventRows} />
+              ) : !run.output ? (
                 <p className="text-xs text-mid-gray font-mono">
                   {t("settings.agentRuns.output.empty")}
                 </p>
@@ -419,6 +485,15 @@ export const AgentRunRow: React.FC<AgentRunRowProps> = ({
           )}
         </div>
       )}
+
+      {/*
+        Non-modal, pinned to the bottom of the run regardless of whether the
+        Output section is collapsed — a modal would cover the very output the
+        user needs in order to decide. Renders nothing when there is no open
+        request (every raw CLI/remote run, and every ACP run outside a
+        permission ask).
+      */}
+      <PermissionPrompt runId={run.run_id} requests={openPermissionRequests} />
     </div>
   );
 };

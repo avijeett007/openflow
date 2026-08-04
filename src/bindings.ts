@@ -969,6 +969,53 @@ async testRemoteAgent(agentId: string) : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Answer a parked `session/request_permission` prompt. Routes into Task 8's
+ * existing per-run channel (`AgentRunManager::respond_permission`) — there is
+ * no second path into the driver's turn loop.
+ * 
+ * `option_id` is the EXACT agent-supplied option the UI button the user
+ * clicked corresponds to (Task 11 review, Important 5). `outcome` still
+ * drives the once/always + allow/deny bookkeeping (`parse_outcome`); it is
+ * no longer solely responsible for selecting which option gets sent back —
+ * see `AgentRunManager::respond_permission`'s doc comment for why `outcome`
+ * alone made two same-kind options indistinguishable.
+ */
+async respondAgentPermission(runId: string, requestId: string, outcome: string, optionId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("respond_agent_permission", { runId, requestId, outcome, optionId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Lightweight reachability test for an ACP agent: spawn it, send
+ * `initialize`, report what it said, then close it. Deliberately does NOT
+ * call `session/new` or send a prompt — same restraint as
+ * `commands::remote_agents::test_remote_agent`, since a real turn may cost
+ * money or trigger real work.
+ */
+async testAcpAgent(agentId: string) : Promise<Result<AcpAgentTest, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_acp_agent", { agentId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * End an agent's warm ACP session on demand (the run panel's "End session"
+ * action). A no-op if the agent has no live session.
+ */
+async endAcpSession(agentId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("end_acp_session", { agentId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async createAiMode(mode: AiMode) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_ai_mode", { mode }) };
@@ -1114,6 +1161,29 @@ async stopAgentRun(runId: string) : Promise<Result<null, string>> {
 async clearFinishedAgentRuns() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("clear_finished_agent_runs") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Start a follow-up run against the same agent from the run panel — the run
+ * panel's Task 11 addition. Reuses `AgentRunManager::start` VERBATIM, the
+ * exact path `finish_dictation` already takes for an `agent:<id>` hotkey
+ * (`actions.rs`), so a follow-up behaves identically to a fresh hotkey
+ * trigger: for an ACP-mode agent, `AcpSessionManager::acquire` transparently
+ * reuses the still-warm session for this agent id (continuing the same
+ * conversation) when its `cwd` still matches and its child is still alive,
+ * or spawns a fresh one otherwise — this command never has to know or care
+ * which happened.
+ * 
+ * Mirrors `finish_dictation`'s own guard: only `Cli`/`Remote` agents drive a
+ * real run here; a `Prompt` agent has no binary/endpoint to run and must not
+ * reach the run registry through this door.
+ */
+async sendAgentFollowup(agentId: string, instruction: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("send_agent_followup", { agentId, instruction }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1610,6 +1680,7 @@ async isLaptop() : Promise<Result<boolean, string>> {
 
 
 export const events = __makeEvents__<{
+agentRunEvent: AgentRunEvent,
 agentRunOutput: AgentRunOutput,
 agentRunStatus: AgentRunStatus,
 historyUpdatePayload: HistoryUpdatePayload,
@@ -1621,6 +1692,7 @@ meetingState: MeetingState,
 streamPhaseEvent: StreamPhaseEvent,
 streamTextEvent: StreamTextEvent
 }>({
+agentRunEvent: "agent-run-event",
 agentRunOutput: "agent-run-output",
 agentRunStatus: "agent-run-status",
 historyUpdatePayload: "history-update-payload",
@@ -1639,6 +1711,28 @@ streamTextEvent: "stream-text-event"
 
 /** user-defined types **/
 
+/**
+ * Result of `test_acp_agent`: what the agent said during `initialize`, and
+ * nothing more — no session, no prompt, no cost.
+ */
+export type AcpAgentTest = { ok: boolean; agent_name: string; agent_version: string; protocol_version: number }
+/**
+ * What to do when an ACP agent calls `session/request_permission`.
+ */
+export type AcpPermissionPolicy = 
+/**
+ * Prompt the user in the run panel. Default.
+ */
+"ask" | 
+/**
+ * Auto-allow `edit` tool calls; prompt for everything else. Approximates
+ * the pre-ACP `--permission-mode acceptEdits` behaviour.
+ */
+"auto_edits" | 
+/**
+ * Auto-allow everything. Opt-in, surfaced with a warning in the UI.
+ */
+"auto_all"
 /**
  * Classified, actionable failure modes surfaced by `test_agent_binary`. The
  * frontend renders a localized fix for each instead of a raw spawn stack.
@@ -1756,7 +1850,21 @@ remote_card_version?: string;
 /**
  * Card `capabilities.streaming`, cached — whether we may use `message/stream`.
  */
-remote_streaming?: boolean }
+remote_streaming?: boolean; 
+/**
+ * Raw (default) or Acp. Only meaningful when `kind == Cli`.
+ */
+cli_protocol?: CliProtocol; 
+/**
+ * Argv template used in ACP mode. Deliberately SEPARATE from
+ * `command_template` so toggling protocol never destroys the other mode's
+ * configuration.
+ */
+acp_command_template?: string; acp_permission_policy?: AcpPermissionPolicy; 
+/**
+ * Seconds a warm session may sit idle before it is closed. `0` = never.
+ */
+acp_idle_timeout_secs?: number }
 /**
  * Flow OS increment 2 — what KIND of agent this is. `Prompt` is the increment-1
  * behavior (dictation routed through a persona LLM before injection). `Cli`
@@ -1782,6 +1890,11 @@ export type AgentOutputMode = "inject" | "clipboard"
  */
 export type AgentOutputSink = "panel" | "notify" | "file"
 /**
+ * Emitted per structured update. Event name: `agent-run-event`. Sits ALONGSIDE
+ * the existing `agent-run-output`, never replacing it.
+ */
+export type AgentRunEvent = { run_id: string; event: RunEvent }
+/**
  * A snapshot of a run for the frontend (`list_agent_runs`).
  */
 export type AgentRunInfo = { run_id: string; agent_id: string; agent_name: string; project_path: string; status: RunStatus; 
@@ -1804,7 +1917,14 @@ instruction: string;
 /**
  * Absolute path to the written run file, once the File sink has run.
  */
-output_file: string | null }
+output_file: string | null; 
+/**
+ * The ACP session this run's turn belonged to; `None` for raw CLI and
+ * remote runs. ADDITIVE on purpose: one ACP turn is one run (`RunStatus`
+ * gains no variant, so no frontend `switch` breaks — DESIGN §6), and runs
+ * sharing a session id are one conversation thread in the panel.
+ */
+session_id: string | null }
 /**
  * Emitted per output line while a run streams. Event name: `agent-run-output`.
  */
@@ -2130,6 +2250,12 @@ export type CliAgentDefaults = { command_template: string; prompt_via: PromptDel
  * Canonical binary name to auto-detect on PATH (`None` for `custom`).
  */
 binary_name: string | null }
+/**
+ * How the `Cli` driver talks to the agent binary. `Raw` (default) is today's
+ * one-shot subprocess: spawn, feed the prompt, read stdout to EOF, exit. `Acp`
+ * is a long-lived JSON-RPC session over stdio.
+ */
+export type CliProtocol = "raw" | "acp"
 export type ClipboardHandling = "dont_modify" | "copy_to_clipboard"
 export type CustomSounds = { start: boolean; stop: boolean }
 /**
@@ -2350,6 +2476,8 @@ export type PaginatedHistory = { entries: HistoryEntry[]; has_more: boolean }
 export type PairedDeviceInfo = { device_id: string; device_name: string; url: string }
 export type PasteMethod = "ctrl_v" | "direct" | "none" | "shift_insert" | "ctrl_shift_v" | "external_script"
 export type PermissionAccess = "allowed" | "denied" | "unknown"
+export type PermissionOption = { option_id: string; name: string; kind: string }
+export type PlanEntry = { content: string; priority: string; status: string }
 export type PostProcessProvider = { id: string; label: string; base_url: string; allow_base_url_edit?: boolean; models_endpoint?: string | null; supports_structured_output?: boolean }
 export type ProjectUsage = { project: string; dictations: number; words: number }
 /**
@@ -2359,6 +2487,25 @@ export type ProjectUsage = { project: string; dictations: number; words: number 
  */
 export type PromptDelivery = "stdin" | "arg"
 export type RecordingRetentionPeriod = "never" | "preserve_limit" | "days_3" | "weeks_2" | "months_3"
+export type RunEvent = { kind: "text"; text: string } | { kind: "thought"; text: string } | { kind: "plan"; entries: PlanEntry[] } | { kind: "tool_call"; id: string; title: string; tool_kind: string; status: string; locations: string[] } | 
+/**
+ * A REFINEMENT of an existing `ToolCall`, not a replacement. Every field
+ * but `id` is `Option` and `None` means **"the agent said nothing about
+ * this — leave it alone"**, never "reset it". Consumers MUST merge, not
+ * overwrite: see `render_line` below and `runEventRows.ts`.
+ */
+{ kind: "tool_call_update"; id: string; status: string | null; title: string | null; tool_kind: string | null; locations: string[] | null; content: string | null } | 
+/**
+ * `tool_kind` and `locations` are carried HERE rather than left to a
+ * frontend join on `tool_call_id`. ACP permits a permission request with
+ * no preceding `tool_call` at all, and the join then silently misses —
+ * leaving the card showing a bare title like *"Edit file"* with no
+ * indication of WHAT it touches, above an Allow button. The agent handed
+ * us both fields in the request itself; throwing them away and guessing
+ * them back is the one thing a permission gate must not do.
+ * Empty `tool_kind` / empty `locations` mean the agent did not say.
+ */
+{ kind: "permission_request"; request_id: string; tool_call_id: string | null; title: string; tool_kind: string; locations: string[]; options: PermissionOption[] } | { kind: "permission_resolved"; request_id: string; outcome: string; automatic: boolean } | { kind: "turn_end"; stop_reason: string }
 /**
  * Terminal/live status of a run. Internally tagged so the TS side is a clean
  * discriminated union: `{ status: "running" } | { status: "finished", code }`

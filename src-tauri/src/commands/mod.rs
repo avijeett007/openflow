@@ -1,3 +1,4 @@
+pub mod acp_agents;
 pub mod agent_runs;
 pub mod agents;
 pub mod ai_modes;

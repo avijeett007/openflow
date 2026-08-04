@@ -14,7 +14,7 @@ use tokio::process::Command;
 
 use crate::managers::agent_run::{AgentRunInfo, AgentRunManager};
 use crate::settings::{
-    default_cli_binary_name, default_cli_template, AgentCliType, PromptDelivery,
+    self, default_cli_binary_name, default_cli_template, AgentCliType, AgentKind, PromptDelivery,
 };
 
 /// Result of `test_agent_binary`: whether the binary ran and its version output.
@@ -248,6 +248,50 @@ pub fn clear_finished_agent_runs(app: AppHandle) -> Result<(), String> {
         mgr.clear_finished();
     }
     Ok(())
+}
+
+/// Start a follow-up run against the same agent from the run panel — the run
+/// panel's Task 11 addition. Reuses `AgentRunManager::start` VERBATIM, the
+/// exact path `finish_dictation` already takes for an `agent:<id>` hotkey
+/// (`actions.rs`), so a follow-up behaves identically to a fresh hotkey
+/// trigger: for an ACP-mode agent, `AcpSessionManager::acquire` transparently
+/// reuses the still-warm session for this agent id (continuing the same
+/// conversation) when its `cwd` still matches and its child is still alive,
+/// or spawns a fresh one otherwise — this command never has to know or care
+/// which happened.
+///
+/// Mirrors `finish_dictation`'s own guard: only `Cli`/`Remote` agents drive a
+/// real run here; a `Prompt` agent has no binary/endpoint to run and must not
+/// reach the run registry through this door.
+#[tauri::command]
+#[specta::specta]
+pub fn send_agent_followup(
+    app: AppHandle,
+    agent_id: String,
+    instruction: String,
+) -> Result<String, String> {
+    let instruction = instruction.trim().to_string();
+    if instruction.is_empty() {
+        return Err("The follow-up message is empty".to_string());
+    }
+    let agent = settings::get_settings(&app)
+        .agents
+        .into_iter()
+        .find(|a| a.id == agent_id)
+        .ok_or_else(|| format!("Agent '{agent_id}' not found"))?;
+    if !agent.enabled {
+        return Err(format!("Agent '{}' is disabled", agent.name));
+    }
+    if agent.kind != AgentKind::Cli && agent.kind != AgentKind::Remote {
+        return Err(format!(
+            "'{}' is a persona agent and has no run to follow up on",
+            agent.name
+        ));
+    }
+    let mgr = app
+        .try_state::<Arc<AgentRunManager>>()
+        .ok_or_else(|| "Agent run manager not initialized".to_string())?;
+    Ok(mgr.inner().start(&app, agent, instruction))
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 mod a2a;
+mod acp;
 mod actions;
 mod active_app;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -196,6 +197,13 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // Flow OS increment 2: registry of live/recent CLI-agent subprocess runs.
     let agent_run_manager = Arc::new(managers::agent_run::AgentRunManager::new());
 
+    // C0: registry of warm ACP (Agent Client Protocol) sessions — a sibling of
+    // agent_run_manager for `CliProtocol::Acp` agents. Keeps one long-lived
+    // agent subprocess per agent id warm between instructions; idle sessions
+    // are reaped by the interval task started below, and `RunEvent::Exit`
+    // closes every remaining one so no child is ever orphaned.
+    let acp_session_manager = Arc::new(managers::acp_session::AcpSessionManager::new());
+
     // OpenFlow Meetings (M1): meeting capture + on-device transcription. Opens the
     // same history.db HistoryManager just migrated (the meetings tables exist by
     // now), and is a sibling of the TranscriptionCoordinator — never a client.
@@ -215,8 +223,24 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(analytics_manager.clone());
     app_handle.manage(wake_word_manager.clone());
     app_handle.manage(agent_run_manager.clone());
+    app_handle.manage(acp_session_manager.clone());
     app_handle.manage(meeting_manager.clone());
     app_handle.manage(service_sync_manager.clone());
+
+    // Idle reaper for warm ACP sessions: every 60s, close any session that has
+    // sat idle past its agent's configured `acp_idle_timeout_secs` (0 = never).
+    // This is the only thing that closes a session the user simply stopped
+    // using — `acquire`'s own reuse check only fires on the NEXT run.
+    {
+        let mgr = Arc::clone(&acp_session_manager);
+        tauri::async_runtime::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                ticker.tick().await;
+                mgr.reap_idle(chrono::Local::now().timestamp_millis()).await;
+            }
+        });
+    }
 
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
@@ -698,6 +722,9 @@ pub fn run(cli_args: CliArgs) {
             commands::agents::test_agent,
             commands::remote_agents::fetch_remote_agent_card,
             commands::remote_agents::test_remote_agent,
+            commands::acp_agents::respond_agent_permission,
+            commands::acp_agents::test_acp_agent,
+            commands::acp_agents::end_acp_session,
             commands::ai_modes::create_ai_mode,
             commands::ai_modes::update_ai_mode,
             commands::ai_modes::delete_ai_mode,
@@ -712,6 +739,7 @@ pub fn run(cli_args: CliArgs) {
             commands::agent_runs::list_agent_runs,
             commands::agent_runs::stop_agent_run,
             commands::agent_runs::clear_finished_agent_runs,
+            commands::agent_runs::send_agent_followup,
             commands::audio::update_microphone_mode,
             commands::audio::get_microphone_mode,
             commands::audio::get_windows_microphone_permission_status,
@@ -773,6 +801,11 @@ pub fn run(cli_args: CliArgs) {
             managers::transcription::StreamPhaseEvent,
             managers::agent_run::AgentRunOutput,
             managers::agent_run::AgentRunStatus,
+            // C0: structured ACP run events, ALONGSIDE the two above (which the
+            // ACP driver still emits for every event — dual emission). Must be
+            // registered here: tauri-specta's `Event::emit` panics on an event
+            // missing from the registry.
+            acp::events::AgentRunEvent,
             managers::meeting::MeetingDetected,
             managers::meeting::MeetingState,
             managers::meeting::MeetingSegmentEvent,
@@ -1051,6 +1084,12 @@ pub fn run(cli_args: CliArgs) {
             tauri::RunEvent::Exit => {
                 if let Some(tm) = app.try_state::<Arc<TranscriptionManager>>() {
                     let _ = tm.unload_model();
+                }
+                // Close every warm ACP session so no agent subprocess is left
+                // running after OpenFlow quits.
+                if let Some(acp) = app.try_state::<Arc<managers::acp_session::AcpSessionManager>>()
+                {
+                    tauri::async_runtime::block_on(acp.shutdown_all());
                 }
             }
             _ => {}
