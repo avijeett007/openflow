@@ -9,4 +9,6 @@
 //!   grants.rs    — the host-side authorisation re-check + offer publication
 //!   transport.rs — the transport trait + its WebSocket implementation
 
+pub mod grants;
 pub mod protocol;
+pub mod transport;
