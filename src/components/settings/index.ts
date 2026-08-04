@@ -16,6 +16,7 @@ export { DashboardSettings } from "./dashboard/DashboardSettings";
 export { HandsFreeSettings } from "./hands-free/HandsFreeSettings";
 export { MissionControlSettings } from "./mission-control/MissionControlSettings";
 export { ServiceSettings } from "./service/ServiceSettings";
+export { SharingSettings } from "./sharing/SharingSettings";
 
 // Individual setting components
 export { MicrophoneSelector } from "./MicrophoneSelector";

@@ -86,6 +86,17 @@ pub fn republish_is_a_no_op(sharing: &SharingConfig, is_hosting: bool) -> bool {
     sharing.is_dormant() && !is_hosting
 }
 
+/// Whether a live loop's `(ws_url, token)` — the pair it was started with —
+/// disagrees with what the CURRENT settings/keyring say it should be.
+///
+/// Pure and split out from [`AgentHostManager::republish`] so the comparison
+/// itself is unit-testable without an `AppHandle` (Concern 7). `installed` is
+/// `None` when nothing is hosting, which is never "changed" — the caller
+/// already routes that case through `ensure_started` instead.
+fn connector_changed(installed: Option<(String, String)>, current: (String, String)) -> bool {
+    installed.is_some() && installed != Some(current)
+}
+
 /// **The one place a relay socket is ever opened**, including on every
 /// reconnect — `run_host_loop` goes through here rather than calling
 /// `connector.connect()` itself. Wrapping `connect` in the gate (instead of
@@ -665,6 +676,12 @@ struct HostSlot {
     running: Arc<AtomicBool>,
     state: Arc<HostState>,
     outbound: mpsc::UnboundedSender<HostMessage>,
+    /// The `(ws_url, device_token)` this loop was born with. `republish`
+    /// compares this against the CURRENT settings/keyring on every call so a
+    /// live loop that keeps dialling with a dead credential (re-pair, or an
+    /// edited `service_url`) gets restarted instead of quietly failing forever
+    /// — see the doc comment on [`AgentHostManager::republish`].
+    connector: (String, String),
 }
 
 /// The manager's start/stop bookkeeping, deliberately split out with **no
@@ -692,6 +709,13 @@ impl HostSlots {
             .map(|s| Arc::clone(&s.state))
     }
 
+    /// The `(ws_url, device_token)` the live loop was started with, if any.
+    /// `republish` uses this to detect a credential/URL change under a live
+    /// connection.
+    fn connector(&self) -> Option<(String, String)> {
+        self.0.lock().unwrap().as_ref().map(|s| s.connector.clone())
+    }
+
     fn enqueue(&self, msg: HostMessage) {
         if let Some(slot) = self.0.lock().unwrap().as_ref() {
             let _ = slot.outbound.send(msg);
@@ -704,6 +728,7 @@ impl HostSlots {
     fn install(
         &self,
         state: Arc<HostState>,
+        connector: (String, String),
     ) -> Option<(Arc<AtomicBool>, mpsc::UnboundedReceiver<HostMessage>)> {
         let mut current = self.0.lock().unwrap();
         if current
@@ -720,6 +745,7 @@ impl HostSlots {
             running: Arc::clone(&running),
             state,
             outbound: tx,
+            connector,
         });
         Some((running, rx))
     }
@@ -859,17 +885,20 @@ impl AgentHostManager {
             settings.sharing.clone(),
             settings.agents.clone(),
         ));
+        let ws_url = relay_ws_url(&settings.service_url);
         // Claims the slot and mints this loop's OWN flag; `None` means a loop is
-        // already live, which is what makes this idempotent.
-        let Some((running, rx)) = self.slots.install(Arc::clone(&state)) else {
+        // already live, which is what makes this idempotent. The connector is
+        // recorded alongside the state so a later `republish` can tell whether
+        // the loop it finds live is still dialling with current credentials.
+        let Some((running, rx)) = self
+            .slots
+            .install(Arc::clone(&state), (ws_url.clone(), token.clone()))
+        else {
             return;
         };
         self.wire_run_pipeline();
 
-        let connector = WsConnector {
-            url: relay_ws_url(&settings.service_url),
-            token,
-        };
+        let connector = WsConnector { url: ws_url, token };
         let launcher = Arc::new(AgentRunLauncher {
             manager: Arc::clone(&self.runs),
             app: self.app.clone(),
@@ -995,24 +1024,25 @@ impl AgentHostManager {
     /// disappears immediately rather than at the next reconnect — and so the
     /// live connection re-authorises against the new settings.
     ///
-    /// **KNOWN DEFECT, found by the live end-to-end task and deliberately not
-    /// fixed here: a live loop keeps dialling with the token it was born with.**
-    /// [`Self::ensure_started`] builds the [`WsConnector`] — URL *and* device
-    /// token — once, and the loop owns it for its whole life. The `(true,
-    /// Some(state))` arm below only installs fresh settings and pushes a
-    /// `hello`, and `ensure_started` is a no-op while a loop is live. So after
-    /// the owner unpairs and re-pairs (a new device token in the keyring), or
-    /// edits `service_url`, the host goes on dialling with the DEAD credential
-    /// until the app restarts — and, since v0.15.7's pairing writes the token
-    /// without restarting anything, the owner has no signal that it did.
-    /// Reproduce by revoking the device (`DELETE /v1/devices/{id}`), watching
-    /// the loop log `dial_was_refused` at `error`, then re-pairing: it keeps
-    /// failing. The fix is for `republish` to compare the connector's inputs
-    /// and `pause()` + `ensure_started()` when they change, which is a
-    /// behavioural change that belongs with the settings/UI task rather than
-    /// with a verification task. Recorded here, not only in
-    /// `verification/shared-agents/RESULTS.md`, because this is the function
-    /// whoever fixes it will be reading.
+    /// **Fixed defect, found by the live end-to-end task: a live loop used to
+    /// keep dialling with the token it was born with.** [`Self::ensure_started`]
+    /// builds the [`WsConnector`] — URL *and* device token — once, and the loop
+    /// owns it for its whole life; `ensure_started` is a no-op while a loop is
+    /// live. So after the owner unpaired and re-paired (a new device token in
+    /// the keyring), or edited `service_url`, the host would go on dialling
+    /// with the DEAD credential until the app restarted, with no signal to the
+    /// owner that it had. The `(true, Some(state))` arm below now compares the
+    /// live loop's `(ws_url, token)` (recorded on the [`HostSlot`] at
+    /// `ensure_started` time) against the current settings/keyring; on a
+    /// mismatch it `pause()`s — which also stops every in-flight teammate
+    /// run, the same as any other kill-switch path — and calls
+    /// `ensure_started()` fresh, rather than pushing a `hello` on a socket
+    /// that is still authenticating with the old credential. Reproduced by
+    /// revoking the device (`DELETE /v1/devices/{id}`), watching the loop log
+    /// `dial_was_refused` at `error`, then re-pairing: before this fix it kept
+    /// failing; now `write_settings` (which `pair_service` and
+    /// `redeem_service_invite` both call after writing the token) drives
+    /// straight through this comparison and restarts the loop.
     pub fn republish(self: &Arc<Self>, settings: &AppSettings) {
         // Hot path. Every settings write in the app reaches here, so the common
         // case — sharing never configured, no loop running — must be nearly
@@ -1045,13 +1075,28 @@ impl AgentHostManager {
         // out still has a slot, and enqueueing into its channel would drop the
         // republish on the floor.
         match (self.slots.is_hosting(), self.state()) {
-            // Still hosting: reconcile the live state against the NEW settings.
-            // `apply_settings` re-runs `authorize_open` for every live session,
-            // so a revoked member, a disabled agent or a deleted grant all stop
-            // their run right here — the next `open` was already covered by
-            // installing the config, but an ALREADY-RUNNING session needed this
-            // too. Only push a fresh `hello` when the offer list actually
-            // changed, so an unrelated edit does not churn the service.
+            // Still hosting: first check whether the loop's own credentials are
+            // stale (re-pair, or an edited `service_url`) — see the doc comment
+            // above. A loop dialling with a dead token cannot be fixed by
+            // reconciling `HostState`, so restart it instead of reconciling.
+            (true, Some(_))
+                if connector_changed(
+                    self.slots.connector(),
+                    (relay_ws_url(&settings.service_url), token.clone()),
+                ) =>
+            {
+                log::info!("relay: connector inputs changed under a live loop; restarting");
+                self.pause();
+                self.ensure_started();
+            }
+            // Still hosting, same credentials: reconcile the live state against
+            // the NEW settings. `apply_settings` re-runs `authorize_open` for
+            // every live session, so a revoked member, a disabled agent or a
+            // deleted grant all stop their run right here — the next `open`
+            // was already covered by installing the config, but an
+            // ALREADY-RUNNING session needed this too. Only push a fresh
+            // `hello` when the offer list actually changed, so an unrelated
+            // edit does not churn the service.
             (true, Some(state)) => {
                 let delta = state.apply_settings(settings.sharing.clone(), settings.agents.clone());
                 self.stop_runs(&delta.sessions_to_stop);
@@ -1348,6 +1393,14 @@ mod tests {
         .unwrap()
     }
 
+    /// A placeholder `(ws_url, token)` for tests that install a `HostSlots`
+    /// directly and don't care about the connector — only the ones exercising
+    /// [`HostSlots::connector`] / the republish-restart path construct their
+    /// own.
+    fn test_connector() -> (String, String) {
+        ("wss://test.invalid/v2/relay/host".into(), "tok".into())
+    }
+
     fn sharing_with_grant() -> SharingConfig {
         SharingConfig {
             enabled: true,
@@ -1561,6 +1614,54 @@ mod tests {
         // …and a configured host always does the work.
         assert!(!republish_is_a_no_op(&sharing_with_grant(), false));
         assert!(!republish_is_a_no_op(&sharing_with_grant(), true));
+    }
+
+    #[test]
+    fn connector_change_is_detected_so_a_live_loop_gets_restarted() {
+        // The defect this guards against: a live loop keeps dialling with the
+        // token/URL it was born with. `republish` must notice when the
+        // CURRENT settings/keyring disagree with what a live loop was
+        // installed with, so re-pairing or editing `service_url` actually
+        // reaches the socket instead of silently going stale.
+        let born = (
+            "wss://relay.example/v2/relay/host".to_string(),
+            "old-token".to_string(),
+        );
+
+        // Nothing hosting: never "changed" — `republish` routes that through
+        // `ensure_started` on its own, not through this comparison.
+        assert!(!connector_changed(None, born.clone()));
+
+        // Same url, same token: no restart warranted.
+        assert!(!connector_changed(Some(born.clone()), born.clone()));
+
+        // Re-pairing mints a new device token: the exact scenario from the
+        // defect report (`DELETE /v1/devices/{id}`, then re-pair).
+        let new_token = (born.0.clone(), "new-token".to_string());
+        assert!(connector_changed(Some(born.clone()), new_token));
+
+        // Editing `service_url` while the token is unchanged also counts.
+        let new_url = (
+            "wss://relay2.example/v2/relay/host".to_string(),
+            born.1.clone(),
+        );
+        assert!(connector_changed(Some(born.clone()), new_url));
+    }
+
+    #[test]
+    fn host_slots_records_the_connector_it_was_installed_with() {
+        let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        let slots = HostSlots::default();
+        assert_eq!(slots.connector(), None, "nothing installed yet");
+
+        let connector = (
+            "wss://relay.example/v2/relay/host".to_string(),
+            "tok".to_string(),
+        );
+        slots
+            .install(Arc::clone(&state), connector.clone())
+            .unwrap();
+        assert_eq!(slots.connector(), Some(connector));
     }
 
     #[test]
@@ -2035,7 +2136,7 @@ mod tests {
         let _ = block_on(state.handle_service_message(open_msg("s1", "m-priya"), &t, &l));
 
         let slots = HostSlots::default();
-        slots.install(Arc::clone(&state)).unwrap();
+        slots.install(Arc::clone(&state), test_connector()).unwrap();
         assert!(slots.is_hosting());
 
         slots.pause(&l);
@@ -2576,7 +2677,9 @@ mod tests {
         let attempts = Arc::new(AtomicUsize::new(0));
 
         // Loop 1 takes the slot and gets ITS flag from the real bookkeeping.
-        let (running_1, rx_1) = slots.install(Arc::clone(&stale_state)).unwrap();
+        let (running_1, rx_1) = slots
+            .install(Arc::clone(&stale_state), test_connector())
+            .unwrap();
         assert!(slots.is_hosting());
 
         let connector = RefusingConnector {
@@ -2606,7 +2709,7 @@ mod tests {
             assert!(!slots_probe.is_hosting());
             // …and immediately shares a different agent. This is the restart.
             let fresh = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
-            let (running_2, _rx_2) = slots_probe.install(fresh).unwrap();
+            let (running_2, _rx_2) = slots_probe.install(fresh, test_connector()).unwrap();
 
             assert!(
                 !Arc::ptr_eq(&running_1_probe, &running_2),
@@ -2646,7 +2749,7 @@ mod tests {
         // channel with no receiver — a permanently dead host, silently.
         let slots = HostSlots::default();
         let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
-        let (running, _rx) = slots.install(state).unwrap();
+        let (running, _rx) = slots.install(state, test_connector()).unwrap();
         assert!(slots.is_hosting() && slots.state().is_some());
 
         // The loop finishes and retires itself.
@@ -2660,7 +2763,10 @@ mod tests {
         );
         // …and the slot is free, so a later ensure_started can take it.
         let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
-        assert!(slots.install(state).is_some(), "the slot must be reusable");
+        assert!(
+            slots.install(state, test_connector()).is_some(),
+            "the slot must be reusable"
+        );
     }
 
     #[test]
@@ -2673,14 +2779,14 @@ mod tests {
         // pointer, would then clear the NEW slot and kill the live host.
         let slots = HostSlots::default();
         let first = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
-        let (running_1, _rx_1) = slots.install(first).unwrap();
+        let (running_1, _rx_1) = slots.install(first, test_connector()).unwrap();
 
         running_1.store(false, Ordering::SeqCst); // the loop has finished
         assert!(!slots.is_hosting(), "a cleared flag means not hosting");
 
         let second = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
         let (running_2, _rx_2) = slots
-            .install(second)
+            .install(second, test_connector())
             .expect("a dead slot must be replaceable");
 
         assert!(
@@ -2705,9 +2811,11 @@ mod tests {
     fn a_second_ensure_started_while_hosting_is_a_no_op() {
         let slots = HostSlots::default();
         let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
-        assert!(slots.install(Arc::clone(&state)).is_some());
+        assert!(slots
+            .install(Arc::clone(&state), test_connector())
+            .is_some());
         assert!(
-            slots.install(state).is_none(),
+            slots.install(state, test_connector()).is_none(),
             "only one loop may ever be live"
         );
     }

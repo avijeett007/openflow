@@ -34,7 +34,8 @@
       "meetings": "Meetings",
       "system": "System"
     },
-    "service": "OpenFlow Service"
+    "service": "OpenFlow Service",
+    "sharing": "Sharing"
   },
   "onboarding": {
     "subtitle": "To get started, choose a transcription model",
@@ -1369,6 +1370,53 @@
       "lastSync": "Last sync: {{when}}",
       "neverSynced": "Not synced yet",
       "pending": "{{count}} pending"
+    },
+    "sharing": {
+      "title": "Sharing",
+      "intro": "Let named teammates run one of your agents on this machine, in a folder you choose for each grant.",
+      "notEncryptedNotice": "Sessions are <strong>not end-to-end encrypted</strong>. Whoever operates your service can read the instructions your teammates send and the output your agents return. A shared agent also runs <strong>on this machine, as you, with your credentials</strong>, in the folder you pick for each grant — git is your safety net, exactly as it is for a local agent.",
+      "loading": "Checking connection…",
+      "pausedToast": "Sharing paused. The connection is closed and any run a teammate had going was stopped.",
+      "pauseButton": "Pause sharing",
+      "notPaired": {
+        "body": "Sharing needs a paired OpenFlow Service. Pair this device first, then come back here to choose what to share.",
+        "cta": "Go to Service settings"
+      },
+      "toggle": {
+        "label": "Share agents with your team",
+        "description": "When on, this device publishes the grants below to your paired service so an invited teammate can start a session and run one of your agents here."
+      },
+      "status": {
+        "connected": "Connected · {{offers}} agent(s) shared · {{sessions}} active session(s)",
+        "reconnecting": "Not connected yet. Reconnecting can take up to a minute after a change — there is no way to force it faster.",
+        "lastError": "Last problem reaching the service: {{error}}"
+      },
+      "notMember": {
+        "notice": "The paired service refused this device as not bound to a teammate on your team. Redeem a teammate invite below to fix it — this check only happens when the app dials the service, so pausing and re-enabling sharing clears this notice until the next attempt.",
+        "invitePlaceholder": "Paste the invite code your service admin gave you",
+        "redeem": "Redeem",
+        "redeemedToast": "Invite redeemed. Reconnecting can take up to a minute — there is no way to force it faster."
+      },
+      "grants": {
+        "title": "Grants",
+        "noAgents": "No CLI or Remote agents yet — add one in Agents first.",
+        "empty": "No agents are shared yet. Add a grant below.",
+        "add": "Add grant",
+        "remove": "Remove grant",
+        "incomplete": "Pick an agent, a folder, and at least one teammate to share this grant.",
+        "agentPlaceholder": "Choose an agent",
+        "agentKindCli": "CLI",
+        "agentKindRemote": "Remote",
+        "folderPlaceholder": "No folder chosen",
+        "folderChoose": "Choose folder",
+        "folderClear": "Clear folder",
+        "folderHint": "This folder is set per grant — it is never inherited from the agent's own project folder.",
+        "folderError": "Could not open the folder picker: {{error}}",
+        "membersLabel": "Who can run it",
+        "membersLoading": "Loading teammates…",
+        "membersError": "Could not load teammates: {{error}}",
+        "membersEmpty": "No teammates yet on the paired service."
+      }
     }
   },
   "footer": {

@@ -17,6 +17,7 @@ import {
   Radar,
   Video,
   Cloud,
+  Share2,
 } from "lucide-react";
 import { useSettings } from "../hooks/useSettings";
 import openflowLogo from "../assets/openflow-logo.png";
@@ -37,6 +38,7 @@ import {
   MissionControlSettings,
   MeetingsSettings,
   ServiceSettings,
+  SharingSettings,
 } from "./settings";
 
 export type SidebarSection = keyof typeof SECTIONS_CONFIG;
@@ -157,6 +159,13 @@ export const SECTIONS_CONFIG = {
     labelKey: "sidebar.agentRuns",
     icon: Activity,
     component: AgentRunsSettings,
+    enabled: () => true,
+    group: "agents",
+  },
+  sharing: {
+    labelKey: "sidebar.sharing",
+    icon: Share2,
+    component: SharingSettings,
     enabled: () => true,
     group: "agents",
   },
