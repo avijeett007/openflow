@@ -850,7 +850,7 @@
       "acp": {
         "protocol": {
           "label": "Protocol",
-          "description": "One-shot spawns the CLI, feeds it one prompt, and exits when it's done. ACP session keeps the agent running between instructions so it remembers context, streams what it's doing (thinking, plan, tool calls), and asks permission before it acts.",
+          "description": "One-shot spawns the CLI, feeds it one prompt, and exits when it's done. ACP session keeps the agent running between instructions so it remembers context, streams what it's doing (thinking, plan, tool calls), and can ask permission before it acts.",
           "raw": "One-shot",
           "acp": "ACP session"
         },
@@ -866,7 +866,7 @@
         },
         "permission": {
           "label": "Permissions",
-          "description": "What to do when the agent asks permission before acting. This is ACP's real approval gate, replacing one-shot mode's silent auto-accept.",
+          "description": "What to do when the agent asks permission before acting. One-shot mode never asks at all; this governs whatever the agent does ask about.",
           "options": {
             "ask": "Ask",
             "auto_edits": "Auto-approve edits",
