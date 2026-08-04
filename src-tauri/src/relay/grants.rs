@@ -140,17 +140,33 @@ impl std::ops::Deref for BrokeredRun {
 /// **Caller obligation, and the limit of what the token proves.** This is a pure
 /// function of the config it is handed. The [`Authorized`] it mints therefore
 /// proves *"a re-check ran, and it resolved to exactly this agent and this
-/// folder"* — it cannot prove the config was the owner's live settings, because
-/// `SharingConfig`/`AgentDefinition` are plain serde settings data with public
-/// fields that any caller can construct. No visibility modifier closes that:
-/// `pub(in crate::managers)` is illegal from here (`crate::managers` is not an
-/// ancestor of `crate::relay::grants`), and moving the config behind a newtype
-/// only moves the same forgeable constructor one level up.
+/// folder"* — it does **not** prove the config was the owner's live settings,
+/// because `SharingConfig`/`AgentDefinition` are plain settings data that any
+/// caller in this crate can construct.
 ///
-/// What actually holds the line is that there is exactly ONE production caller
-/// — `managers::agent_host::HostState::handle_service_message` — and it reads
-/// the live `Mutex` snapshot that `set_config` keeps current. That property is
-/// guarded by
+/// **That gap is closable, and was deliberately not closed.** Not impossible —
+/// costly. What does *not* work: `pub(in crate::managers)` is illegal from here
+/// (`crate::managers` is not an ancestor of `crate::relay::grants`), and a
+/// witness type on *this* side of the call closes nothing, since whoever calls
+/// the constructor still chooses its contents. What *does* work is a witness on
+/// the **caller's** side: a `LiveSnapshot(SharingConfig, Vec<AgentDefinition>)`
+/// in `managers::agent_host` with a **private constructor** and public
+/// accessors, taken by this function — then only `agent_host` can mint the
+/// argument, and `SharingConfig`'s own field visibility stops mattering. A
+/// sealed trait gets there too. (Field privacy is not the obstacle either:
+/// serde and specta derives work fine on private fields; `pub` on
+/// `SharingConfig` exists so other modules can read it, nothing more.)
+///
+/// The price is a layering inversion — `relay::grants`, the leaf that
+/// deliberately depends on nothing, would have to name a type from
+/// `managers::agent_host` — plus a `#[cfg(test)]` constructor so this module's
+/// own authorisation table tests can still call it. Judged not worth it while
+/// the exposure is intra-crate with exactly one caller. Revisit if a second
+/// production caller ever appears.
+///
+/// What holds the line meanwhile: that ONE caller —
+/// `managers::agent_host::HostState::handle_service_message` — reads the live
+/// `Mutex` snapshot that `set_config` keeps current. Guarded by
 /// `agent_host::tests::a_grant_revoked_since_the_offer_was_published_is_refused_on_the_live_socket`,
 /// which fails if the caller ever stops reading live settings. A second caller
 /// must do the same; passing a hand-built `SharingConfig` here would be

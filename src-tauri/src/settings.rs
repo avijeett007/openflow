@@ -1926,10 +1926,10 @@ pub fn write_settings(app: &AppHandle, settings: AppSettings) {
     // sharing is dormant and no host loop is running, which is the default and
     // the overwhelmingly common case.
     //
-    // Safe from here: `republish` only READS settings (`get_settings`, which
-    // persists via `store.set` and never re-enters `write_settings`), so there
-    // is no recursion.
-    crate::managers::agent_host::republish_offers(app);
+    // The settings just written are handed over directly, so this costs no
+    // second store read — and no recursion is possible, since nothing on that
+    // path writes settings.
+    crate::managers::agent_host::republish_offers(app, &settings);
 }
 
 pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {

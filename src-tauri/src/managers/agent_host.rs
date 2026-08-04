@@ -54,7 +54,7 @@ use crate::relay::protocol::{
 use crate::relay::transport::{
     next_backoff, relay_ws_url, RelayConnector, RelayTransport, WsConnector, BACKOFF_MIN,
 };
-use crate::settings::{AgentDefinition, SharingConfig};
+use crate::settings::{AgentDefinition, AppSettings, SharingConfig};
 
 // ---------------------------------------------------------------------------
 // The gate
@@ -530,6 +530,15 @@ impl HostSlots {
 
     /// Stop the loop that is live now (if any) and forget it. Only ever clears
     /// the flag it took out of the slot, never a successor's.
+    ///
+    /// **Invariant relied on elsewhere:** clearing the flag and dropping the
+    /// outbound sender happen together, in this one operation, and this is the
+    /// only external path that clears a live loop's flag. That is what makes
+    /// `serve_connection` promptly observable — its closed-sender arm fires as
+    /// soon as the sender drops, rather than waiting for the next flag read —
+    /// and it is why a stopped loop cannot go on to authorise an `open`. Any
+    /// future "just clear the flag" shortcut would silently remove that
+    /// guarantee.
     fn stop(&self) {
         let slot = self.0.lock().unwrap().take();
         if let Some(slot) = slot {
@@ -544,6 +553,14 @@ impl HostSlots {
     /// loop's slot**, so a loop that outlived a restart cannot tear down its
     /// successor — and so a loop that exited on its own leaves no stale slot for
     /// `republish` to enqueue into.
+    ///
+    /// The identity test is `Arc::ptr_eq`, and it is free of pointer-ABA for a
+    /// reason worth stating: the caller — the spawned task in `ensure_started` —
+    /// holds its **own strong `Arc` clone** of the flag for the whole life of
+    /// the loop and passes a borrow of it here. That keeps the allocation alive,
+    /// so a later `Arc::new` cannot land on the same address and make a
+    /// different loop's flag compare equal. Do not "optimise" that clone into a
+    /// `Weak`, or a raw pointer, or drop it before this call.
     fn retire(&self, running: &Arc<AtomicBool>) {
         let mut current = self.0.lock().unwrap();
         if current
@@ -630,6 +647,9 @@ impl AgentHostManager {
             app: self.app.clone(),
         });
         log::info!("relay: hosting {} shared agent(s)", offers.len());
+        // A STRONG clone, held by the task for the whole life of the loop. It is
+        // what makes `retire`'s `Arc::ptr_eq` free of pointer-ABA — see the note
+        // there before changing this to a `Weak` or dropping it early.
         let flag = Arc::clone(&running);
         let manager = Arc::downgrade(self);
         tauri::async_runtime::spawn(async move {
@@ -691,11 +711,12 @@ impl AgentHostManager {
     /// Re-publish the offer list after ANY settings change, so a revoked grant
     /// disappears immediately rather than at the next reconnect — and so the
     /// live connection re-authorises against the new settings.
-    pub fn republish(self: &Arc<Self>) {
-        let settings = crate::settings::get_settings(&self.app);
-        // Hot path. Every settings write in the app reaches here, so a dormant
-        // config with no loop running must cost nothing beyond this check — in
-        // particular it must not touch the OS keyring.
+    pub fn republish(self: &Arc<Self>, settings: &AppSettings) {
+        // Hot path. Every settings write in the app reaches here, so the common
+        // case — sharing never configured, no loop running — must be nearly
+        // free. It is: `settings` is the struct the caller had already built, so
+        // there is no store read, and the OS keyring is not touched until after
+        // this check.
         if republish_is_a_no_op(&settings.sharing, self.slots.is_hosting()) {
             return;
         }
@@ -763,15 +784,21 @@ impl RelayFrameSink for AgentHostManager {
 /// revoked grant that never reaches the live `HostState` keeps being honoured
 /// until the next reconnect.
 ///
-/// Cheap on the hot path: it returns before reading the keyring (or anything
-/// else) unless sharing has actually been configured or a loop is live.
-pub fn republish_offers(app: &AppHandle) {
+/// Cost on that path, stated precisely rather than waved at: `settings` is the
+/// struct `write_settings` had already built, so there is **no store read and no
+/// deserialize** here. When sharing has never been configured and no loop is
+/// live, the whole call is a `try_state` lookup, an atomic load and a bool test,
+/// and it returns before touching the OS keyring — which matters because the
+/// keyring read is a synchronous syscall on the calling thread, and the callers
+/// include `shortcut/mod.rs`'s ~56 sites. Once sharing IS configured, a settings
+/// write does pay that keyring read; still nowhere near the dictation path.
+pub fn republish_offers(app: &AppHandle, settings: &AppSettings) {
     use tauri::Manager;
     let Some(host) = app.try_state::<Arc<AgentHostManager>>() else {
         // Before `initialize_core_logic` has run, or in a test harness.
         return;
     };
-    host.inner().republish();
+    host.inner().republish(settings);
 }
 
 // ---------------------------------------------------------------------------
@@ -836,6 +863,16 @@ async fn run_host_loop<C: RelayConnector, L: RunLauncher>(
                 continue;
             }
         };
+
+        // The FOURTH window the flag is read in. A dial is not instant — it can
+        // take up to `CONNECT_TIMEOUT` — and a `stop()` can land inside it.
+        // Publishing here would put a REVOKED offer list onto a socket opened by
+        // a loop that has already been told to stand down.
+        if !running.load(Ordering::SeqCst) {
+            conn.close().await;
+            break;
+        }
+
         let session_started = std::time::Instant::now();
 
         match state.publish(conn.as_ref()).await {
@@ -914,7 +951,11 @@ async fn serve_connection<T: RelayTransport, L: RunLauncher>(
                         break;
                     }
                 }
-                // The manager stopped and dropped the sender.
+                // The manager stopped and dropped the sender. `HostSlots::stop`
+                // clears the flag and drops this sender in ONE operation, and is
+                // the only external path that clears a live loop's flag — so
+                // this arm fires on any stop, and it is why a stopped loop can
+                // never get as far as authorising an inbound `open`.
                 None => {
                     running.store(false, Ordering::SeqCst);
                     break;
@@ -1877,6 +1918,67 @@ mod tests {
         assert!(
             slots.install(state).is_none(),
             "only one loop may ever be live"
+        );
+    }
+
+    #[test]
+    fn a_loop_stopped_mid_dial_never_publishes_on_the_socket_it_opened() {
+        // The connect→publish stretch is the one place the running flag was not
+        // re-read, and `CONNECT_TIMEOUT` makes it a bounded 15s window rather
+        // than an instant. Reachable: the owner revokes the last grant (or
+        // switches sharing off, or unpairs) while a dial is in flight, the dial
+        // then succeeds, and a REVOKED offer list goes out on a fresh socket.
+        //
+        // Same defect class as the stale-loop Critical, through a narrower door.
+        struct SlowConnector {
+            transport: Mutex<Option<FakeTransport>>,
+            delay: Duration,
+        }
+        impl RelayConnector for SlowConnector {
+            type Conn = FakeTransport;
+            fn connect(
+                &self,
+            ) -> impl std::future::Future<Output = Result<FakeTransport, String>> + Send
+            {
+                let next = self.transport.lock().unwrap().take();
+                let delay = self.delay;
+                async move {
+                    tokio::time::sleep(delay).await;
+                    next.ok_or_else(|| "no more connections scripted".to_string())
+                }
+            }
+        }
+
+        let running = Arc::new(AtomicBool::new(true));
+        let transport = FakeTransport::new(vec![]);
+        let sent = transport.log();
+        let connector = SlowConnector {
+            transport: Mutex::new(Some(transport)),
+            delay: Duration::from_millis(300),
+        };
+        let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        let launcher = Arc::new(FakeLauncher::default());
+        let (_tx, rx) = mpsc::unbounded_channel::<HostMessage>();
+
+        let flag = Arc::clone(&running);
+        block_on(async move {
+            let host = tokio::spawn(run_host_loop(
+                connector, launcher, state, running, true, true, rx,
+            ));
+            // The dial is in flight; the owner revokes the grant.
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            flag.store(false, Ordering::SeqCst);
+            let joined = tokio::time::timeout(Duration::from_secs(3), host).await;
+            assert!(
+                joined.is_ok(),
+                "the loop never exited after the dial landed"
+            );
+        });
+
+        let sent = sent.lock().unwrap().clone();
+        assert!(
+            sent.is_empty(),
+            "a STOPPED loop opened a socket and published: {sent:?}"
         );
     }
 
