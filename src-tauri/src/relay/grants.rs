@@ -16,7 +16,6 @@ use crate::settings::{AgentDefinition, AgentOutputSink, ShareGrant, SharingConfi
 /// The relay `action_id` for an agent: its existing `binding_id`, which is
 /// always `"agent:<id>"` (settings.rs:303) and already matches the shape
 /// DESIGN-relay-v02 §4 uses. Derived if a legacy store left it blank.
-#[allow(dead_code)] // called from offers_from_grants/authorize_open, and by agent_host.rs (a later task)
 pub fn action_id_for(agent: &AgentDefinition) -> String {
     if agent.binding_id.trim().is_empty() {
         format!("agent:{}", agent.id)
@@ -25,7 +24,6 @@ pub fn action_id_for(agent: &AgentDefinition) -> String {
     }
 }
 
-#[allow(dead_code)] // called from offers_from_grants/authorize_open, and by agent_host.rs (a later task)
 fn find_agent<'a>(agents: &'a [AgentDefinition], agent_id: &str) -> Option<&'a AgentDefinition> {
     agents.iter().find(|a| a.id == agent_id)
 }
@@ -33,7 +31,6 @@ fn find_agent<'a>(agents: &'a [AgentDefinition], agent_id: &str) -> Option<&'a A
 /// The offer list to publish on connect. A grant that cannot actually run —
 /// disabled agent, deleted agent, no project chosen, nobody allowed — is not
 /// advertised, so a teammate never sees an offer that would be refused on open.
-#[allow(dead_code)] // called by agent_host.rs on connect/hello (a later task)
 pub fn offers_from_grants(sharing: &SharingConfig, agents: &[AgentDefinition]) -> Vec<OfferWire> {
     if !sharing.enabled {
         return Vec::new();
@@ -56,7 +53,6 @@ pub fn offers_from_grants(sharing: &SharingConfig, agents: &[AgentDefinition]) -
         .collect()
 }
 
-#[allow(dead_code)] // constructed by authorize_open, matched by agent_host.rs (a later task)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DenyReason {
     /// The service sent an `offer_id` this host cannot resolve to an action.
@@ -72,7 +68,6 @@ impl DenyReason {
     /// The terminal `outcome` reported to the requester. Deliberately coarse —
     /// a stranger learns that they were refused, not the shape of the owner's
     /// configuration.
-    #[allow(dead_code)] // reported to the requester by agent_host.rs (a later task)
     pub fn outcome(&self) -> &'static str {
         match self {
             DenyReason::UnknownOffer => "unknown_offer",
@@ -84,16 +79,63 @@ impl DenyReason {
     }
 }
 
-#[allow(dead_code)] // constructed by authorize_open, consumed by agent_host.rs (a later task)
+/// **The proof that this desktop said yes.** Its fields are private and no
+/// public constructor exists, so the ONLY way to hold one is to have called
+/// [`authorize_open`] and had it return `Ok`. [`brokered_agent`] takes it by
+/// reference and [`crate::managers::agent_host::RunLauncher::launch`] takes the
+/// [`BrokeredRun`] that only `brokered_agent` can mint — which makes "launch a
+/// teammate's run without re-checking the grant" a **compile error** rather
+/// than something a reviewer has to notice.
+///
+/// This is deliberate structural design, not decoration: DESIGN-shared-agents
+/// §8 puts the whole trust boundary of C2 on `authorize_open`, and until this
+/// token existed the ordering was only a convention (Task 3 review).
+///
+/// It deliberately exposes **no accessors at all**: outside this module the one
+/// and only thing that can be done with an `Authorized` is hand it to
+/// [`brokered_agent`].
 #[derive(Debug)]
 pub struct Authorized {
-    pub agent: AgentDefinition,
-    pub grant: ShareGrant,
+    agent: AgentDefinition,
+    grant: ShareGrant,
+}
+
+/// An `AgentDefinition` that has passed [`authorize_open`], plus the display
+/// name of the teammate who asked for it. Private field, no public constructor:
+/// [`brokered_agent`] is the only way to obtain one, and it demands an
+/// [`Authorized`].
+///
+/// `Deref` to the definition is for READING (name, project_path, sinks); the
+/// definition can only be moved out by [`Self::into_definition`], which still
+/// requires having held the token.
+#[derive(Debug, Clone)]
+pub struct BrokeredRun {
+    agent: AgentDefinition,
+    requester: String,
+}
+
+impl BrokeredRun {
+    /// The teammate's display name, for the `← Priya` label on the owner's own
+    /// run panel (`AgentRunManager::note_brokered_run`).
+    pub fn requester(&self) -> &str {
+        &self.requester
+    }
+
+    /// Hand the definition to `AgentRunManager::start`, consuming the token.
+    pub fn into_definition(self) -> AgentDefinition {
+        self.agent
+    }
+}
+
+impl std::ops::Deref for BrokeredRun {
+    type Target = AgentDefinition;
+    fn deref(&self) -> &AgentDefinition {
+        &self.agent
+    }
 }
 
 /// Re-check an incoming `open` against the CURRENT settings. Called for every
 /// session, however confident the relay was.
-#[allow(dead_code)] // called by agent_host.rs on every incoming `open` (a later task)
 pub fn authorize_open(
     sharing: &SharingConfig,
     agents: &[AgentDefinition],
@@ -139,14 +181,21 @@ pub fn authorize_open(
 /// `agent.project_path` and `finalize` reads `agent.output_sinks`, so handing it
 /// a clone with both adjusted routes a brokered run correctly without touching
 /// one line of the run pipeline.
-#[allow(dead_code)] // called by agent_host.rs on a successful authorize_open (a later task)
-pub fn brokered_agent(agent: &AgentDefinition, grant: &ShareGrant) -> AgentDefinition {
-    let mut a = agent.clone();
-    a.project_path = grant.project_path.clone();
+///
+/// Takes [`Authorized`] rather than a bare `(&AgentDefinition, &ShareGrant)`
+/// pair **on purpose**: those two values are exactly what a caller who skipped
+/// `authorize_open` would have to hand, so accepting them would leave the
+/// security ordering as a convention. See [`Authorized`].
+pub fn brokered_agent(auth: &Authorized, requester_display_name: &str) -> BrokeredRun {
+    let mut a = auth.agent.clone();
+    a.project_path = auth.grant.project_path.clone();
     if !a.output_sinks.contains(&AgentOutputSink::Relay) {
         a.output_sinks.push(AgentOutputSink::Relay);
     }
-    a
+    BrokeredRun {
+        agent: a,
+        requester: requester_display_name.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -287,29 +336,43 @@ mod tests {
 
     #[test]
     fn the_brokered_clone_uses_the_grants_folder_and_never_mutates_the_source() {
-        let source = agent("coder", true);
-        assert_eq!(source.project_path, "/home/me/personal");
-        let g = grant("coder", "/repo/site", &["m-priya"]);
+        let agents = vec![agent("coder", true)];
+        assert_eq!(agents[0].project_path, "/home/me/personal");
+        let s = sharing(true, vec![grant("coder", "/repo/site", &["m-priya"])]);
 
-        let brokered = brokered_agent(&source, &g);
+        // The ONLY way to reach brokered_agent: hold the token authorize_open
+        // mints. There is no other constructor for `Authorized`.
+        let auth = authorize_open(&s, &agents, "agent:coder", "m-priya").unwrap();
+        let brokered = brokered_agent(&auth, "Priya");
         // The grant's folder wins — project_path is NEVER inherited (DESIGN §3).
         assert_eq!(brokered.project_path, "/repo/site");
         assert!(brokered.output_sinks.contains(&AgentOutputSink::Relay));
+        assert_eq!(brokered.requester(), "Priya");
         // …and the stored agent is untouched, so a local hotkey run is unchanged.
-        assert_eq!(source.project_path, "/home/me/personal");
-        assert!(!source.output_sinks.contains(&AgentOutputSink::Relay));
+        assert_eq!(agents[0].project_path, "/home/me/personal");
+        assert!(!agents[0].output_sinks.contains(&AgentOutputSink::Relay));
     }
 
     #[test]
     fn the_brokered_clone_keeps_the_owners_own_sinks() {
         let mut source = agent("coder", true);
         source.output_sinks = vec![AgentOutputSink::Panel, AgentOutputSink::File];
-        let brokered = brokered_agent(&source, &grant("coder", "/r", &["m"]));
+        let agents = vec![source];
+        let s = sharing(true, vec![grant("coder", "/r", &["m"])]);
+        let auth = authorize_open(&s, &agents, "agent:coder", "m").unwrap();
+        let brokered = brokered_agent(&auth, "M");
         assert!(brokered.output_sinks.contains(&AgentOutputSink::Panel));
         assert!(brokered.output_sinks.contains(&AgentOutputSink::File));
         assert!(brokered.output_sinks.contains(&AgentOutputSink::Relay));
-        // Idempotent: applying twice must not duplicate the sink.
-        let twice = brokered_agent(&brokered, &grant("coder", "/r", &["m"]));
+
+        // Idempotent: an agent that somehow ALREADY carries Relay must not end
+        // up with it twice (the run pipeline uses `.contains`, but a duplicated
+        // sink would double a future sink's side effect).
+        let mut already = agent("coder", true);
+        already.output_sinks = vec![AgentOutputSink::Panel, AgentOutputSink::Relay];
+        let agents = vec![already];
+        let auth = authorize_open(&s, &agents, "agent:coder", "m").unwrap();
+        let twice = brokered_agent(&auth, "M");
         assert_eq!(
             twice
                 .output_sinks
@@ -318,5 +381,35 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn the_only_way_to_reach_a_launch_is_through_the_authorisation_token() {
+        // The structural half of DESIGN-shared-agents §8, stated as a test so
+        // the intent is greppable — the ENFORCEMENT is the type system, and is
+        // shown in the task report as a compile error:
+        //   * `Authorized` has private fields and no public constructor, so it
+        //     cannot be forged from an (agent, grant) pair a caller happens to
+        //     have; `authorize_open` is its only source.
+        //   * `brokered_agent` demands `&Authorized`.
+        //   * `BrokeredRun` has private fields and no public constructor, and
+        //     `RunLauncher::launch` demands one.
+        // A future author who skips the re-check therefore cannot get a value
+        // of the type the launch seam requires.
+        let agents = vec![agent("coder", true)];
+        let s = sharing(true, vec![grant("coder", "/repo/site", &["m-priya"])]);
+
+        // A refusal yields NO token at all — there is nothing to pass on.
+        assert!(authorize_open(&s, &agents, "agent:coder", "m-stranger").is_err());
+
+        let auth = authorize_open(&s, &agents, "agent:coder", "m-priya").unwrap();
+        // (These read the PRIVATE fields — legal only because this test module
+        // is a child of `grants`. No other module can do this.)
+        assert_eq!(auth.agent.id, "coder");
+        assert_eq!(auth.grant.project_path, "/repo/site");
+        // The definition can only be moved out of a BrokeredRun, which can only
+        // be made from the token.
+        let def = brokered_agent(&auth, "Priya").into_definition();
+        assert_eq!(def.project_path, "/repo/site");
     }
 }

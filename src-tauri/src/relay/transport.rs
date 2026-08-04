@@ -15,12 +15,9 @@ use tokio_tungstenite::tungstenite::Message;
 
 /// Reconnect floor / ceiling. Faster than service_sync's 30s→5min: a dropped
 /// relay socket leaves a teammate staring at a dead session.
-#[allow(dead_code)] // used by next_backoff, and by agent_host.rs's reconnect loop (a later task)
 pub const BACKOFF_MIN: Duration = Duration::from_secs(1);
-#[allow(dead_code)] // used by next_backoff, and by agent_host.rs's reconnect loop (a later task)
 pub const BACKOFF_MAX: Duration = Duration::from_secs(60);
 
-#[allow(dead_code)] // called by agent_host.rs's reconnect loop (a later task)
 pub fn next_backoff(current: Duration) -> Duration {
     if current < BACKOFF_MIN {
         return BACKOFF_MIN;
@@ -35,7 +32,6 @@ pub fn next_backoff(current: Duration) -> Duration {
 
 /// The host socket URL for a configured service base URL.
 /// `GET /v2/relay/host` per DESIGN-relay-v02 §5.
-#[allow(dead_code)] // called by agent_host.rs to build the WsConnector's url (a later task)
 pub fn relay_ws_url(base: &str) -> String {
     let b = base.trim().trim_end_matches('/');
     let b = if let Some(rest) = b.strip_prefix("https://") {
@@ -49,7 +45,6 @@ pub fn relay_ws_url(base: &str) -> String {
 }
 
 /// One live host socket. Owned args keep the returned futures `'static + Send`.
-#[allow(dead_code)] // implemented by WsRelayTransport; driven by agent_host.rs (a later task)
 pub trait RelayTransport: Send + Sync + 'static {
     fn send(&self, line: String) -> impl std::future::Future<Output = Result<(), String>> + Send;
     /// `None` when the socket closes.
@@ -59,20 +54,17 @@ pub trait RelayTransport: Send + Sync + 'static {
 
 /// Opens sockets. Injected so a test can count connect attempts — which is how
 /// "sharing off ⇒ no socket opens" is asserted rather than asserted-about.
-#[allow(dead_code)] // implemented by WsConnector; driven by agent_host.rs (a later task)
 pub trait RelayConnector: Send + Sync + 'static {
     type Conn: RelayTransport;
     fn connect(&self) -> impl std::future::Future<Output = Result<Self::Conn, String>> + Send;
 }
 
 /// Production transport over `tokio-tungstenite`.
-#[allow(dead_code)] // constructed by WsConnector::connect, wired by agent_host.rs (a later task)
 pub struct WsRelayTransport {
     tx: Mutex<futures_util::stream::SplitSink<WsStream, Message>>,
     rx: Mutex<futures_util::stream::SplitStream<WsStream>>,
 }
 
-#[allow(dead_code)] // used by WsRelayTransport, wired by agent_host.rs (a later task)
 type WsStream =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -109,7 +101,6 @@ impl RelayTransport for WsRelayTransport {
 
 /// Dials `GET /v2/relay/host` with the EXISTING device token from the OS
 /// keyring (scope "service", account "device_token"). No second credential.
-#[allow(dead_code)] // constructed by agent_host.rs (a later task)
 pub struct WsConnector {
     pub url: String,
     pub token: String,

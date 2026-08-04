@@ -28,32 +28,32 @@
 //! `POST /v2/sessions`) and are deserialized verbatim through this crate's own
 //! `ServiceMessage` in `real_captured_frames` below — genuine round trips, not
 //! hand-written JSON. A live round trip of this crate's OWN `HostFrame`/
-//! `session_frame` output through a real service belongs to `transport.rs`
-//! (a later task): `HostFrame` is internally tagged (`kind` lives inside the
-//! payload), so a capture of it can only be genuine once something in this
-//! crate actually sends it over a socket — protocol.rs itself does no I/O by
-//! design (see `relay/mod.rs`'s layering doc).
+//! `session_frame` output through a real service is the NEXT task's job:
+//! `HostFrame` is internally tagged (`kind` lives inside the payload), so a
+//! capture of it can only be genuine once something in this crate actually
+//! sends it over a socket — protocol.rs itself does no I/O by design (see
+//! `relay/mod.rs`'s layering doc), and the thing that sends it is
+//! `managers::agent_host`'s host loop.
 //!
-//! This module is exercised only by its own tests today: `grants.rs` (the
-//! host-side authorisation re-check) and `transport.rs` (the WebSocket loop
-//! that actually calls `session_frame` and matches on `ServiceMessage`) are
-//! later tasks in this same plan, so clippy would otherwise flag every public
-//! item here as unconstructed/unused until they land. Each such item carries
-//! its own `#[allow(dead_code)]`, same shape as `managers/wake_word.rs`'s
-//! "exposed for callers/diagnostics; not yet wired to a command" — scoped
-//! per-item, not a module-wide blanket, so dead code added here later is still
-//! caught.
+//! This module now has a real production caller: `managers::agent_host`
+//! constructs `HostMessage`/`session_frame`, matches on `ServiceMessage`, and
+//! calls `parse_open_payload` on every inbound `open`. The per-item
+//! `#[allow(dead_code)]` markers that stood in for that caller while it was an
+//! unwritten task have therefore been removed — all but one, on
+//! `V1_EMITTED_KINDS`, which is documentation rather than code.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// The only frame kinds v1 ever emits. Everything else in `HostFrame` is
 /// reserved. Asserted by test so adding an emitter is a deliberate act.
-#[allow(dead_code)] // consumed by `transport.rs` (a later task)
+// The one item here with no production caller: it documents the v1/reserved
+// boundary for a reader and is asserted by its own test. Everything else in
+// this module is now constructed or matched by `managers::agent_host`.
+#[allow(dead_code)]
 pub const V1_EMITTED_KINDS: [&str; 3] = ["header", "output", "status"];
 
 /// One published offer (DESIGN-relay-v02 §6 `hello`).
-#[allow(dead_code)] // constructed by `grants.rs` (a later task)
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct OfferWire {
     /// e.g. `agent:coder` — OpenFlow uses the agent's existing `binding_id`.
@@ -67,7 +67,6 @@ pub struct OfferWire {
 }
 
 /// Host → service (DESIGN-relay-v02 §6).
-#[allow(dead_code)] // constructed by `transport.rs` (a later task)
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum HostMessage {
@@ -93,7 +92,6 @@ pub enum HostMessage {
     },
 }
 
-#[allow(dead_code)] // constructed by `transport.rs` (a later task)
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 pub struct Requester {
     #[serde(default)]
@@ -112,7 +110,6 @@ pub struct Requester {
 /// know, which is deliberate: this task defines the wire *types*, not the
 /// connection loop that would await the ack. A later transport task either
 /// adds a `Ready` variant here or matches on the raw JSON before typed parse.
-#[allow(dead_code)] // matched by `transport.rs` (a later task)
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum ServiceMessage {
@@ -145,13 +142,11 @@ pub enum ServiceMessage {
 /// What a requester sends to start a run. Not specified by either design doc
 /// (see "spec gaps" #2); defined here, tolerantly, so the `curl` teammate
 /// harness can pass a bare string.
-#[allow(dead_code)] // constructed by `parse_open_payload`, called from `transport.rs`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenPayload {
     pub instruction: String,
 }
 
-#[allow(dead_code)] // called from `transport.rs` (a later task)
 pub fn parse_open_payload(v: &Value) -> Result<OpenPayload, String> {
     let instruction = match v {
         Value::String(s) => s.clone(),
@@ -175,7 +170,6 @@ pub fn parse_open_payload(v: &Value) -> Result<OpenPayload, String> {
 
 /// = C0's `PlanEntry`, unchanged from the plan doc — checked against the code
 /// anyway, since that's what's now authoritative.
-#[allow(dead_code)] // constructed by `transport.rs` once `HostFrame::Plan` emits
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PlanEntryWire {
     pub content: String,
@@ -184,7 +178,6 @@ pub struct PlanEntryWire {
 }
 
 /// = C0's `PermissionOption`, unchanged from the plan doc.
-#[allow(dead_code)] // constructed by `transport.rs` once `HostFrame::PermissionRequest` emits
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PermissionOptionWire {
     pub option_id: String,
@@ -195,7 +188,6 @@ pub struct PermissionOptionWire {
 /// The frame vocabulary carried inside an envelope's opaque payload.
 /// **Open and versioned:** only `Header`, `Output` and `Status` are emitted in
 /// v1 (`V1_EMITTED_KINDS`). The rest are RESERVED for PR #64 (DESIGN §7).
-#[allow(dead_code)] // constructed by `transport.rs` once PR #64's variants emit
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HostFrame {
@@ -284,7 +276,6 @@ pub enum HostFrame {
 impl HostFrame {
     /// The envelope `kind` for this frame. Must equal the frame's own serde tag
     /// — pinned by `envelope_kind_never_drifts_from_the_frames_own_tag`.
-    #[allow(dead_code)] // called by `session_frame`, and by `transport.rs` (a later task)
     pub fn kind_str(&self) -> &'static str {
         match self {
             HostFrame::Header { .. } => "header",
@@ -304,7 +295,6 @@ impl HostFrame {
 
 /// Wrap a frame in a session envelope. The ONLY way a `HostMessage::Frame` is
 /// constructed, so `kind` can never be typed by hand and drift from the payload.
-#[allow(dead_code)] // called by `transport.rs` (a later task)
 pub fn session_frame(session_id: &str, frame: HostFrame) -> HostMessage {
     let kind = frame.kind_str().to_string();
     HostMessage::Frame {
@@ -708,9 +698,11 @@ mod tests {
     /// a *new* `json!` value with the key injected, the other indexed a bare
     /// `Value` and constructed no type from this crate at all. A genuine
     /// capture of `HostFrame`/`session_frame`'s own output requires something
-    /// in this crate to actually send it over a socket, which is `transport.rs`
-    /// (a later task) — `protocol.rs` does no I/O by design (see
-    /// `relay/mod.rs`'s layering doc). Removed rather than left staged.
+    /// in this crate to actually send it over a socket — `protocol.rs` does no
+    /// I/O by design (see `relay/mod.rs`'s layering doc). That sender now
+    /// exists (`managers::agent_host`'s host loop), so the capture is owed by
+    /// the live end-to-end task, not by this module. Removed rather than left
+    /// staged.
     mod real_captured_frames {
         use super::*;
 

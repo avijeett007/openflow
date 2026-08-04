@@ -208,6 +208,16 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     let service_sync_manager =
         Arc::new(managers::service_sync::ServiceSyncManager::new(app_handle));
 
+    // C2 shared agents: the agent HOST. Dormant unless sharing is enabled, a
+    // grant resolves to a publishable offer, and a service is paired with a
+    // token in the keyring — `should_host` decides, and when it says no nothing
+    // at all is constructed: no state, no event listener, no relay sink on the
+    // run manager, and no socket.
+    let agent_host_manager = Arc::new(managers::agent_host::AgentHostManager::new(
+        app_handle,
+        agent_run_manager.clone(),
+    ));
+
     // Add managers to Tauri's managed state
     app_handle.manage(recording_manager.clone());
     app_handle.manage(model_manager.clone());
@@ -218,6 +228,7 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(agent_run_manager.clone());
     app_handle.manage(meeting_manager.clone());
     app_handle.manage(service_sync_manager.clone());
+    app_handle.manage(agent_host_manager.clone());
 
     // Note: Shortcuts are NOT initialized here.
     // The frontend is responsible for calling the `initialize_shortcuts` command
@@ -362,6 +373,12 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     // feature is enabled (byte-for-byte no-op otherwise). `ensure_started` itself
     // re-checks the gate, so this is safe and idempotent.
     service_sync_manager.ensure_started();
+
+    // Start hosting shared agents ONLY when sharing is switched on, a grant is
+    // publishable, and the service is paired with a token. `ensure_started`
+    // re-checks that whole gate, so calling it here is safe and idempotent —
+    // and with the feature unconfigured it returns before constructing anything.
+    agent_host_manager.ensure_started();
 
     // Start the meeting detector. Its loop reads settings live and self-suppresses
     // while our own recorder/monitor is active or a meeting capture is running, so
