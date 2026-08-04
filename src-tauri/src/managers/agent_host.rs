@@ -162,6 +162,27 @@ struct HostSession {
     run_id: String,
     member_id: String,
     display_name: String,
+    /// The action this session was opened against, so `apply_settings` can
+    /// re-run [`authorize_open`] later exactly as `handle_service_message` did
+    /// at `open` time — without it there would be no way to tell whether a
+    /// settings change still authorises an ALREADY-RUNNING session.
+    action_id: String,
+}
+
+/// The result of reconciling a settings change against every live session
+/// (see [`HostState::apply_settings`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SettingsDelta {
+    /// Whether the published offer list actually changed, so a fresh `hello`
+    /// is owed. Diffed on the OFFER LIST rather than the raw config so an
+    /// unrelated edit (renaming a different agent, say) does not churn the
+    /// service's offer table.
+    pub republish: bool,
+    /// Run ids whose session no longer re-authorises under the NEW settings.
+    /// Pause, revoke, disable and delete all fall out of this one check
+    /// against [`authorize_open`] rather than four ad-hoc rules that could
+    /// disagree with it (or with each other).
+    pub sessions_to_stop: Vec<String>,
 }
 
 /// The settings snapshot the host authorises against. Behind a `Mutex` so
@@ -195,7 +216,16 @@ impl HostState {
         }
     }
 
-    /// Install a fresh settings snapshot (used by `republish`).
+    /// Install a fresh settings snapshot with none of `apply_settings`'s
+    /// diffing — no `republish`/`sessions_to_stop` decision, just the raw
+    /// swap. Production code now goes through `apply_settings` instead (Task
+    /// 6), so the only callers left are tests that deliberately want to prove
+    /// [`Self::handle_service_message`]'s live `authorize_open` re-check is
+    /// independent of ANY settings-change bookkeeping — most pointedly the
+    /// live end-to-end harness, which revokes a grant with this and
+    /// **never republishes**, precisely to show the re-check is a second,
+    /// independent line of defence rather than a side effect of `hello`.
+    #[allow(dead_code)] // test-only now; see the doc comment above
     pub fn set_config(&self, sharing: SharingConfig, agents: Vec<AgentDefinition>) {
         let mut cfg = self.config.lock().unwrap();
         cfg.sharing = sharing;
@@ -206,6 +236,70 @@ impl HostState {
         // through a stale entry would then run the wrong agent in the wrong
         // grant folder. Guessing is exactly how that happens, so forget.
         self.offer_actions.lock().unwrap().clear();
+    }
+
+    /// Reconcile a settings change against every live session. Pure data in,
+    /// pure data out — it does not itself stop anything. The caller
+    /// (`AgentHostManager`, which owns the launcher) is responsible for
+    /// calling `launcher.stop` on every run id this returns; that split is
+    /// what makes the decision unit-testable with no socket and no
+    /// subprocess.
+    ///
+    /// `republish` is computed by comparing the OFFER LIST, not the raw
+    /// config, so renaming an unrelated agent or editing an unrelated grant
+    /// does not churn the service's offer table on every keystroke.
+    /// `sessions_to_stop` re-runs [`authorize_open`] for every live session
+    /// against the NEW settings — pause, revoke, disable and delete all fall
+    /// out of the one authorisation function rather than four ad-hoc checks
+    /// that could disagree with it.
+    pub fn apply_settings(
+        &self,
+        sharing: SharingConfig,
+        agents: Vec<AgentDefinition>,
+    ) -> SettingsDelta {
+        let (old_sharing, old_agents) = self.snapshot();
+        let before = offers_from_grants(&old_sharing, &old_agents);
+        let after = offers_from_grants(&sharing, &agents);
+        let republish = before != after;
+
+        let sessions_to_stop: Vec<String> = self
+            .sessions
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|s| authorize_open(&sharing, &agents, &s.action_id, &s.member_id).is_err())
+            .map(|s| s.run_id.clone())
+            .collect();
+
+        {
+            let mut cfg = self.config.lock().unwrap();
+            cfg.sharing = sharing;
+            cfg.agents = agents;
+        }
+        if republish {
+            // Mirrors `set_config`: offer ids are re-minted on the fresh
+            // `hello` this delta triggers, and the service may reuse one for
+            // a different action, so a mapping learned BEFORE this change
+            // must not survive it.
+            self.offer_actions.lock().unwrap().clear();
+        }
+
+        SettingsDelta {
+            republish,
+            sessions_to_stop,
+        }
+    }
+
+    /// Every run this host is currently serving for a teammate. Used by
+    /// `AgentHostManager::pause` to know what to stop BEFORE the bookkeeping
+    /// that names them is torn down by `on_disconnect`.
+    fn running_run_ids(&self) -> Vec<String> {
+        self.sessions
+            .lock()
+            .unwrap()
+            .values()
+            .map(|s| s.run_id.clone())
+            .collect()
     }
 
     fn snapshot(&self) -> (SharingConfig, Vec<AgentDefinition>) {
@@ -382,6 +476,7 @@ impl HostState {
                             run_id: run_id.clone(),
                             member_id: requester.member_id.clone(),
                             display_name: requester.display_name.clone(),
+                            action_id: action.clone(),
                         },
                     );
                     by_run.insert(run_id, session_id.clone());
@@ -572,11 +667,43 @@ impl HostSlots {
     /// and it is why a stopped loop cannot go on to authorise an `open`. Any
     /// future "just clear the flag" shortcut would silently remove that
     /// guarantee.
+    ///
+    /// Production no longer calls this directly — `AgentHostManager::pause`
+    /// goes through [`Self::pause`] below instead, which does the same
+    /// teardown ATOMICALLY with the in-flight-run cancellation (one lock
+    /// acquisition, so no window where a session could open between "read
+    /// what to stop" and "the socket is gone"). Kept as its own tested
+    /// primitive because `a_stopped_loop_stays_stopped_when_the_manager_restarts`
+    /// deliberately exercises slot teardown on its own, with no launcher in
+    /// the picture — that regression is about the flag/slot invariant, not
+    /// about run cancellation.
+    #[allow(dead_code)] // see the doc comment above
     fn stop(&self) {
         let slot = self.0.lock().unwrap().take();
         if let Some(slot) = slot {
             slot.running.store(false, Ordering::SeqCst);
             // Dropping the sender wakes the loop out of its outbound wait.
+            drop(slot.outbound);
+            slot.state.on_disconnect();
+        }
+    }
+
+    /// The master kill switch: everything [`Self::stop`] does, PLUS cancelling
+    /// every in-flight run the loop was serving, via `launcher`. This is the
+    /// concrete, testable half of `AgentHostManager::pause` — the `AppHandle`
+    /// wrapper around the production launcher (Concern 7: it cannot be built
+    /// in a test harness) is the only part this does not cover, so this is
+    /// where "pausing actually cancels in-flight brokered runs" is proven.
+    ///
+    /// Run ids are read from the slot's [`HostState`] BEFORE `on_disconnect`
+    /// clears its session bookkeeping below — after that point they are gone.
+    fn pause<L: RunLauncher>(&self, launcher: &L) {
+        let slot = self.0.lock().unwrap().take();
+        if let Some(slot) = slot {
+            for run_id in slot.state.running_run_ids() {
+                launcher.stop(&run_id);
+            }
+            slot.running.store(false, Ordering::SeqCst);
             drop(slot.outbound);
             slot.state.on_disconnect();
         }
@@ -688,7 +815,7 @@ impl AgentHostManager {
         tauri::async_runtime::spawn(async move {
             // Both `true` by construction: the gate above already established
             // that the service is paired and a device token exists. Unpairing
-            // goes through `republish` → `stop`, not through this loop.
+            // goes through `republish` → `pause`, not through this loop.
             run_host_loop(connector, launcher, state, running, true, true, rx).await;
             // Leave no stale slot behind: without this, a loop that exited on
             // its own would leave `state`/`outbound` set, and every later
@@ -734,11 +861,44 @@ impl AgentHostManager {
         });
     }
 
-    /// Stop hosting (sharing switched off, service unpaired, last grant
-    /// removed). The loop observes the flag and exits; **local runs are left
-    /// alone**, exactly as on a dropped socket.
-    pub fn stop(&self) {
-        self.slots.stop();
+    /// The production launcher, built fresh — cheap (two `Arc`/`AppHandle`
+    /// clones) and stateless, so there is no reason to cache it.
+    fn launcher(&self) -> AgentRunLauncher {
+        AgentRunLauncher {
+            manager: Arc::clone(&self.runs),
+            app: self.app.clone(),
+        }
+    }
+
+    /// Stop a batch of runs via the production launcher. Used by
+    /// [`Self::republish`]'s revoke/disable/delete path — the narrower
+    /// `sessions_to_stop` `HostState::apply_settings` returns when the loop
+    /// stays live. The full-pause case is [`Self::pause`], which goes through
+    /// [`HostSlots::pause`] instead so the slot-take and the stop happen
+    /// under the one lock.
+    fn stop_runs(&self, run_ids: &[String]) {
+        if run_ids.is_empty() {
+            return;
+        }
+        let launcher = self.launcher();
+        for run_id in run_ids {
+            launcher.stop(run_id);
+        }
+    }
+
+    /// The master kill switch (DESIGN-shared-agents §8). Reached when sharing
+    /// is switched off, the service is unpaired, the device token is gone, or
+    /// the last grant is removed.
+    ///
+    /// This is deliberately **not** the same as [`HostState::on_disconnect`]
+    /// (ruling R4), which leaves local runs alone because a network blip is
+    /// not the owner's decision. Pausing IS the owner's decision, so every run
+    /// this host is serving for a teammate is stopped here too, not merely
+    /// forgotten — a socket that closes while the process it was serving
+    /// keeps going (or, worse, keeps being reachable to republish offers) is
+    /// exactly the bug the sibling C1 branch shipped for device revocation.
+    pub fn pause(&self) {
+        self.slots.pause(&self.launcher());
     }
 
     /// Re-publish the offer list after ANY settings change, so a revoked grant
@@ -758,7 +918,7 @@ impl AgentHostManager {
     /// Reproduce by revoking the device (`DELETE /v1/devices/{id}`), watching
     /// the loop log `dial_was_refused` at `error`, then re-pairing: it keeps
     /// failing. The fix is for `republish` to compare the connector's inputs
-    /// and `stop()` + `ensure_started()` when they change, which is a
+    /// and `pause()` + `ensure_started()` when they change, which is a
     /// behavioural change that belongs with the settings/UI task rather than
     /// with a verification task. Recorded here, not only in
     /// `verification/shared-agents/RESULTS.md`, because this is the function
@@ -783,19 +943,31 @@ impl AgentHostManager {
         );
 
         if !wanted {
-            // No longer eligible: withdraw everything.
-            self.stop();
+            // No longer eligible: the master kill switch. `pause` stops every
+            // live run itself (a fully-disabled config isn't the only way to
+            // get here — service unpaired / token revoked leave `sharing`
+            // untouched, so `authorize_open` alone cannot be trusted to name
+            // every session that must go), THEN closes the socket.
+            self.pause();
             return;
         }
         // `is_hosting` — not merely "a slot exists" — because a loop on its way
         // out still has a slot, and enqueueing into its channel would drop the
         // republish on the floor.
         match (self.slots.is_hosting(), self.state()) {
-            // Still hosting: install the new settings on the LIVE state (so the
-            // next `open` is re-checked against them) and push a fresh `hello`.
+            // Still hosting: reconcile the live state against the NEW settings.
+            // `apply_settings` re-runs `authorize_open` for every live session,
+            // so a revoked member, a disabled agent or a deleted grant all stop
+            // their run right here — the next `open` was already covered by
+            // installing the config, but an ALREADY-RUNNING session needed this
+            // too. Only push a fresh `hello` when the offer list actually
+            // changed, so an unrelated edit does not churn the service.
             (true, Some(state)) => {
-                state.set_config(settings.sharing.clone(), settings.agents.clone());
-                self.enqueue(HostMessage::Hello { offers });
+                let delta = state.apply_settings(settings.sharing.clone(), settings.agents.clone());
+                self.stop_runs(&delta.sessions_to_stop);
+                if delta.republish {
+                    self.enqueue(HostMessage::Hello { offers });
+                }
             }
             // Newly eligible (a first grant, a fresh pairing), or the previous
             // loop has stopped and a fresh one is owed.
@@ -1088,6 +1260,16 @@ mod tests {
                 allowed_members: vec!["m-priya".into()],
             }],
         }
+    }
+
+    /// A ready-to-run `open` for `sharing_with_grant()`'s "coder" offer.
+    fn open_msg(session_id: &str, member_id: &str) -> ServiceMessage {
+        serde_json::from_value(json!({
+            "t": "open", "session_id": session_id, "offer_id": "o1", "action_id": "agent:coder",
+            "requester": {"member_id": member_id, "display_name": "Priya"},
+            "payload": {"instruction": "add a comment to README"}
+        }))
+        .unwrap()
     }
 
     /// Scripted transport: replays canned inbound lines, records outbound ones.
@@ -1542,6 +1724,160 @@ mod tests {
         assert!(l.launched.lock().unwrap().is_empty(), "nothing may run");
         let v: serde_json::Value = serde_json::from_str(&t.sent()[0]).unwrap();
         assert_eq!(v["outcome"], json!("denied"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 6: pause, revoke, republish — `HostState::apply_settings` and the
+    // master kill switch (`HostSlots::pause` / `AgentHostManager::pause`).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn pausing_sharing_stops_every_in_flight_brokered_run() {
+        // DESIGN-shared-agents §8: pause is a MASTER KILL SWITCH — it drops the
+        // socket and cancels in-flight brokered runs.
+        let state = HostState::new(sharing_with_grant(), vec![agent("coder")]);
+        let t = FakeTransport::new(vec![]);
+        let l = FakeLauncher::default();
+        let _ = block_on(state.handle_service_message(open_msg("s1", "m-priya"), &t, &l));
+
+        let delta = state.apply_settings(SharingConfig::default(), vec![agent("coder")]);
+        assert!(delta.republish);
+        assert_eq!(delta.sessions_to_stop, vec!["run-1".to_string()]);
+    }
+
+    #[test]
+    fn revoking_a_member_stops_their_running_session_and_republishes() {
+        // §8: "Revoking a member's grant takes effect on the next open;
+        // already-running sessions are stopped."
+        let state = HostState::new(sharing_with_grant(), vec![agent("coder")]);
+        let t = FakeTransport::new(vec![]);
+        let l = FakeLauncher::default();
+        let _ = block_on(state.handle_service_message(open_msg("s1", "m-priya"), &t, &l));
+
+        let revoked = SharingConfig {
+            enabled: true,
+            grants: vec![ShareGrant {
+                agent_id: "coder".into(),
+                project_path: "/repo/site".into(),
+                allowed_members: vec!["m-someone-else".into()],
+            }],
+        };
+        let delta = state.apply_settings(revoked, vec![agent("coder")]);
+        assert!(delta.republish, "the offer's allowed list changed");
+        assert_eq!(delta.sessions_to_stop, vec!["run-1".to_string()]);
+    }
+
+    #[test]
+    fn an_unrelated_settings_change_neither_republishes_nor_stops_anything() {
+        let state = HostState::new(sharing_with_grant(), vec![agent("coder")]);
+        let t = FakeTransport::new(vec![]);
+        let l = FakeLauncher::default();
+        let _ = block_on(state.handle_service_message(open_msg("s1", "m-priya"), &t, &l));
+
+        let delta = state.apply_settings(sharing_with_grant(), vec![agent("coder")]);
+        assert!(
+            !delta.republish,
+            "identical offers must not churn the service"
+        );
+        assert!(
+            delta.sessions_to_stop.is_empty(),
+            "a live teammate is not interrupted"
+        );
+    }
+
+    #[test]
+    fn disabling_the_agent_itself_stops_its_brokered_runs() {
+        let state = HostState::new(sharing_with_grant(), vec![agent("coder")]);
+        let t = FakeTransport::new(vec![]);
+        let l = FakeLauncher::default();
+        let _ = block_on(state.handle_service_message(open_msg("s1", "m-priya"), &t, &l));
+
+        let mut off = agent("coder");
+        off.enabled = false;
+        let delta = state.apply_settings(sharing_with_grant(), vec![off]);
+        assert!(delta.republish);
+        assert_eq!(delta.sessions_to_stop, vec!["run-1".to_string()]);
+    }
+
+    #[test]
+    fn revoking_one_member_refuses_their_new_open_while_a_still_granted_member_succeeds() {
+        // The positive control the verification bar asks for: if EVERY open
+        // were refused here, the test would prove nothing about revocation
+        // specifically — it could just as well be a bug that refuses
+        // everyone. Priya losing her grant while Zola keeps hers, checked in
+        // the SAME live state in the SAME test, is what makes the refusal
+        // attributable to the revocation.
+        let both_allowed = SharingConfig {
+            enabled: true,
+            grants: vec![ShareGrant {
+                agent_id: "coder".into(),
+                project_path: "/repo/site".into(),
+                allowed_members: vec!["m-priya".into(), "m-zola".into()],
+            }],
+        };
+        let agents = vec![agent("coder")];
+        let state = HostState::new(both_allowed, agents.clone());
+        let t = FakeTransport::new(vec![]);
+        let l = FakeLauncher::default();
+
+        // Priya is revoked; Zola is untouched. Nobody has opened a session
+        // yet, so this is purely "the next open" — the companion tests above
+        // already cover an ALREADY-RUNNING session.
+        let zola_only = SharingConfig {
+            enabled: true,
+            grants: vec![ShareGrant {
+                agent_id: "coder".into(),
+                project_path: "/repo/site".into(),
+                allowed_members: vec!["m-zola".into()],
+            }],
+        };
+        let delta = state.apply_settings(zola_only, agents);
+        assert!(delta.sessions_to_stop.is_empty(), "nobody was running yet");
+
+        let _ = block_on(state.handle_service_message(open_msg("s-priya", "m-priya"), &t, &l));
+        let _ = block_on(state.handle_service_message(open_msg("s-zola", "m-zola"), &t, &l));
+
+        assert_eq!(
+            l.launched.lock().unwrap().len(),
+            1,
+            "only Zola's open may launch"
+        );
+        let priya_result: serde_json::Value = serde_json::from_str(&t.sent()[0]).unwrap();
+        assert_eq!(priya_result["outcome"], json!("denied"));
+        let zola_result: serde_json::Value = serde_json::from_str(&t.sent()[1]).unwrap();
+        assert_eq!(
+            zola_result["kind"],
+            json!("header"),
+            "the still-granted member's open succeeds"
+        );
+    }
+
+    #[test]
+    fn pause_via_host_slots_stops_the_socket_and_every_in_flight_run() {
+        // The concrete, testable half of `AgentHostManager::pause` — see
+        // `HostSlots::pause`'s doc comment. `AgentHostManager` itself cannot
+        // be constructed here (Concern 7: `AgentRunManager::start` needs a
+        // real `AppHandle<Wry>`), so this is where "pausing actually cancels
+        // in-flight brokered runs" is proven: a real `HostSlots`, a real
+        // `HostState` with a live session, a `FakeLauncher` standing in only
+        // for the process-spawning half of the production launcher.
+        let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        let t = FakeTransport::new(vec![]);
+        let l = FakeLauncher::default();
+        let _ = block_on(state.handle_service_message(open_msg("s1", "m-priya"), &t, &l));
+
+        let slots = HostSlots::default();
+        slots.install(Arc::clone(&state)).unwrap();
+        assert!(slots.is_hosting());
+
+        slots.pause(&l);
+
+        assert_eq!(
+            l.stopped.lock().unwrap().as_slice(),
+            ["run-1".to_string()],
+            "the in-flight run must be stopped, not merely forgotten"
+        );
+        assert!(!slots.is_hosting(), "the socket must close too");
     }
 
     #[test]
