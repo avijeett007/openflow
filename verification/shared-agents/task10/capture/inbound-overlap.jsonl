@@ -1,0 +1,5 @@
+{"t":"ready","offers":1}
+{"t":"open","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1","offer_id":"24a1e70b-ca45-4b07-9f22-119bb5fda7ef","action_id":"agent:coder","requester":{"member_id":"2656f875-fcee-469c-9ee3-f29b3abc4eca","display_name":"Priya"},"sealed":false,"payload":{"instruction":"LONG: bravo-overlap"}}
+{"t":"open","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17","offer_id":"24a1e70b-ca45-4b07-9f22-119bb5fda7ef","action_id":"agent:coder","requester":{"member_id":"2656f875-fcee-469c-9ee3-f29b3abc4eca","display_name":"Priya"},"sealed":false,"payload":{"instruction":"LONG: charlie-overlap"}}
+{"t":"stop","session_id":"7d663688-0ced-488c-be7a-69e1e9fe01e1"}
+{"t":"stop","session_id":"cd17e813-ff2d-41c0-b462-45dd45e66c17"}

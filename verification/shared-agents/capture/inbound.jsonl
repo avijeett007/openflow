@@ -1,0 +1,4 @@
+{"t":"ready","offers":1}
+{"t":"open","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","offer_id":"c4fdbbd1-6eb5-48a9-86c7-8e88aa11b3c9","action_id":"agent:coder","requester":{"member_id":"b62c9540-67fe-4fdc-833f-c89b3b7649d5","display_name":"Priya"},"sealed":false,"payload":{"instruction":"add a one-line comment to the top of README.md describing this project"}}
+{"t":"open","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a","offer_id":"c4fdbbd1-6eb5-48a9-86c7-8e88aa11b3c9","action_id":"agent:coder","requester":{"member_id":"b62c9540-67fe-4fdc-833f-c89b3b7649d5","display_name":"Priya"},"sealed":false,"payload":{"instruction":"LONG: keep working until told to stop"}}
+{"t":"stop","session_id":"8ef2a6a6-bd08-4bed-9e44-b39073aba75a"}

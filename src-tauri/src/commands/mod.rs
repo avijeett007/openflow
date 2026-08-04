@@ -9,6 +9,7 @@ pub mod meetings;
 pub mod models;
 pub mod remote_agents;
 pub mod service;
+pub mod sharing;
 pub mod transcription;
 
 use crate::settings::{get_settings, write_settings, AppSettings, LogLevel};

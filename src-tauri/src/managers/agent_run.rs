@@ -53,6 +53,31 @@ impl RunStatus {
     }
 }
 
+/// Terminal outcome string reported to a relay requester (C2). Kept beside
+/// `RunStatus` so a new status variant forces a decision here.
+pub fn run_status_outcome(status: &RunStatus) -> String {
+    match status {
+        RunStatus::Finished { code: 0 } => "finished".to_string(),
+        RunStatus::Finished { code } => format!("exited:{code}"),
+        RunStatus::Failed { .. } => "failed".to_string(),
+        RunStatus::Stopped => "stopped".to_string(),
+        RunStatus::Running => "running".to_string(),
+    }
+}
+
+/// Whether a run's sinks include the C2 relay. Pure so the guard in `finalize`
+/// is asserted by test rather than by reading the match.
+pub fn wants_relay(sinks: &[AgentOutputSink]) -> bool {
+    sinks.contains(&AgentOutputSink::Relay)
+}
+
+/// The C2 relay's hook into the run pipeline. Registered once by the agent host
+/// (`managers::agent_host`); `None` — and therefore completely inert — unless
+/// sharing is actually running.
+pub trait RelayFrameSink: Send + Sync + 'static {
+    fn on_terminal(&self, run_id: &str, status: &RunStatus);
+}
+
 /// Emitted per output line while a run streams. Event name: `agent-run-output`.
 #[derive(Clone, Debug, Serialize, Deserialize, Type, Event)]
 pub struct AgentRunOutput {
@@ -85,6 +110,10 @@ pub struct AgentRunInfo {
     pub instruction: String,
     /// Absolute path to the written run file, once the File sink has run.
     pub output_file: Option<String>,
+    /// C2: the display name of the teammate who asked for this run, for the
+    /// `← Priya` label on the owner's panel. `None` for every local run — which
+    /// is every run unless sharing is on and a teammate brokered one.
+    pub requested_by: Option<String>,
 }
 
 /// Live registry entry.
@@ -114,6 +143,9 @@ impl AgentRun {
             output: self.output.clone(),
             instruction: self.instruction.clone(),
             output_file: self.output_file.clone(),
+            // Overlaid by `list_runs` from the brokered side map; the registry
+            // entry itself is untouched by C2.
+            requested_by: None,
         }
     }
 }
@@ -122,6 +154,13 @@ impl AgentRun {
 pub struct AgentRunManager {
     runs: Mutex<HashMap<String, AgentRun>>,
     seq: AtomicU64,
+    /// C2: registered by the agent host when sharing actually starts. Consulted
+    /// only for a run whose sinks carry `Relay`, so it is unreachable — and
+    /// stays `None` — for every local run.
+    relay_sink: Mutex<Option<Arc<dyn RelayFrameSink>>>,
+    /// C2: run_id → requester display name, for the `← Priya` panel label. A
+    /// side map on purpose: it keeps `start`'s registry literal untouched.
+    brokered: Mutex<HashMap<String, String>>,
 }
 
 impl Default for AgentRunManager {
@@ -135,7 +174,45 @@ impl AgentRunManager {
         Self {
             runs: Mutex::new(HashMap::new()),
             seq: AtomicU64::new(0),
+            relay_sink: Mutex::new(None),
+            brokered: Mutex::new(HashMap::new()),
         }
+    }
+
+    // ---- C2 (shared agents). Additive: nothing below is reached by a run that
+    // does not carry the `Relay` sink, and no persisted agent can carry it. ----
+
+    /// Register the relay's hook. Called once, by the agent host, and only
+    /// after `should_host` has said yes — so with sharing off this stays `None`.
+    pub fn set_relay_sink(&self, sink: Arc<dyn RelayFrameSink>) {
+        *self.relay_sink.lock().unwrap() = Some(sink);
+    }
+
+    /// Applied exactly like the Notify and File sinks — see `finalize`.
+    pub fn emit_relay_terminal(&self, sinks: &[AgentOutputSink], run_id: &str, status: &RunStatus) {
+        if !wants_relay(sinks) {
+            return;
+        }
+        let sink = self.relay_sink.lock().unwrap().clone();
+        if let Some(sink) = sink {
+            sink.on_terminal(run_id, status);
+        }
+    }
+
+    /// Remember who asked for a brokered run (for the panel label).
+    pub fn note_brokered_run(&self, run_id: &str, display_name: &str) {
+        self.brokered
+            .lock()
+            .unwrap()
+            .insert(run_id.to_string(), display_name.to_string());
+    }
+
+    pub fn forget_brokered_run(&self, run_id: &str) {
+        self.brokered.lock().unwrap().remove(run_id);
+    }
+
+    pub fn requester_label(&self, run_id: &str) -> Option<String> {
+        self.brokered.lock().unwrap().get(run_id).cloned()
     }
 
     fn next_run_id(&self) -> String {
@@ -145,9 +222,16 @@ impl AgentRunManager {
 
     /// Snapshot every run, newest first.
     pub fn list_runs(&self) -> Vec<AgentRunInfo> {
-        let runs = self.runs.lock().unwrap();
-        let mut out: Vec<AgentRunInfo> = runs.iter().map(|(id, r)| r.to_info(id)).collect();
+        let mut out: Vec<AgentRunInfo> = {
+            let runs = self.runs.lock().unwrap();
+            runs.iter().map(|(id, r)| r.to_info(id)).collect()
+        };
         out.sort_by(|a, b| b.started_at_ms.cmp(&a.started_at_ms));
+        // C2 overlay. A no-op when the side map is empty, which it always is
+        // unless a teammate has actually brokered a run on this machine.
+        for info in &mut out {
+            info.requested_by = self.requester_label(&info.run_id);
+        }
         out
     }
 
@@ -169,8 +253,21 @@ impl AgentRunManager {
 
     /// Drop all terminal (non-running) runs from the registry.
     pub fn clear_finished(&self) {
-        let mut runs = self.runs.lock().unwrap();
-        runs.retain(|_, r| !r.status.is_terminal());
+        let cleared: Vec<String> = {
+            let mut runs = self.runs.lock().unwrap();
+            let cleared = runs
+                .iter()
+                .filter(|(_, r)| r.status.is_terminal())
+                .map(|(id, _)| id.clone())
+                .collect();
+            runs.retain(|_, r| !r.status.is_terminal());
+            cleared
+        };
+        // C2: a requester label lives exactly as long as the run it annotates,
+        // so the side map can never outgrow the registry it decorates.
+        for run_id in &cleared {
+            self.forget_brokered_run(run_id);
+        }
     }
 
     fn append_output(&self, run_id: &str, line: &str) {
@@ -649,6 +746,13 @@ impl AgentRunManager {
                 Err(e) => log::error!("Failed to write agent run file {}: {}", path.display(), e),
             }
         }
+
+        // Relay sink (C2): a brokered run's terminal status goes back to its
+        // requester. Only ever present on the in-memory clone the agent host
+        // builds (`relay::grants::brokered_agent`) — never persisted, never
+        // selectable in the UI — so no local run can reach this, and with
+        // sharing off no sink is even registered.
+        self.emit_relay_terminal(&agent.output_sinks, run_id, &status);
 
         let _ = AgentRunStatus {
             run_id: run_id.to_string(),
@@ -2208,5 +2312,192 @@ mod tests {
             codex_static_vendor_hint("/no/such/codex"),
             CodexVendorStatus::Unknown
         );
+    }
+
+    // ---- C2 (shared agents). The additive half of the run pipeline. ----
+
+    #[test]
+    fn run_status_maps_to_a_terminal_relay_outcome() {
+        assert_eq!(
+            run_status_outcome(&RunStatus::Finished { code: 0 }),
+            "finished"
+        );
+        assert_eq!(
+            run_status_outcome(&RunStatus::Finished { code: 2 }),
+            "exited:2"
+        );
+        assert_eq!(run_status_outcome(&RunStatus::Stopped), "stopped");
+        assert_eq!(
+            run_status_outcome(&RunStatus::Failed {
+                error: "boom".into()
+            }),
+            "failed"
+        );
+        // Running is never terminal, but the mapping must not panic if it arrives.
+        assert_eq!(run_status_outcome(&RunStatus::Running), "running");
+    }
+
+    #[test]
+    fn the_relay_sink_is_only_reached_by_a_run_that_carries_it() {
+        // The non-breaking half: registering a relay sink must be invisible to
+        // every run that is not brokered — which is every run in every existing
+        // store, because Relay is never persisted and never selectable.
+        #[derive(Default)]
+        struct SpySink(std::sync::Mutex<Vec<String>>);
+        impl RelayFrameSink for SpySink {
+            fn on_terminal(&self, run_id: &str, status: &RunStatus) {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("{run_id}:{}", run_status_outcome(status)));
+            }
+        }
+
+        let spy = Arc::new(SpySink::default());
+        let manager = Arc::new(AgentRunManager::new());
+
+        // Before the host registers anything, the hook is inert even for a run
+        // that DOES carry the sink — this is the "sharing off" state.
+        manager.emit_relay_terminal(
+            &[AgentOutputSink::Panel, AgentOutputSink::Relay],
+            "r0",
+            &RunStatus::Stopped,
+        );
+        assert!(spy.0.lock().unwrap().is_empty());
+
+        manager.set_relay_sink(spy.clone());
+
+        assert!(!wants_relay(&[AgentOutputSink::Panel]));
+        assert!(!wants_relay(&[
+            AgentOutputSink::Panel,
+            AgentOutputSink::File
+        ]));
+        assert!(wants_relay(&[
+            AgentOutputSink::Panel,
+            AgentOutputSink::Relay
+        ]));
+
+        manager.emit_relay_terminal(
+            &[AgentOutputSink::Panel],
+            "r1",
+            &RunStatus::Finished { code: 0 },
+        );
+        assert!(
+            spy.0.lock().unwrap().is_empty(),
+            "a Panel-only run never reaches the relay"
+        );
+
+        manager.emit_relay_terminal(
+            &[AgentOutputSink::Panel, AgentOutputSink::Relay],
+            "r2",
+            &RunStatus::Stopped,
+        );
+        assert_eq!(spy.0.lock().unwrap().as_slice(), ["r2:stopped".to_string()]);
+    }
+
+    #[test]
+    fn requested_by_is_none_for_a_local_run_and_set_for_a_brokered_one() {
+        let manager = Arc::new(AgentRunManager::new());
+        manager.note_brokered_run("run-b", "Priya");
+        assert_eq!(manager.requester_label("run-b").as_deref(), Some("Priya"));
+        assert_eq!(manager.requester_label("run-local"), None);
+        manager.forget_brokered_run("run-b");
+        assert_eq!(manager.requester_label("run-b"), None);
+    }
+
+    #[test]
+    fn clearing_finished_runs_drops_their_requester_labels_too() {
+        // Without this the side map would grow forever: `clear_finished` is the
+        // only thing that removes a run from the registry, so a brokered label
+        // that survived it would annotate a run id that no longer exists.
+        let manager = Arc::new(AgentRunManager::new());
+        {
+            let mut runs = manager.runs.lock().unwrap();
+            runs.insert(
+                "done".to_string(),
+                AgentRun {
+                    agent_id: "coder".into(),
+                    agent_name: "Coder".into(),
+                    project_path: "/repo/site".into(),
+                    status: RunStatus::Finished { code: 0 },
+                    started_at: Local::now(),
+                    output: String::new(),
+                    instruction: "go".into(),
+                    output_file: None,
+                    kill_tx: None,
+                },
+            );
+            runs.insert(
+                "live".to_string(),
+                AgentRun {
+                    agent_id: "coder".into(),
+                    agent_name: "Coder".into(),
+                    project_path: "/repo/site".into(),
+                    status: RunStatus::Running,
+                    started_at: Local::now(),
+                    output: String::new(),
+                    instruction: "go".into(),
+                    output_file: None,
+                    kill_tx: None,
+                },
+            );
+        }
+        manager.note_brokered_run("done", "Priya");
+        manager.note_brokered_run("live", "Sam");
+
+        // The overlay reaches list_runs — this is the `← Priya` label.
+        let listed = manager.list_runs();
+        assert_eq!(listed.len(), 2);
+        assert_eq!(
+            listed
+                .iter()
+                .find(|i| i.run_id == "done")
+                .unwrap()
+                .requested_by
+                .as_deref(),
+            Some("Priya")
+        );
+
+        manager.clear_finished();
+        assert_eq!(
+            manager.requester_label("done"),
+            None,
+            "cleared with its run"
+        );
+        assert_eq!(
+            manager.requester_label("live").as_deref(),
+            Some("Sam"),
+            "a live brokered run keeps its label"
+        );
+        let listed = manager.list_runs();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].requested_by.as_deref(), Some("Sam"));
+    }
+
+    #[test]
+    fn a_purely_local_run_is_listed_with_no_requester() {
+        // The regression half: with sharing never configured the side map is
+        // empty, so every row reads exactly as it did before C2.
+        let manager = Arc::new(AgentRunManager::new());
+        {
+            let mut runs = manager.runs.lock().unwrap();
+            runs.insert(
+                "local".to_string(),
+                AgentRun {
+                    agent_id: "coder".into(),
+                    agent_name: "Coder".into(),
+                    project_path: "/home/me/personal".into(),
+                    status: RunStatus::Running,
+                    started_at: Local::now(),
+                    output: String::new(),
+                    instruction: "go".into(),
+                    output_file: None,
+                    kill_tx: None,
+                },
+            );
+        }
+        let listed = manager.list_runs();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].requested_by, None);
     }
 }

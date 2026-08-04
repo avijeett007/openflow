@@ -62,6 +62,7 @@ tokio = { version = "1.43.0", features = [
   "process",
   "io-util",
   "macros",
+  "net",   # required by tokio-tungstenite's `connect` feature (C2 relay socket)
   "sync",
   "time",
   "rt",
@@ -71,6 +72,18 @@ enigo = "0.6.1"
 rodio = { git = "https://github.com/cjpais/rodio.git" }
 reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
 futures-util = "0.3"
+# C2 shared agents: the host holds one outbound WebSocket to the community's
+# openflow-service (DESIGN-relay-v02 §3 — the desktop dials out because
+# workstations sit behind NAT). `tokio-tungstenite` is the standard tokio WS
+# client and the only mature option; reqwest 0.12 has no WebSocket support.
+#
+# `native-tls` (NOT rustls) is deliberate: it resolves to `native-tls` +
+# `tokio-native-tls`, BOTH of which are already in Cargo.lock via reqwest's
+# default TLS. So the relay socket trusts exactly the same OS root store the
+# existing /v1/pair and /v1/info calls already trust, and the dependency graph
+# gains no new TLS stack. Picking rustls here would give the pairing POST and
+# the relay socket two different trust stores on the same service URL.
+tokio-tungstenite = { version = "0.30", features = ["native-tls"] }
 rustfft = "6.4.0"
 strsim = "0.11.0"
 natural = "0.5.0"

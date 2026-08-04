@@ -1,0 +1,3 @@
+event: closed
+data: {"outcome":"denied"}
+

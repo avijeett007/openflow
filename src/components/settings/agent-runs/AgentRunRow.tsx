@@ -171,7 +171,18 @@ export const AgentRunRow: React.FC<AgentRunRowProps> = ({
     <div className="bg-background border border-mid-gray/20 rounded-lg divide-y divide-mid-gray/20">
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-sm truncate">{run.agent_name}</p>
+          {run.requested_by ? (
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="font-semibold text-sm truncate">{run.agent_name}</p>
+              <span className="ml-2 shrink-0 rounded px-1.5 py-0.5 text-[11px] bg-logo-primary/15 text-logo-primary max-w-[12rem] truncate">
+                {t("settings.agentRuns.requestedBy", {
+                  name: run.requested_by,
+                })}
+              </span>
+            </div>
+          ) : (
+            <p className="font-semibold text-sm truncate">{run.agent_name}</p>
+          )}
           <p
             className="text-xs text-mid-gray truncate"
             title={run.project_path || undefined}

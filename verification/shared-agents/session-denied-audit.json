@@ -1,0 +1,12 @@
+{
+  "seq": 12,
+  "session_id": "3e68c6ed-065c-42af-b677-021d9c0e5a79",
+  "offer_id": "0299bcbc-e636-48ad-8853-bf45bc9d9565",
+  "host_device": "31905e1d-4f06-4345-8f58-fcfc378d111e",
+  "requester_member": "b62c9540-67fe-4fdc-833f-c89b3b7649d5",
+  "requester_device": "082768b4-c5b7-4a0e-a949-03bc94c6ccdd",
+  "state": "closed",
+  "outcome": "denied",
+  "created_at": "2026-08-04T05:54:15Z",
+  "closed_at": "2026-08-04T05:54:15Z"
+}
