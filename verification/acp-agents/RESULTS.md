@@ -10,17 +10,17 @@
 
 ## 0. Executive summary
 
-| #       | Item                                                          | Verdict                                                                                                                                                  |
-| ------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **V1**  | `fs`/`terminal` declared **false** — do agents still operate? | ✅ **VERIFIED — the design assumption HOLDS** (Kimi, Claude Code). ⚠️ Codex **not reached** (unauthenticated on this machine, not a capability refusal). |
-| **V2**  | Permission prompt → Allow → file changed                      | ✅ **Verified at protocol level** (Kimi + Claude Code). ❌ GUI half **not verified**.                                                                    |
-| **V3**  | Same session id reused, context retained                      | ✅ **Verified** (Kimi + Claude Code).                                                                                                                    |
-| **V4**  | Deny → agent reports it could not proceed, no side effect     | ✅ **Verified** (Kimi).                                                                                                                                  |
-| **V5**  | Stop mid-turn → `cancelled`, no orphan, session still warm    | ✅ **Verified at protocol level** (Kimi).                                                                                                                |
-| **V5b** | Orphan-at-quit (`pending_children`)                           | ❌ **NOT VERIFIED** — requires quitting the GUI app mid-spawn.                                                                                           |
-| **V6**  | Idle timeout → child reaped, next instruction respawns        | ❌ **NOT VERIFIED** — requires the GUI app.                                                                                                              |
-| **V7**  | Regression half                                               | ⚠️ **PARTIAL** — static/settings evidence yes, in-app agent runs no.                                                                                     |
-| —       | Full gates                                                    | ✅ All pass (see §7).                                                                                                                                    |
+| #       | Item                                                          | Verdict                                                                                                    |
+| ------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| **V1**  | `fs`/`terminal` declared **false** — do agents still operate? | ✅ **VERIFIED — the design assumption HOLDS** (Kimi, Claude Code; **Codex too as of 2026-08-04 — §12**).   |
+| **V2**  | Permission prompt → Allow → file changed                      | ✅ **Verified at protocol level** (Kimi + Claude Code; **Codex too — §12**). ❌ GUI half **not verified**. |
+| **V3**  | Same session id reused, context retained                      | ✅ **Verified** (Kimi + Claude Code).                                                                      |
+| **V4**  | Deny → agent reports it could not proceed, no side effect     | ✅ **Verified** (Kimi).                                                                                    |
+| **V5**  | Stop mid-turn → `cancelled`, no orphan, session still warm    | ✅ **Verified at protocol level** (Kimi).                                                                  |
+| **V5b** | Orphan-at-quit (`pending_children`)                           | ❌ **NOT VERIFIED** — requires quitting the GUI app mid-spawn.                                             |
+| **V6**  | Idle timeout → child reaped, next instruction respawns        | ❌ **NOT VERIFIED** — requires the GUI app.                                                                |
+| **V7**  | Regression half                                               | ⚠️ **PARTIAL** — static/settings evidence yes, in-app agent runs no.                                       |
+| —       | Full gates                                                    | ✅ All pass (see §7).                                                                                      |
 
 ### 🚨 One blocking defect found — `stopReason` vocabulary was wrong — **NOW FIXED**
 
@@ -987,4 +987,161 @@ certainty. The turn guard is now returned to the caller and moved into
 
 Unchanged from §6 and §10.5: **V5b orphan-at-quit has still never executed**, V6 idle
 timeout, the GUI halves of V2–V5, and the in-app V7 regression clicks all need a human at
-the keyboard. Codex remains 2-of-3 pending `codex login`.
+the keyboard. Codex remains 2-of-3 pending `codex login`. — **Superseded 2026-08-04:
+Codex is now 3-of-3 at the protocol level; see §12.**
+
+---
+
+## 12. Codex: the third-of-three live pass, and the two divergences it found (2026-08-04)
+
+**Date:** 2026-08-04 · **Branch:** `feat/acp-agents` @ `f86fee9` (pre-fix) ·
+**Agent:** `codex-acp 1.1.9` via `npx -y @agentclientprotocol/codex-acp`,
+`codex-cli 0.146.0`, authenticated (`~/.codex/auth.json` present — §9's
+recommendation 2 unblocked).
+
+§9 recommendation 2 said "2-of-3 is not 3-of-3, and Codex has the strictest sandbox of
+the three". It was right, and not for the sandbox reason.
+
+### 12.1 What was driven
+
+The §8 probe, unchanged, against a throwaway git repo in the session scratch dir (never
+the OpenFlow repo). Two live sessions, both `initialize` → `session/new` →
+`session/prompt`, both ending `"stopReason":"end_turn"`.
+
+| Check                                                                  | Result                                                                                                  |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **V1** — `fs`/`terminal` declared **false**, does Codex still operate? | ✅ **YES.** Never called back for I/O; `refuse_inbound`'s `-32601` path was never exercised.            |
+| `initialize`                                                           | ✅ 1760 ms. `agentInfo` = `{name: "@agentclientprotocol/codex-acp", title: "Codex", version: "1.1.9"}`. |
+| `session/new`                                                          | ✅ `019fcc92-a80b-7d21-8700-72b28cc9ff05` — no `-32000 "Authentication required"` (contrast §11.4).     |
+| **File edit actually landed**                                          | ✅ `git diff` shows `+verified-by-codex` in `NOTES.md`; Codex then ran `wc -l` and reported `2`.        |
+| **V2** — permission prompt → Allow → side effect                       | ✅ Forced by asking for a write to `$HOME` (outside the sandbox). Real request, allowed, file written.  |
+| Terminal `stopReason`                                                  | ✅ `end_turn` on both turns → `RunStatus::Finished { code: 0 }`.                                        |
+
+Codex does **not** ask permission for edits inside its workspace root — the edit
+`tool_call` went straight to `status: "in_progress"` with no `session/request_permission`
+at all. This is Codex's own sandbox policy, not an OpenFlow decision, and it is worth
+knowing: under `Ask` policy a user may believe OpenFlow gates every action; it only gates
+what the agent chooses to ask about (§9 recommendation 4, now with a second agent
+demonstrating it).
+
+**12 new frame shapes** were added to `acp/fixtures/real-agent-frames.jsonl` (lines
+30–41), deduplicated by (agent, method, update kind, exact key set) exactly as the
+existing waves were, plus the `session/prompt` RESPONSE frames from all three agents
+(lines 28–29 and one inside the Codex block). Every line is byte-for-byte what the agent
+wrote to stdout. Nothing was hand-written, reformatted or redacted.
+
+### 12.2 🚨 Divergence 1 — a Codex edit names no file
+
+Codex announces a file edit with **no `locations` key at all**:
+
+```json
+{
+  "sessionUpdate": "tool_call",
+  "toolCallId": "exec-800532ce-844a-4dfc-ab3c-8e5bb2aaa028",
+  "title": "Editing files",
+  "kind": "edit",
+  "status": "in_progress",
+  "content": [
+    {
+      "type": "diff",
+      "oldText": "notes\n",
+      "newText": "notes\nverified-by-codex\n",
+      "path": "…/repo-codex-live/NOTES.md",
+      "_meta": { "kind": "update" }
+    }
+  ]
+}
+```
+
+The absolute path is stated **only** inside the `diff` content block — where the schema
+(`$defs.Diff`) makes `path` **required** and documents it as _"the absolute file path
+being modified"_. `claude-agent-acp` sends both `locations` and `content`, which is
+precisely why two vendors could not reveal this.
+
+`SessionUpdate::ToolCall` did not model `content` at all, so `RunEvent::ToolCall.locations`
+came out `[]` and **every Codex file edit reached the run panel and the permanent
+File-sink record as a bare `▸ Editing files`, naming no file.** Same class of loss as
+MF1 (§11.3): the agent delivered the resolved path and we discarded it.
+
+**Fix:** `protocol::ToolCallContentWire` + `protocol::stated_paths`. `locations` wins
+whenever the agent sent any; `diff` paths are the fallback, in wire order, deduplicated;
+an agent that named nothing anywhere still gets an empty list. Modelled on the **CREATE**
+variant only — on `ToolCallUpdate`, absence is a three-way that must survive verbatim, so
+nothing is derived there and MF1's invariant is untouched.
+
+**Break-and-revert:** reverting `map_session_update` to `locations.iter().map(…)` fails
+`a_real_codex_edit_states_its_file_only_in_a_diff_block_and_still_names_it` with
+`left: [] right: ["…/repo-codex-live/NOTES.md"]`, on line 33 of the capture.
+
+### 12.3 🚨 Divergence 2 — a Codex permission request has no title
+
+```json
+{
+  "sessionId": "019fcc93-d227-75c2-bd82-cf0e061cf162",
+  "toolCall": { "toolCallId": "exec-fa8e68f8-…", "kind": "execute", "status": "pending",
+                "rawInput": { "command": "…", "cwd": "…" } },
+  "options": [ … ]
+}
+```
+
+**No `title`.** Legal: `RequestPermissionRequest.toolCall` is schema-typed as a
+`ToolCallUpdate`, where only `toolCallId` is required (§11.4 already noted this for
+`title` specifically — Codex is the agent that actually does it). Kimi omits `kind`,
+Codex omits `title`; between them almost nothing about that object is guaranteed.
+
+Consequences, both live before the fix:
+
+1. `render_line` wrote a bare `"? "` into `AgentRunInfo.output` and the File sink — the
+   permanent record of a security decision, saying only that _something_ was authorised.
+2. `PermissionPrompt` rendered an **empty headline above the Allow button**. `targetPaths`
+   and `toolKind` already fell back to the joined `ToolCall`; `title` was the one field
+   that did not, and the join would have supplied it (the matching `tool_call` carries
+   `title: "perl -e … > $HOME/openflow-codex-perm-test.txt"`).
+
+**Fix:** `render_line` falls back to the `kind` the agent DID state (`"? execute"`),
+untouched whenever a title is present; `runEventRows.ts` joins `title` from the matching
+tool call, the same fallback its two siblings already had.
+
+**Break-and-revert:** removing the fallback fails
+`a_real_codex_permission_request_has_no_title_and_must_still_say_something` with
+`left: "? " right: "? execute"`.
+
+### 12.4 Also learned from the Codex frames
+
+- **Codex offers TWO options of kind `allow_always`** — `allow_always` ("Allow for
+  Session") and `accept_execpolicy_amendment`, the latter carrying a `_meta.permission`
+  policy block that would write a persistent execpolicy rule into Codex itself. Harmless
+  here **because `pick_option` prefers the `*_once` form**, so an automatic decision can
+  never reach either. This is the first live case where that preference does real work
+  rather than being merely prudent.
+- Codex's `_meta.codex.params.reason` explains _why_ approval is needed ("The exact
+  command was blocked because it writes to your home directory"). Deliberately not
+  consumed — `_meta` is vendor-private by spec.
+- Unmodelled `session/update` variants from Codex: `available_commands_update`,
+  `usage_update`, `session_info_update`. All drop silently, as designed.
+- Codex's `session/prompt` response carries `usage` and `_meta.quota` alongside
+  `stopReason`. `PromptResult` ignores both; now proved by the real frame.
+- Codex sends `agent_thought_chunk` with a `messageId`, and `agent_message_chunk` with
+  `_meta`. Both ignored without incident.
+
+### 12.5 Gates
+
+| Gate                         | Baseline (§11.6) | After                                   |
+| ---------------------------- | ---------------- | --------------------------------------- |
+| `cargo test --lib`           | 481 passed       | ✅ **488 passed; 0 failed**             |
+| `cargo clippy --all-targets` | 34 / 39 / 1      | ✅ **34 / 39 / 1 — baseline, zero new** |
+| `cargo fmt -- --check`       | clean            | ✅ clean                                |
+| `bun run build`              | ✓                | ✅ ✓                                    |
+| `bun run lint`               | 0 errors         | ✅ 0 errors (same pre-existing warning) |
+| `bun run format:check`       | clean            | ✅ clean                                |
+
+### 12.6 Still unverified
+
+Codex's live pass is now **3-of-3 at the protocol level**, and V1/V2 for Codex are done.
+Everything that needs a human at the keyboard is unchanged from §11.7: **V5b
+orphan-at-quit has still never executed**, V6 idle timeout, and the GUI halves of V2–V5
+(including the Codex permission CARD itself — the empty-headline fix was verified through
+the reducer's types and the replayed frame, not by clicking it). V3/V4/V5 were not
+re-driven against Codex: they are agent-independent protocol behaviours already proved
+twice, and the two divergences found here are both shape defects, not session-lifecycle
+ones.
