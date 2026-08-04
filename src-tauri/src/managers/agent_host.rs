@@ -262,19 +262,27 @@ impl HostState {
         let after = offers_from_grants(&sharing, &agents);
         let republish = before != after;
 
-        let sessions_to_stop: Vec<String> = self
-            .sessions
-            .lock()
-            .unwrap()
-            .values()
-            .filter(|s| authorize_open(&sharing, &agents, &s.action_id, &s.member_id).is_err())
-            .map(|s| s.run_id.clone())
-            .collect();
-
+        // Install the NEW config FIRST, before deciding what must stop.
+        // `handle_service_message`'s `Open` arm reads `self.config` live,
+        // fully unlocked from this function's own session read below — if
+        // the install happened LAST (as it originally did), a concurrent
+        // `open` could authorise against the STALE config in the gap and
+        // insert a session this call's `sessions_to_stop` snapshot could
+        // never have known about, because the snapshot had already been
+        // taken. Installing first does not close that window completely (a
+        // session whose INSERT into `self.sessions` still lands after the
+        // read below is still missed on THIS pass — see
+        // `config_installs_before_the_stop_list_is_computed...` for exactly
+        // what is and is not proven), but it shrinks the window from "this
+        // entire function" to "between here and the lock below." A run that
+        // slips through is not silently unstoppable either way: it stays
+        // visible and stoppable in the owner's run panel, and `republish`
+        // runs on every subsequent settings write, so the very next one
+        // reconciles it via this same check.
         {
             let mut cfg = self.config.lock().unwrap();
-            cfg.sharing = sharing;
-            cfg.agents = agents;
+            cfg.sharing = sharing.clone();
+            cfg.agents = agents.clone();
         }
         if republish {
             // Mirrors `set_config`: offer ids are re-minted on the fresh
@@ -283,6 +291,15 @@ impl HostState {
             // must not survive it.
             self.offer_actions.lock().unwrap().clear();
         }
+
+        let sessions_to_stop: Vec<String> = self
+            .sessions
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|s| authorize_open(&sharing, &agents, &s.action_id, &s.member_id).is_err())
+            .map(|s| s.run_id.clone())
+            .collect();
 
         SettingsDelta {
             republish,
@@ -1797,6 +1814,77 @@ mod tests {
         let delta = state.apply_settings(sharing_with_grant(), vec![off]);
         assert!(delta.republish);
         assert_eq!(delta.sessions_to_stop, vec!["run-1".to_string()]);
+    }
+
+    #[test]
+    fn deleting_a_grant_entirely_stops_its_brokered_runs() {
+        // The fourth transition the unification claims to cover: the owner
+        // removes the WHOLE grant (shrinks `sharing.grants`), not just a
+        // member from it or the agent it points at. Same `authorize_open`
+        // path as a revoked member (`DenyReason::NoGrant`) — functionally
+        // covered by inspection already, but the review asked for all four
+        // to be tested, not three of four.
+        let state = HostState::new(sharing_with_grant(), vec![agent("coder")]);
+        let t = FakeTransport::new(vec![]);
+        let l = FakeLauncher::default();
+        let _ = block_on(state.handle_service_message(open_msg("s1", "m-priya"), &t, &l));
+
+        let grant_deleted = SharingConfig {
+            enabled: true,
+            grants: vec![],
+        };
+        let delta = state.apply_settings(grant_deleted, vec![agent("coder")]);
+        assert!(delta.republish, "the offer disappears entirely");
+        assert_eq!(delta.sessions_to_stop, vec!["run-1".to_string()]);
+    }
+
+    #[test]
+    fn config_installs_before_the_stop_list_is_computed_so_a_racing_open_sees_the_new_settings() {
+        // Regression for the Task 6 review's "Important" finding:
+        // `apply_settings` used to compute `sessions_to_stop` BEFORE
+        // installing the new config. `handle_service_message`'s `Open` arm
+        // reads `self.config` live (via its own `self.snapshot()`), fully
+        // unlocked from this function's session read — so a concurrent
+        // `open` for a member being revoked right now could authorise
+        // against the STALE config and insert a session in the gap that this
+        // call's already-computed stop list could never have known about.
+        //
+        // Reproduced deterministically rather than by timing luck, the same
+        // technique `a_run_that_reaches_a_terminal_before_launch_returns_still_gets_its_closed`
+        // uses: hold the lock `apply_settings` needs for its LATER step
+        // (the session filter) so a background call blocks there, then
+        // observe that the EARLIER step (the config install) has already
+        // completed. `sessions` is a private field this `tests` submodule
+        // can reach directly.
+        let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+
+        // Block `apply_settings`'s session-read/filter step by holding the
+        // lock it needs for that step.
+        let guard = state.sessions.lock().unwrap();
+
+        let worker_state = Arc::clone(&state);
+        let handle = std::thread::spawn(move || {
+            worker_state.apply_settings(SharingConfig::default(), vec![agent("coder")])
+        });
+
+        // A decisive head start for the worker to reach (and block on) the
+        // lock we are holding.
+        std::thread::sleep(Duration::from_millis(100));
+        // While it is blocked there, the new config must ALREADY be
+        // installed — proving the install happened BEFORE the (still
+        // blocked) stop-list computation. Under the pre-fix ordering this
+        // would still show the OLD config: the worker would have blocked on
+        // `sessions` for the filter FIRST, before ever reaching the install.
+        assert!(
+            state.offers().is_empty(),
+            "the new config must install before the stop-list filter runs, \
+             so a racing `open` reading `self.config` in this same window \
+             sees the change"
+        );
+
+        drop(guard);
+        let delta = handle.join().unwrap();
+        assert!(delta.republish);
     }
 
     #[test]
