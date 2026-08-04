@@ -208,11 +208,9 @@ fn every_captured_frame_deserializes_through_the_production_types() {
                 // Unmodelled variants are DROPPED, never fatal; modelled ones
                 // must always render a text line (the dual-emission contract).
                 if let Some(e) = map_session_update(&n.update) {
-                    assert!(
-                        render_line(&e).is_some(),
-                        "line {}: {e:?} produced no text line",
-                        i + 1
-                    );
+                    let line = render_line(&e)
+                        .unwrap_or_else(|| panic!("line {}: {e:?} produced no text line", i + 1));
+                    assert_rendered_line_says_what_the_agent_said(i + 1, &e, &line);
                 }
             }
             "session/request_permission" => {
@@ -230,6 +228,11 @@ fn every_captured_frame_deserializes_through_the_production_types() {
                     "line {}: a permission request with no options is unanswerable",
                     i + 1
                 );
+                // Through the DRIVER's own construction, not a mirror of it.
+                let e = permission_request_event("req-replay", &p.tool_call, &p.options);
+                let line = render_line(&e)
+                    .unwrap_or_else(|| panic!("line {}: {e:?} produced no text line", i + 1));
+                assert_rendered_line_says_what_the_agent_said(i + 1, &e, &line);
             }
             // A JSON-RPC response (no `method`) — the `session/prompt` result.
             // Covered by `every_captured_prompt_response_yields_a_modelled_stop_reason`.
@@ -241,6 +244,119 @@ fn every_captured_frame_deserializes_through_the_production_types() {
             ),
             other => panic!("line {}: unexpected captured method {other:?}", i + 1),
         }
+    }
+}
+
+/// The rendered line is the PERMANENT record — `AgentRunInfo.output`, the File
+/// sink, the notification summary. It must contain everything the agent
+/// actually said and claim nothing it did not.
+///
+/// This replaces an `assert!(render_line(..).is_some())` that could never fail:
+/// `render_line` returns `Some` unconditionally, so the one assertion in the
+/// anti-vacuity file was itself vacuous. Concretely, deleting the ` — {paths}`
+/// tail from `render_line`'s `ToolCall` arm, or turning the status-less
+/// refinement's `s.push('·')` into `s.push('✓')`, both left that assertion
+/// green; both fail here, on real bytes.
+fn assert_rendered_line_says_what_the_agent_said(line_no: usize, e: &RunEvent, line: &str) {
+    assert!(
+        !line.trim().is_empty(),
+        "line {line_no}: {e:?} rendered a blank record entry — an agent action that leaves \
+         no trace in the permanent record is invisible to the user"
+    );
+    match e {
+        // Streaming deltas are recorded verbatim after their marker. A chunk
+        // that is pure whitespace is real too, so only the tail is pinned.
+        RunEvent::Text { text } | RunEvent::Thought { text } => assert!(
+            line.ends_with(text),
+            "line {line_no}: the agent's own words must survive into the record verbatim, \
+             got {line:?} for {text:?}"
+        ),
+        RunEvent::Plan { entries } => {
+            for en in entries {
+                assert!(
+                    line.contains(&en.content) && line.contains(&en.status),
+                    "line {line_no}: plan entry {en:?} missing from {line:?}"
+                );
+            }
+        }
+        RunEvent::ToolCall {
+            title,
+            locations,
+            status,
+            ..
+        } => {
+            assert!(
+                line.contains(title.as_str()),
+                "line {line_no}: the tool call's title is missing from {line:?}"
+            );
+            for p in locations {
+                assert!(
+                    line.contains(p.as_str()),
+                    "line {line_no}: the file this tool call touches ({p}) never reached the \
+                     permanent record: {line:?}"
+                );
+            }
+            let _ = status;
+        }
+        RunEvent::ToolCallUpdate {
+            status,
+            title,
+            locations,
+            ..
+        } => {
+            // Claimed exactly when reported — the MF1 lie, at the render layer.
+            assert_eq!(
+                line.contains('✓'),
+                status.is_some(),
+                "line {line_no}: the permanent record must mark a status if and only if the \
+                 agent reported one: {line:?}"
+            );
+            if let Some(s) = status {
+                assert!(
+                    line.contains(s.as_str()),
+                    "line {line_no}: status lost: {line:?}"
+                );
+            }
+            if let Some(t) = title {
+                assert!(
+                    line.contains(t.as_str()),
+                    "line {line_no}: title lost: {line:?}"
+                );
+            }
+            for p in locations.iter().flatten() {
+                assert!(
+                    line.contains(p.as_str()),
+                    "line {line_no}: delivering the resolved path is the entire purpose of a \
+                     refinement, and it never reached the record: {line:?}"
+                );
+            }
+        }
+        RunEvent::PermissionRequest {
+            title, tool_kind, ..
+        } => {
+            // The line the user's own audit trail keeps of being asked to
+            // authorise something. Codex sends no title, so the fallback to the
+            // stated kind is what has to hold here.
+            if !title.trim().is_empty() {
+                assert!(
+                    line.contains(title.as_str()),
+                    "line {line_no}: permission title lost: {line:?}"
+                );
+            } else if !tool_kind.trim().is_empty() {
+                assert!(
+                    line.contains(tool_kind.as_str()),
+                    "line {line_no}: a title-less permission request must at least record the \
+                     kind the agent DID state: {line:?}"
+                );
+            }
+            assert_ne!(
+                line.trim(),
+                "?",
+                "line {line_no}: the record says only that *something* was authorised"
+            );
+        }
+        RunEvent::PermissionResolved { outcome, .. } => assert!(line.contains(outcome.as_str())),
+        RunEvent::TurnEnd { stop_reason } => assert!(line.contains(stop_reason.as_str())),
     }
 }
 
