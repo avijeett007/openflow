@@ -32,6 +32,15 @@ export interface PermissionRow {
   key: string;
   requestId: string;
   toolCallId: string | null;
+  /**
+   * The card's headline. From the request itself where the agent supplied one,
+   * else the matching `ToolCall`'s — the same fallback as `targetPaths` and
+   * `toolKind` below, and for the same reason. `codex-acp` 1.1.9's
+   * `session/request_permission.toolCall` is `{toolCallId, kind, status,
+   * rawInput}` with **no `title` at all** (legal: the schema types that field as
+   * a `ToolCallUpdate`, where only `toolCallId` is required), which rendered an
+   * empty headline above an Allow button.
+   */
   title: string;
   options: PermissionOption[];
   /**
@@ -56,9 +65,14 @@ export interface PermissionRow {
    * Whether clicking an "always" option will actually be remembered for the
    * session. False when the kind is absent or `"other"` — ACP's catch-all,
    * which Claude Code files every MCP and unrecognised tool under, so
-   * remembering it would pre-authorise all of them at once. Mirrors
-   * `agent_run::is_persistable_kind`; the copy under the buttons must not
-   * promise persistence the backend deliberately refuses.
+   * remembering it would pre-authorise all of them at once.
+   *
+   * Decided from the REQUEST's own kind, never the joined `ToolCall`'s, because
+   * that is the only thing the backend sees: `agent_run::apply_answer` gates on
+   * `is_persistable_kind(parked.tool_kind)` where `parked.tool_kind` is
+   * `params.tool_call.kind` straight off the wire. `toolKind` above may fall
+   * back to the join so the card can still NAME what it is about; this must
+   * not, or the card promises a scope the backend then refuses.
    */
   alwaysPersists: boolean;
   /**
@@ -206,22 +220,32 @@ export function buildEventRows(
             : undefined;
         // The REQUEST's own fields win. The join is only a fallback: ACP allows
         // a permission request with no preceding `tool_call`, and a card that
-        // cannot name what it is about is worse than no card.
+        // cannot name what it is about is worse than no card. `title` joins for
+        // the same reason `targetPaths`/`toolKind` do — codex-acp 1.1.9 sends
+        // permission requests with no title at all.
         const targetPaths =
           e.locations.length > 0 ? e.locations : (joined?.locations ?? []);
         const toolKind = e.tool_kind || (joined?.toolKind ?? null);
+        const title = e.title || (joined?.title ?? "");
+        // NOT the joined kind. The backend decides persistence from the
+        // request's OWN kind (`is_persistable_kind(parked.tool_kind)`), and it
+        // never sees the join — so keying this on `toolKind` made the card
+        // promise "always applies to execute actions" for a request whose kind
+        // the agent never stated, and nothing was recorded. Kimi 0.31.0 is
+        // exactly that case: a kind-ful `tool_call` and a kind-LESS permission
+        // request for it. Trimmed to mirror `is_persistable_kind` exactly.
+        const ownKind = e.tool_kind.trim();
         permIndex.set(e.request_id, rows.length);
         rows.push({
           type: "permission",
           key: `perm-${e.request_id}`,
           requestId: e.request_id,
           toolCallId: e.tool_call_id,
-          title: e.title,
+          title,
           options: e.options,
           targetPaths,
           toolKind,
-          // Mirrors `agent_run::is_persistable_kind`.
-          alwaysPersists: toolKind !== null && toolKind !== "other",
+          alwaysPersists: ownKind !== "" && ownKind !== "other",
           state: "open",
         });
         break;
