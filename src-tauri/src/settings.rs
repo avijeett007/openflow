@@ -1056,6 +1056,23 @@ pub struct AppSettings {
 /// destroy the user's whole configuration.
 #[derive(Serialize, Deserialize, Clone, Debug, Type, PartialEq, Eq, Default)]
 pub struct ShareGrant {
+    /// This grant's own identity, minted by the UI (`crypto.randomUUID()`).
+    ///
+    /// **Load-bearing, not bookkeeping.** The relay `action_id` is keyed on the
+    /// GRANT, not the agent, so that two grants for the SAME agent in different
+    /// folders publish two distinguishable offers and
+    /// `relay::grants::authorize_open` resolves the one the teammate actually
+    /// opened. Keyed on the agent alone, the second grant's offer resolved back
+    /// to the first grant — a teammate opening the public-website offer got a
+    /// run in the client repo, which is precisely the blast radius
+    /// DESIGN-shared-agents §3 promises is bounded.
+    ///
+    /// `#[serde(default)]` like every other field: a grant persisted before this
+    /// field existed must still load (the store wipes to defaults on any parse
+    /// failure). A blank id is backfilled deterministically by
+    /// [`SharingConfig::backfill_grant_ids`] on every settings read.
+    #[serde(default)]
+    pub id: String,
     #[serde(default)]
     pub agent_id: String,
     /// EXPLICIT per grant and **never inherited** from the agent's own
@@ -1081,12 +1098,65 @@ pub struct SharingConfig {
     pub grants: Vec<ShareGrant>,
 }
 
+impl ShareGrant {
+    /// This grant's identity for offer/authorisation purposes: its stored `id`
+    /// when it has one, else a value derived from the grant's own content.
+    ///
+    /// The derivation exists so a grant persisted before `id` existed still
+    /// resolves — and so `offers_from_grants` and `authorize_open` cannot
+    /// disagree about it even if they are ever handed a config that never went
+    /// through [`SharingConfig::backfill_grant_ids`]: both call this, and it is
+    /// a pure function of the grant. Two grants that derive the same value are
+    /// byte-identical in all three fields, so they are interchangeable.
+    pub fn stable_id(&self) -> String {
+        let stored = self.id.trim();
+        if !stored.is_empty() {
+            return stored.to_string();
+        }
+        // FNV-1a rather than `DefaultHasher`: std's hasher output is explicitly
+        // not guaranteed stable across Rust versions, and this value is
+        // published in an `action_id`.
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |bytes: &[u8]| {
+            for b in bytes {
+                hash ^= *b as u64;
+                hash = hash.wrapping_mul(0x1000_0000_01b3);
+            }
+        };
+        eat(self.agent_id.as_bytes());
+        eat(b"\x1f");
+        eat(self.project_path.as_bytes());
+        for m in &self.allowed_members {
+            eat(b"\x1f");
+            eat(m.as_bytes());
+        }
+        format!("legacy-{hash:016x}")
+    }
+}
+
 impl SharingConfig {
     /// Nothing has ever been configured. Used by `skip_serializing_if` so a
     /// settings file written by a build that has this feature but has never had
     /// it turned on is byte-identical to a v0.15.7 file.
     pub fn is_dormant(&self) -> bool {
         !self.enabled && self.grants.is_empty()
+    }
+
+    /// Give every grant an explicit `id`, deterministically, without dropping
+    /// or reordering anything. Returns whether anything changed, so the caller
+    /// only rewrites the store when it must. Empty grant lists — i.e. every
+    /// user who has never configured sharing — are untouched, so a dormant
+    /// config stays dormant and unwritten.
+    pub fn backfill_grant_ids(&mut self) -> bool {
+        let mut changed = false;
+        for grant in &mut self.grants {
+            let stable = grant.stable_id();
+            if grant.id != stable {
+                grant.id = stable;
+                changed = true;
+            }
+        }
+        changed
     }
 }
 
@@ -1776,7 +1846,14 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         default_settings
     };
 
-    if ensure_post_process_defaults(&mut settings) {
+    let mut needs_persist = ensure_post_process_defaults(&mut settings);
+    // Same backfill as `get_settings`, for the same reason — the startup read
+    // must not hand the host a grant list whose identities differ from the one
+    // the frontend later edits.
+    if settings.sharing.backfill_grant_ids() {
+        needs_persist = true;
+    }
+    if needs_persist {
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
 
@@ -1816,6 +1893,13 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
     // is what the frontend and most callers actually use, so mirror it here.
     let mut needs_persist = ensure_binding_defaults(&mut settings);
     if ensure_post_process_defaults(&mut settings) {
+        needs_persist = true;
+    }
+    // C2: a grant stored before `ShareGrant::id` existed gets its id here, on
+    // the read path every caller shares, so the authorisation re-check and the
+    // published offers always see the same identity. No-op (and no write) when
+    // sharing has never been configured.
+    if settings.sharing.backfill_grant_ids() {
         needs_persist = true;
     }
     if needs_persist {
@@ -2608,6 +2692,7 @@ mod tests {
         settings.sharing = SharingConfig {
             enabled: true,
             grants: vec![ShareGrant {
+                id: "g-9c1f".into(),
                 agent_id: "coder".into(),
                 project_path: "/repo/site".into(),
                 allowed_members: vec!["m-priya".into()],
@@ -2643,6 +2728,72 @@ mod tests {
         assert_eq!(settings.sharing.grants[0].agent_id, "coder");
         assert_eq!(settings.sharing.grants[0].project_path, "");
         assert!(settings.sharing.grants[0].allowed_members.is_empty());
+        assert_eq!(settings.sharing.grants[0].id, "");
+    }
+
+    #[test]
+    fn a_grant_stored_before_ids_existed_loads_and_is_backfilled() {
+        // Non-breaking principle. `ShareGrant::id` arrived after grants shipped
+        // on this branch, and the store wipes to defaults on ANY parse failure —
+        // so a stored grant with no `id` key must load, keep every other field,
+        // and be given an id on the read path rather than be dropped.
+        //
+        // The single production edit that makes this fail: removing
+        // `#[serde(default)]` from `ShareGrant::id` (the parse below fails), or
+        // deleting the `backfill_grant_ids` body (the ids stay blank).
+        let raw = serde_json::json!({
+            "bindings": {},
+            "push_to_talk": true,
+            "audio_feedback": false,
+            "sharing": { "enabled": true, "grants": [
+                { "agent_id": "coder", "project_path": "/repo/acme-client",
+                  "allowed_members": ["m-priya"] },
+                { "agent_id": "coder", "project_path": "/repo/public-website",
+                  "allowed_members": ["m-priya", "m-sam"] }
+            ]}
+        });
+        let mut settings: AppSettings =
+            serde_json::from_value(raw).expect("a grant with no id must still load");
+        assert_eq!(settings.sharing.grants.len(), 2);
+        assert!(settings.sharing.grants.iter().all(|g| g.id.is_empty()));
+
+        assert!(settings.sharing.backfill_grant_ids());
+        assert!(settings.sharing.grants.iter().all(|g| !g.id.is_empty()));
+        assert_ne!(
+            settings.sharing.grants[0].id, settings.sharing.grants[1].id,
+            "two grants for one agent in different folders must not share an id"
+        );
+        assert_eq!(settings.sharing.grants[0].agent_id, "coder");
+        assert_eq!(
+            settings.sharing.grants[1].project_path,
+            "/repo/public-website"
+        );
+
+        // Idempotent and stable: a second pass changes nothing, and re-reading
+        // the same stored bytes derives the same ids.
+        let ids: Vec<String> = settings
+            .sharing
+            .grants
+            .iter()
+            .map(|g| g.id.clone())
+            .collect();
+        assert!(!settings.sharing.backfill_grant_ids());
+        let again: Vec<String> = settings
+            .sharing
+            .grants
+            .iter()
+            .map(|g| g.id.clone())
+            .collect();
+        assert_eq!(ids, again);
+
+        // …and a config nobody ever configured stays dormant and unwritten.
+        let mut fresh = get_default_settings();
+        assert!(!fresh.sharing.backfill_grant_ids());
+        assert!(fresh.sharing.is_dormant());
+        assert!(serde_json::to_value(&fresh)
+            .unwrap()
+            .get("sharing")
+            .is_none());
     }
 
     #[test]

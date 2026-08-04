@@ -2500,7 +2500,25 @@ pending_count: number | null }
  * parse failure** — one malformed grant must degrade to an empty grant, never
  * destroy the user's whole configuration.
  */
-export type ShareGrant = { agent_id?: string; 
+export type ShareGrant = { 
+/**
+ * This grant's own identity, minted by the UI (`crypto.randomUUID()`).
+ * 
+ * **Load-bearing, not bookkeeping.** The relay `action_id` is keyed on the
+ * GRANT, not the agent, so that two grants for the SAME agent in different
+ * folders publish two distinguishable offers and
+ * `relay::grants::authorize_open` resolves the one the teammate actually
+ * opened. Keyed on the agent alone, the second grant's offer resolved back
+ * to the first grant — a teammate opening the public-website offer got a
+ * run in the client repo, which is precisely the blast radius
+ * DESIGN-shared-agents §3 promises is bounded.
+ * 
+ * `#[serde(default)]` like every other field: a grant persisted before this
+ * field existed must still load (the store wipes to defaults on any parse
+ * failure). A blank id is backfilled deterministically by
+ * [`SharingConfig::backfill_grant_ids`] on every settings read.
+ */
+id?: string; agent_id?: string; 
 /**
  * EXPLICIT per grant and **never inherited** from the agent's own
  * `project_path`: the blast radius of a brokered run is a directory the

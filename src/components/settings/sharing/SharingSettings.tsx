@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -32,7 +32,19 @@ import { ToggleSwitch } from "../../ui/ToggleSwitch";
 // the socket came up, dropped, or a session count changed.
 const STATUS_POLL_MS = 4000;
 
-const SHAREABLE_KINDS: AgentDefinition["kind"][] = ["cli", "remote"];
+/**
+ * Only `cli`. C2 v1 rides the shipped raw-CLI driver (DESIGN-shared-agents §2),
+ * and that is what makes the copy above the grant list literally true: a CLI
+ * agent runs as a subprocess on this machine, in the folder the grant names.
+ *
+ * A `remote` (A2A) agent does not. `AgentRunManager::start` routes it to
+ * `drive_remote_run`, which uses neither `cwd` nor `argv` — the work happens at
+ * the owner's remote endpoint, under the owner's credentials, billed to the
+ * owner's account, and the grant's folder bounds nothing at all. The Rust host
+ * refuses one too (`relay::grants::is_shareable_kind`); this is the half that
+ * keeps it out of the picker.
+ */
+const SHAREABLE_KINDS: AgentDefinition["kind"][] = ["cli"];
 
 /** A grant is only meaningful — and only ever sent to `setShareGrants` — once
  * all three fields are set. `validate_grants` on the Rust side enforces the
@@ -40,11 +52,17 @@ const SHAREABLE_KINDS: AgentDefinition["kind"][] = ["cli", "remote"];
  * lets an in-progress "add grant" row sit locally without blocking the save
  * of every other, already-finished grant. */
 const isGrantComplete = (grant: ShareGrant): boolean =>
+  (grant.id ?? "").trim().length > 0 &&
   (grant.agent_id ?? "").trim().length > 0 &&
   (grant.project_path ?? "").trim().length > 0 &&
   (grant.allowed_members ?? []).length > 0;
 
+/** A new grant gets its identity here and keeps it for life. The published
+ * relay `action_id` is keyed on it, so it is what lets one agent be shared
+ * twice — two folders, two member lists — without the two grants collapsing
+ * into a single offer. */
 const emptyGrant = (): ShareGrant => ({
+  id: crypto.randomUUID(),
   agent_id: "",
   project_path: "",
   allowed_members: [],
@@ -84,9 +102,20 @@ export const SharingSettings: React.FC = () => {
   const [draftGrants, setDraftGrants] = useState<ShareGrant[] | null>(null);
   const [grantsPending, setGrantsPending] = useState(false);
 
+  // The synchronous mirror of `draftGrants`. A handler that reads
+  // `draftGrants` reads the render closure, so two interactions in one render
+  // frame (tick a teammate, then tick a second one) both start from the same
+  // list and the second discards the first — and because `persistDraft` writes
+  // straight through to `setShareGrants`, that loss is PERSISTED, not merely
+  // visual. Every mutation therefore composes off this ref, which each write
+  // advances immediately, before React has re-rendered.
+  const grantsRef = useRef<ShareGrant[]>([]);
+
   useEffect(() => {
     if (draftGrants === null && settings) {
-      setDraftGrants(settings.sharing.grants ?? []);
+      const seeded = settings.sharing.grants ?? [];
+      grantsRef.current = seeded;
+      setDraftGrants(seeded);
     }
   }, [draftGrants, settings]);
 
@@ -147,6 +176,7 @@ export const SharingSettings: React.FC = () => {
 
   // Sends only the COMPLETE grants — see `isGrantComplete`'s doc comment.
   const persistDraft = async (next: ShareGrant[]) => {
+    grantsRef.current = next;
     setDraftGrants(next);
     setGrantsPending(true);
     try {
@@ -164,26 +194,33 @@ export const SharingSettings: React.FC = () => {
     }
   };
 
+  /** The one way grants change: compose off the latest list, never off the
+   * render closure. Grants are addressed by their own id — the same id the
+   * relay `action_id` is keyed on — so an edit lands on the grant the owner
+   * touched even while another one is being added or removed. */
+  const mutateGrants = (mutate: (prev: ShareGrant[]) => ShareGrant[]) => {
+    void persistDraft(mutate(grantsRef.current));
+  };
+
   const handleAddGrant = () => {
-    void persistDraft([...(draftGrants ?? []), emptyGrant()]);
+    mutateGrants((prev) => [...prev, emptyGrant()]);
   };
 
-  const handleRemoveGrant = (index: number) => {
-    void persistDraft((draftGrants ?? []).filter((_, i) => i !== index));
+  const handleRemoveGrant = (grantId: string) => {
+    mutateGrants((prev) => prev.filter((g) => (g.id ?? "") !== grantId));
   };
 
-  const updateGrant = (index: number, patch: Partial<ShareGrant>) => {
-    const next = (draftGrants ?? []).map((g, i) =>
-      i === index ? { ...g, ...patch } : g,
+  const updateGrant = (grantId: string, patch: Partial<ShareGrant>) => {
+    mutateGrants((prev) =>
+      prev.map((g) => ((g.id ?? "") === grantId ? { ...g, ...patch } : g)),
     );
-    void persistDraft(next);
   };
 
-  const handleChooseFolder = async (index: number) => {
+  const handleChooseFolder = async (grantId: string) => {
     try {
       const dir = await open({ directory: true });
       if (typeof dir === "string" && dir.length > 0) {
-        updateGrant(index, { project_path: dir });
+        updateGrant(grantId, { project_path: dir });
       }
     } catch (err) {
       toast.error(
@@ -192,15 +229,19 @@ export const SharingSettings: React.FC = () => {
     }
   };
 
-  const toggleMember = (index: number, memberId: string) => {
-    const grant = (draftGrants ?? [])[index];
-    if (!grant) return;
-    const currentMembers = grant.allowed_members ?? [];
-    const has = currentMembers.includes(memberId);
-    const nextMembers = has
-      ? currentMembers.filter((m) => m !== memberId)
-      : [...currentMembers, memberId];
-    updateGrant(index, { allowed_members: nextMembers });
+  const toggleMember = (grantId: string, memberId: string) => {
+    mutateGrants((prev) =>
+      prev.map((g) => {
+        if ((g.id ?? "") !== grantId) return g;
+        const current = g.allowed_members ?? [];
+        return {
+          ...g,
+          allowed_members: current.includes(memberId)
+            ? current.filter((m) => m !== memberId)
+            : [...current, memberId],
+        };
+      }),
+    );
   };
 
   const handleRedeemInvite = async () => {
@@ -228,11 +269,7 @@ export const SharingSettings: React.FC = () => {
   );
   const agentOptions: SelectOption[] = shareableAgents.map((a) => ({
     value: a.id,
-    label: `${a.name} (${
-      a.kind === "cli"
-        ? t("settings.sharing.grants.agentKindCli")
-        : t("settings.sharing.grants.agentKindRemote")
-    })`,
+    label: `${a.name} (${t("settings.sharing.grants.agentKindCli")})`,
   }));
 
   // Fact 3: `is_member` is a heuristic, not a hard claim. We only ever
@@ -397,11 +434,12 @@ export const SharingSettings: React.FC = () => {
               </p>
             )}
 
-            {grants.map((grant, index) => {
+            {grants.map((grant) => {
               const complete = isGrantComplete(grant);
+              const grantId = grant.id ?? "";
               return (
                 <div
-                  key={index}
+                  key={grantId}
                   className="rounded-lg border border-mid-gray/20 p-3 space-y-3"
                 >
                   <div className="flex items-center justify-between gap-3">
@@ -412,7 +450,7 @@ export const SharingSettings: React.FC = () => {
                         "settings.sharing.grants.agentPlaceholder",
                       )}
                       onChange={(value) =>
-                        updateGrant(index, { agent_id: value ?? "" })
+                        updateGrant(grantId, { agent_id: value ?? "" })
                       }
                       isClearable={false}
                       className="flex-1"
@@ -421,7 +459,7 @@ export const SharingSettings: React.FC = () => {
                       type="button"
                       variant="danger-ghost"
                       size="sm"
-                      onClick={() => handleRemoveGrant(index)}
+                      onClick={() => handleRemoveGrant(grantId)}
                       aria-label={t("settings.sharing.grants.remove")}
                       title={t("settings.sharing.grants.remove")}
                     >
@@ -442,7 +480,7 @@ export const SharingSettings: React.FC = () => {
                         type="button"
                         variant="secondary"
                         size="sm"
-                        onClick={() => void handleChooseFolder(index)}
+                        onClick={() => void handleChooseFolder(grantId)}
                         className="inline-flex shrink-0 items-center gap-1.5"
                       >
                         <FolderOpen className="h-4 w-4" />
@@ -454,7 +492,7 @@ export const SharingSettings: React.FC = () => {
                           variant="ghost"
                           size="sm"
                           onClick={() =>
-                            updateGrant(index, { project_path: "" })
+                            updateGrant(grantId, { project_path: "" })
                           }
                           aria-label={t("settings.sharing.grants.folderClear")}
                           title={t("settings.sharing.grants.folderClear")}
@@ -501,7 +539,7 @@ export const SharingSettings: React.FC = () => {
                                 type="checkbox"
                                 checked={checked}
                                 onChange={() =>
-                                  toggleMember(index, member.member_id)
+                                  toggleMember(grantId, member.member_id)
                                 }
                               />
                               {member.display_name}

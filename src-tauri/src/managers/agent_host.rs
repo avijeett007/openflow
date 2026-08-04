@@ -1405,6 +1405,7 @@ mod tests {
         SharingConfig {
             enabled: true,
             grants: vec![ShareGrant {
+                id: "g1".into(),
                 agent_id: "coder".into(),
                 project_path: "/repo/site".into(),
                 allowed_members: vec!["m-priya".into()],
@@ -1415,7 +1416,7 @@ mod tests {
     /// A ready-to-run `open` for `sharing_with_grant()`'s "coder" offer.
     fn open_msg(session_id: &str, member_id: &str) -> ServiceMessage {
         serde_json::from_value(json!({
-            "t": "open", "session_id": session_id, "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": session_id, "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": member_id, "display_name": "Priya"},
             "payload": {"instruction": "add a comment to README"}
         }))
@@ -1722,7 +1723,7 @@ mod tests {
         block_on(state.publish(&t)).unwrap();
         let v: serde_json::Value = serde_json::from_str(&t.sent()[0]).unwrap();
         assert_eq!(v["t"], json!("hello"));
-        assert_eq!(v["offers"][0]["action_id"], json!("agent:coder"));
+        assert_eq!(v["offers"][0]["action_id"], json!("agent:coder#g1"));
         assert_eq!(v["offers"][0]["project"], json!("/repo/site"));
     }
 
@@ -1734,7 +1735,7 @@ mod tests {
         let l = FakeLauncher::default();
 
         let msg: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": {"instruction": "add a comment to README"}
         }))
@@ -1833,7 +1834,7 @@ mod tests {
         let t = FakeTransport::new(vec![]);
 
         let open: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": {"instruction": "run a binary that does not exist"}
         }))
@@ -1883,7 +1884,7 @@ mod tests {
         let l = FakeLauncher::default();
 
         let msg: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s9", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s9", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-stranger", "display_name": "Stranger"},
             "payload": {"instruction": "rm -rf /"}
         }))
@@ -1912,7 +1913,7 @@ mod tests {
         assert!(state.offers().is_empty(), "nothing is offered any more");
 
         let msg: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": "go"
         }))
@@ -1955,6 +1956,7 @@ mod tests {
         let revoked = SharingConfig {
             enabled: true,
             grants: vec![ShareGrant {
+                id: "g1".into(),
                 agent_id: "coder".into(),
                 project_path: "/repo/site".into(),
                 allowed_members: vec!["m-someone-else".into()],
@@ -2079,6 +2081,7 @@ mod tests {
         let both_allowed = SharingConfig {
             enabled: true,
             grants: vec![ShareGrant {
+                id: "g1".into(),
                 agent_id: "coder".into(),
                 project_path: "/repo/site".into(),
                 allowed_members: vec!["m-priya".into(), "m-zola".into()],
@@ -2095,6 +2098,7 @@ mod tests {
         let zola_only = SharingConfig {
             enabled: true,
             grants: vec![ShareGrant {
+                id: "g1".into(),
                 agent_id: "coder".into(),
                 project_path: "/repo/site".into(),
                 allowed_members: vec!["m-zola".into()],
@@ -2156,7 +2160,7 @@ mod tests {
         let t = FakeTransport::new(vec![]);
         let l = FakeLauncher::default();
         let msg: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s2", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s2", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": {}
         }))
@@ -2189,7 +2193,7 @@ mod tests {
         // Once ONE open has carried both ids, the mapping is cached and a later
         // bare open resolves.
         let full: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s2", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s2", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": "go"
         }))
@@ -2205,7 +2209,7 @@ mod tests {
         let t = FakeTransport::new(vec![]);
         let l = FakeLauncher::default();
         let open: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": "go"
         }))
@@ -2235,7 +2239,7 @@ mod tests {
         let t = FakeTransport::new(vec![]);
         let l = FakeLauncher::default();
         let full: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": "go"
         }))
@@ -2273,7 +2277,7 @@ mod tests {
         let t = FakeTransport::new(vec![]);
         let l = FakeLauncher::default();
         let open: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": "go"
         }))
@@ -2297,7 +2301,7 @@ mod tests {
         let t = FakeTransport::write_broken();
         let l = FakeLauncher::default();
         let open: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": "go"
         }))
@@ -2316,7 +2320,7 @@ mod tests {
         let state = HostState::new(sharing_with_grant(), vec![agent("coder")]);
         let t = FakeTransport::write_broken();
         let denied: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s2", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s2", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-stranger", "display_name": "Stranger"},
             "payload": "go"
         }))
@@ -2342,7 +2346,7 @@ mod tests {
         let t = FakeTransport::new(vec![]);
         let l = FakeLauncher::default();
         let open: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": "go"
         }))
@@ -2384,7 +2388,7 @@ mod tests {
         let t = FakeTransport::new(vec![]);
         let l = FakeLauncher::default();
         let open: ServiceMessage = serde_json::from_value(json!({
-            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder#g1",
             "requester": {"member_id": "m-priya", "display_name": "Priya"},
             "payload": "go"
         }))
@@ -2431,7 +2435,7 @@ mod tests {
     #[test]
     fn the_loop_publishes_then_serves_and_a_dropped_socket_ends_only_the_session() {
         let running = Arc::new(AtomicBool::new(true));
-        let open = r#"{"t":"open","session_id":"s1","offer_id":"o1","action_id":"agent:coder","requester":{"member_id":"m-priya","display_name":"Priya"},"payload":{"instruction":"go"}}"#;
+        let open = r#"{"t":"open","session_id":"s1","offer_id":"o1","action_id":"agent:coder#g1","requester":{"member_id":"m-priya","display_name":"Priya"},"payload":{"instruction":"go"}}"#;
         // The script ends, so `recv` returns None — a closed socket. `close`
         // then clears `running`, standing in for the app shutting down, which
         // is what keeps this test from waiting out a real reconnect backoff.
@@ -2455,7 +2459,7 @@ mod tests {
         let sent = sent.lock().unwrap().clone();
         let hello: serde_json::Value = serde_json::from_str(&sent[0]).unwrap();
         assert_eq!(hello["t"], json!("hello"), "offers are published first");
-        assert_eq!(hello["offers"][0]["action_id"], json!("agent:coder"));
+        assert_eq!(hello["offers"][0]["action_id"], json!("agent:coder#g1"));
         let header: serde_json::Value = serde_json::from_str(&sent[1]).unwrap();
         assert_eq!(header["kind"], json!("header"));
 
@@ -2998,6 +3002,7 @@ mod tests {
         let sharing = SharingConfig {
             enabled: true,
             grants: vec![ShareGrant {
+                id: "g1".into(),
                 agent_id: "coder".into(),
                 project_path: env.project.clone(),
                 allowed_members: vec![env.member.clone()],

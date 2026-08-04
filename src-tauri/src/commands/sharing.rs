@@ -112,6 +112,7 @@ pub fn parse_members(raw: &serde_json::Value) -> Result<Vec<ServiceMember>, Stri
 /// exactly these two cases without saying why). Checked in this order so the
 /// first message a user sees is the most fundamental thing missing.
 pub fn validate_grants(grants: &[ShareGrant]) -> Result<(), String> {
+    let mut seen_ids: Vec<&str> = Vec::new();
     for grant in grants {
         if grant.agent_id.trim().is_empty() {
             return Err("Choose an agent to share.".to_string());
@@ -119,9 +120,31 @@ pub fn validate_grants(grants: &[ShareGrant]) -> Result<(), String> {
         if grant.project_path.trim().is_empty() {
             return Err("Choose a folder for the shared agent to run in.".to_string());
         }
-        if grant.allowed_members.is_empty() {
+        if grant.allowed_members.is_empty()
+            || grant.allowed_members.iter().all(|m| m.trim().is_empty())
+        {
             return Err("Allow at least one teammate to run the shared agent.".to_string());
         }
+        // A blank member id is nobody: `Requester::member_id` defaults to `""`,
+        // so an entry that is blank (or whitespace) would be an entry an
+        // anonymous `open` could try to match. `authorize_open` refuses those
+        // too — this stops one being stored in the first place.
+        if grant.allowed_members.iter().any(|m| m.trim().is_empty()) {
+            return Err("A teammate entry is blank — remove it and pick a teammate.".to_string());
+        }
+        // The grant's id is what the published `action_id` is keyed on
+        // (`relay::grants::action_id_for_grant`). Two grants sharing one id
+        // would collapse back into a single offer, which is exactly the bug
+        // the id exists to prevent, so it is rejected at the save boundary
+        // rather than discovered as a teammate running in the wrong folder.
+        let id = grant.id.trim();
+        if id.is_empty() {
+            return Err("This grant has no id. Remove it and add it again.".to_string());
+        }
+        if seen_ids.contains(&id) {
+            return Err("Two grants share an id. Remove one and add it again.".to_string());
+        }
+        seen_ids.push(id);
     }
     Ok(())
 }
@@ -274,30 +297,26 @@ pub async fn redeem_service_invite(app: AppHandle, code: String) -> Result<Strin
 mod tests {
     use super::*;
 
+    fn grant(id: &str, agent_id: &str, project: &str, members: &[&str]) -> ShareGrant {
+        ShareGrant {
+            id: id.into(),
+            agent_id: agent_id.into(),
+            project_path: project.into(),
+            allowed_members: members.iter().map(|m| m.to_string()).collect(),
+        }
+    }
+
     #[test]
     fn grants_are_validated_before_they_are_persisted() {
         // A grant with no folder or nobody allowed is not an error the user
         // should discover as silence — it is rejected at the command
         // boundary.
-        assert!(validate_grants(&[ShareGrant {
-            agent_id: "coder".into(),
-            project_path: "/repo/site".into(),
-            allowed_members: vec!["m".into()],
-        }])
-        .is_ok());
+        assert!(validate_grants(&[grant("g1", "coder", "/repo/site", &["m"])]).is_ok());
 
-        let no_project = validate_grants(&[ShareGrant {
-            agent_id: "coder".into(),
-            project_path: "  ".into(),
-            allowed_members: vec!["m".into()],
-        }]);
+        let no_project = validate_grants(&[grant("g1", "coder", "  ", &["m"])]);
         assert!(no_project.unwrap_err().contains("folder"));
 
-        let nobody = validate_grants(&[ShareGrant {
-            agent_id: "coder".into(),
-            project_path: "/r".into(),
-            allowed_members: vec![],
-        }]);
+        let nobody = validate_grants(&[grant("g1", "coder", "/r", &[])]);
         assert!(nobody.unwrap_err().contains("teammate"));
 
         let no_agent = validate_grants(&[ShareGrant::default()]);
@@ -307,18 +326,52 @@ mod tests {
     #[test]
     fn validate_grants_checks_every_grant_not_just_the_first() {
         let ok_then_bad = validate_grants(&[
-            ShareGrant {
-                agent_id: "coder".into(),
-                project_path: "/repo/site".into(),
-                allowed_members: vec!["m".into()],
-            },
-            ShareGrant {
-                agent_id: "writer".into(),
-                project_path: "".into(),
-                allowed_members: vec!["m".into()],
-            },
+            grant("g1", "coder", "/repo/site", &["m"]),
+            grant("g2", "writer", "", &["m"]),
         ]);
         assert!(ok_then_bad.unwrap_err().contains("folder"));
+    }
+
+    #[test]
+    fn a_grant_without_a_usable_id_is_refused() {
+        // The id is what `relay::grants::action_id_for_grant` keys the published
+        // offer on, so a blank or duplicated one collapses two grants back into
+        // one offer — the bug the id exists to prevent. Two grants for the SAME
+        // agent in different folders are explicitly fine.
+        //
+        // The single production edit that makes this fail: deleting the id
+        // checks from `validate_grants` (both refusals below become `Ok`).
+        assert!(validate_grants(&[
+            grant("g1", "coder", "/repo/acme-client", &["m-priya"]),
+            grant("g2", "coder", "/repo/public-website", &["m-priya", "m-sam"]),
+        ])
+        .is_ok());
+
+        let blank = validate_grants(&[grant("  ", "coder", "/repo/site", &["m"])]);
+        assert!(blank.unwrap_err().contains("id"), "a blank id is refused");
+
+        let duplicated = validate_grants(&[
+            grant("g1", "coder", "/repo/acme-client", &["m"]),
+            grant("g1", "coder", "/repo/public-website", &["m"]),
+        ]);
+        assert!(duplicated.unwrap_err().contains("id"));
+    }
+
+    #[test]
+    fn a_blank_teammate_entry_is_refused() {
+        // `Requester::member_id` defaults to `""`, so a stored blank entry is
+        // an entry an anonymous `open` could try to match. `authorize_open`
+        // refuses those on the live socket; this stops one being saved at all.
+        //
+        // The single production edit that makes this fail: removing the
+        // blank-entry check from `validate_grants`.
+        // A list of nothing but blanks is the same as no list at all, and says
+        // so — not "one of your entries is blank".
+        let blank_only = validate_grants(&[grant("g1", "coder", "/r", &["  "])]);
+        assert!(blank_only.unwrap_err().contains("at least one"));
+
+        let blank_alongside_a_real_one = validate_grants(&[grant("g1", "coder", "/r", &["", "m"])]);
+        assert!(blank_alongside_a_real_one.unwrap_err().contains("blank"));
     }
 
     #[test]
