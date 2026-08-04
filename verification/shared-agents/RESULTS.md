@@ -258,6 +258,24 @@ envelope `kind` equals the frame's own serde tag, and asserts that
 captured line. The two staged tests Task 2 removed could not do this (the fake
 host that produced their bytes emitted a flat payload with no `kind` key).
 
+**All 19 lines, not the 4 that were quoted (review).** Those three tests use
+hand-copied constants, which agreed with the file but which nothing kept in
+step. The capture files are now `include_str!`d into `protocol.rs` and walked
+whole, by two more tests:
+
+- `every_captured_outbound_line_is_pinned_not_just_the_named_ones` — parses all
+  19 lines, re-serializes every frame and every `closed` byte-identically,
+  asserts no line is `sealed`, asserts no **reserved** frame kind was ever
+  emitted, and asserts the session shape (one `hello`, two `header`s, two
+  `status`es, terminals `finished` then `stopped`).
+- `every_captured_inbound_line_still_parses_as_a_service_message` — all 4
+  inbound lines, with `action_id` required on both real `open`s (spec gap #1
+  again, from the wire rather than from prose).
+- `each_named_constant_is_a_line_of_the_committed_capture` — makes the quoted
+  constants unable to drift from the file they quote.
+
+Drift is now impossible rather than merely absent.
+
 ---
 
 ## 5. The failure modes, deliberately triggered
@@ -286,14 +304,52 @@ data: {"outcome":"stopped"}
 
 Host side: `live: stop requested for live-run-1` → `live: [live-run-1] terminal: stopped`.
 
-No orphaned child:
+No orphaned child. **The check first written here was broken and could never
+fire** — review caught it by running it against a definitely-live process. For a
+shebang script `args` is `/bin/bash <script> --cwd …`, so `$3` is `/bin/bash`,
+never the script path; the correct field is `$4`. Corrected, and then proved
+capable of failing before it was believed:
 
 ```console
-$ ps -ax -o pid=,ppid=,args= | awk -v want="$SCRATCH/live/fake-coder" '$3 == want {print "ORPHAN:", $0}'
-(no output)
+# a definitely-running agent, launched exactly as the host launches it
+$ echo "LONG: …" | $SCRATCH/live/fake-coder --cwd $SCRATCH/live/shared-repo &
+$ ps -o pid=,args= -p $!
+84063 /bin/bash /private/tmp/…/live/fake-coder --cwd /private/tmp/…/live/shared-repo
+
+# the check as first committed — $3
+$ ps -ax -o pid=,ppid=,args= | awk -v want="$WANT" '$3 == want {print "ORPHAN:", $0}'
+(nothing — against a LIVE process. It could never fire.)
+
+# corrected — $4
+$ ps -ax -o pid=,ppid=,args= | awk -v want="$WANT" '$4 == want {print "ORPHAN:", $0}'
+ORPHAN: 84063 84060 /bin/bash /private/tmp/…/live/fake-coder --cwd /private/tmp/…/live/shared-repo
+
+# …and quiet again once it is gone (no false positive)
+$ kill %1; ps -ax -o pid=,ppid=,args= | awk -v want="$WANT" '$4 == want {print "ORPHAN:", $0}'
+(nothing)
 ```
 
-Full stream: [`session-requester-stop.sse.txt`](session-requester-stop.sse.txt).
+Re-run against a real requester-stop, with the corrected command sampling
+**during** the run and **after** the stop:
+
+```console
+DURING THE RUN, the check sees it: 84341 84308 /bin/bash /private/tmp/…/live/fake-coder --cwd /private/tmp/…/live/shared-repo
+stop -> HTTP 202
+data: {"seq":79,"kind":"status","sealed":false,"payload":{"kind":"status","status":"stopped"}}
+event: closed
+data: {"outcome":"stopped"}
+### AFTER the stop — corrected orphan check:
+(nothing above = no orphan)
+```
+
+(`grep -c fake-coder` is **not** a usable substitute here: the harness shell's
+own command line contains the string, so it counts 2 even when nothing is
+running. `$4 == want` is exact.)
+
+Full streams: [`session-requester-stop.sse.txt`](session-requester-stop.sse.txt)
+(original) and
+[`session-stop-postfix.sse.txt`](session-stop-postfix.sse.txt) (the re-run with
+the corrected check).
 
 ### 5.2 Stop from the owner
 
@@ -394,6 +450,36 @@ restatement of the relay's decision.
 For contrast, the _same_ teammate, _same_ offer, ~20s earlier — before the
 revoke — ran normally and returned `finished`.
 
+**Re-run and committed as an artifact after review**, because this is the
+security-critical leg and it previously existed only as a markdown quote —
+[`session-denied.sse.txt`](session-denied.sse.txt) and
+[`session-denied-audit.json`](session-denied-audit.json):
+
+```console
+$ grep 'revoking the grant' host6.log
+live: revoking the grant's member on the live state (no republish)
+
+$ curl -s $U/v2/offers -H "authorization: Bearer $TEAM_TOKEN" | jq '[.items[] | {offer_id, action_id, allowed}]'
+[{"offer_id":"0299bcbc-e636-48ad-8853-bf45bc9d9565","action_id":"agent:coder",
+  "allowed":["b62c9540-67fe-4fdc-833f-c89b3b7649d5"]}]      ← stale, still says YES
+
+$ S=$(curl -s -X POST $U/v2/sessions … -d '{"…","payload":{"instruction":"after the revoke — this must never run"}}' | jq -r .session_id)
+3e68c6ed-065c-42af-b677-021d9c0e5a79                        ← the service ACCEPTED it
+
+$ curl -N $U/v2/sessions/$S/events -H "authorization: Bearer $TEAM_TOKEN" | tee session-denied.sse.txt
+event: closed
+data: {"outcome":"denied"}
+
+### launches before this open: 2 ; after: 2
+$ grep -c 'this must never run' $SCRATCH/live/shared-repo/README.md
+0
+```
+
+The launch counter is unchanged across the refused open, and the denied
+instruction — which the `LONG`-free branch of `fake-coder.sh` **would** have
+appended — appears nowhere in the repo. Audit row: `state: closed`,
+`outcome: denied`.
+
 ---
 
 ## 6. What the service returns for a revoked device token
@@ -451,11 +537,35 @@ live: revoked-token dial error verbatim: could not open the relay socket: IO err
 ```
 
 Pinned by `relay::transport::tests::a_refused_device_token_is_told_apart_from_an_unreachable_service`,
-whose two fixture strings are these verbatim live outputs.
+whose fixture strings are these verbatim live outputs.
+
+### The remedy has to match the status (review Important 2)
+
+The first version of this said **"re-pair this device in Settings → Service"**
+for _any_ 4xx. Review drove it live and found that wrong for the two statuses a
+real deployment actually hits after 401:
+
+| status | what the service means                                                           | what actually fixes it                                                          |
+| ------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `401`  | `invalid or revoked token`                                                       | re-pair the device                                                              |
+| `403`  | `this device is not bound to a member; redeem an invite first` — **spec gap #3** | redeem an invite; **re-pairing mints another unbound device and loops forever** |
+| `404`  | a service with no `/v2/` routes at all                                           | upgrade the service                                                             |
+| other  | unknown to us                                                                    | say what happened, advise nothing                                               |
+
+`refused_message(status)` now carries the remedy **inside** the message, and
+`run_host_loop` logs it verbatim instead of appending one of its own. All four
+are still classified as refusals, so the backoff still logs at `error` and Task
+8's banner still sees them — a banner is exactly why this matters: wrong advice
+in a log is bad, wrong advice in a banner is worse.
+Pinned by `each_refusal_status_gets_the_remedy_that_actually_fixes_it`, which
+was **break-and-reverted**: restoring the re-pair line on 403 fails it with
+_"re-pairing does not bind a device to a member; telling the owner to do it
+sends them round a loop that cannot terminate"_.
 
 **Related defect found while doing this, NOT fixed here (see Concerns):** once
 the host loop is running, re-pairing the device does not change the token it
-dials with.
+dials with. Now also recorded as a doc comment on `AgentHostManager::republish`,
+where whoever fixes it will be reading.
 
 ---
 
@@ -478,19 +588,32 @@ Final state of the grant folder after all six live sessions:
 
 ```console
 $ git -C $SCRATCH/live/shared-repo diff
-@@ -1,3 +1,6 @@
+@@ -1,3 +1,7 @@
  # shared-repo
 
  A throwaway repo used as the grant project folder for the C2 live end-to-end.
 +<!-- add a one-line comment to the top of README.md describing this project -->
 +<!-- before the revoke -->
 +<!-- regression check after the dial-classification change -->
++<!-- post-review regression: registration window closed -->
 ```
 
-Three edits from three sessions that were _supposed_ to run; nothing from the
-`denied` one, the `stopped` one, or the `host_disconnected` one.
+**What that diff does and does not prove** — the first version of this line
+over-reached and review caught it. It said "nothing from the `denied` one, the
+`stopped` one, or the `host_disconnected` one", as if all three were proved by
+absence. They are not:
 
-Every audit row, in order:
+- **`denied` — load-bearing.** Its instruction went down the ordinary branch of
+  `fake-coder.sh`, which appends a line. No line appeared, and the launch
+  counter did not move. That is real evidence.
+- **`stopped` and `host_disconnected` — prove nothing here.** Both used `LONG:`
+  instructions, and `fake-coder.sh`'s `LONG*` branch **never touches
+  `README.md` by design** — it only loops. Their absence from the diff is a
+  property of the fixture, not of the system. What actually proves those two is
+  the SSE terminal (`stopped` / `host_disconnected`), the audit row, and — for
+  the stop — the orphan check in §5.1, now that it is capable of failing.
+
+Every audit row, in order (the last three are the post-review re-runs):
 
 | #   | outcome             | what it was                                       |
 | --- | ------------------- | ------------------------------------------------- |
@@ -499,7 +622,10 @@ Every audit row, in order:
 | 3   | `finished`          | control, before the host-side revoke              |
 | 4   | `denied`            | the host's own re-check, service still saying yes |
 | 5   | `host_disconnected` | host killed mid-run                               |
-| 6   | `finished`          | regression after the production change            |
+| 6   | `finished`          | regression after the dial-classification change   |
+| 7   | `finished`          | regression after the registration-window fix      |
+| 8   | `stopped`           | stop re-run, with the corrected orphan check      |
+| 9   | `denied`            | denied re-run, committed as an artifact           |
 
 ---
 
@@ -507,11 +633,33 @@ Every audit row, in order:
 
 ```console
 $ cargo test --lib
-test result: ok. 439 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. 444 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
 433 (baseline) + 2 live harness tests (skipped without env vars) + 3 outbound
-capture tests + 1 dial-classification test = 439.
+capture tests + 1 dial-classification test + 5 added on review (the
+registration-window regression, the per-status remedies, and three that walk the
+whole capture) = 444.
+
+Two of them were **break-and-reverted** rather than merely written:
+
+```console
+# Important 3 — move the by_run lock back below launcher.launch(...)
+thread '…a_run_that_reaches_a_terminal_before_launch_returns_still_gets_its_closed' panicked at:
+  the terminal status frame was dropped: the run finished before it was
+  registered, so `frame_for_run` could not find its session
+test result: FAILED. 0 passed; 1 failed
+--- reverted ---
+test result: ok. 1 passed; 0 failed
+
+# Important 2 — give 403 the re-pair remedy again
+thread '…each_refusal_status_gets_the_remedy_that_actually_fixes_it' panicked at:
+  re-pairing does not bind a device to a member; telling the owner to do it
+  sends them round a loop that cannot terminate
+test result: FAILED. 0 passed; 1 failed
+--- reverted ---
+test result: ok. 1 passed; 0 failed
+```
 
 Clippy, measured on this machine by stashing the change and re-running:
 
@@ -600,14 +748,21 @@ On the machine with the real app:
    because the fix (stop and restart the loop when the token changes) is a
    behavioural change that belongs with the settings work.
 
-3. **A narrow output-loss window in `handle_service_message`.**
-   `launcher.launch(...)` returns a `run_id`, and only _then_ does
-   `by_run.insert(run_id, session_id)` run. Any chunk the run emits in between
-   is dropped by `frame_for_run`. Not observed live — process spawn takes
-   milliseconds and the insert takes microseconds — and it is pre-existing in
-   the production `AgentRunLauncher` too, but it is a real ordering hazard: a
-   run that fails to spawn instantly (`Failed to spawn …` is emitted from
-   `drive_run` right away) could lose its first line.
+3. ~~**A narrow output-loss window in `handle_service_message`.**~~ **FIXED —
+   and it was worse than this concern said.** As first written it read "could
+   lose its first line". Review corrected it: `AgentRunManager::start` spawns on
+   a **multi-threaded** runtime, and its spawn-failure path (`agent_run.rs`) —
+   reached by nothing more exotic than a bad `binary_path` — emits, logs and
+   calls `finalize` → `on_terminal` immediately. Beating the registration meant
+   **both** `frame_for_run(Status)` and `close_run` answering `None`: no
+   `closed` ever sent, `by_run`/`sessions` holding an entry nothing would ever
+   remove, and **the requester's SSE stream hanging until the socket dropped** —
+   precisely the failure class DESIGN-relay-v02 §6 exists to forbid.
+   `handle_service_message` now takes the `by_run` lock **before**
+   `launcher.launch(...)`, so an early terminal parks on the mutex and finds the
+   registration instead of missing it. Regression:
+   `a_run_that_reaches_a_terminal_before_launch_returns_still_gets_its_closed`,
+   break-and-reverted (§8).
 
 4. **The live agent is a shell script, not `claude`.** `fake-coder.sh` is a
    genuine CLI subprocess driven through the app's own argv/env/stdin contract,
@@ -620,5 +775,10 @@ On the machine with the real app:
    at its default and no session idled long enough to test the silence
    deadline).
 
-6. **`offer_actions` is dead weight against this service** (§2). Worth a comment
-   pointing at this file so nobody later mistakes it for a tested path.
+6. ~~**`offer_actions` is dead weight against this service** (§2).~~ **DONE** —
+   `HostState::resolve_action` now carries a doc comment saying so and pointing
+   here, so nobody later mistakes the cache branch for a tested path.
+
+7. **Owner-side Stop and the Agent Runs panel remain unverified**, and nothing
+   downstream should assume otherwise. The runbook above is the only thing
+   standing between a later task and an untested claim.

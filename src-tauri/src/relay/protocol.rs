@@ -762,6 +762,20 @@ mod tests {
         /// is the audit row's `outcome`. That is the gap the module doc above
         /// described — `HostFrame` is internally tagged, so only something
         /// that really sends it over a socket can capture it honestly.
+        ///
+        /// **The whole file, not a copy of part of it.** The constants below
+        /// are readable anchors for the shapes the prose talks about; the
+        /// authority is `OUTBOUND_CAPTURE`, `include_str!`d from the committed
+        /// file, and `every_captured_outbound_line_is_pinned_not_just_the_named_ones`
+        /// walks all of it. Review caught that hand-copied constants agreed
+        /// with the file today but nothing kept them in step, so a later edit
+        /// to either could drift silently — `each_named_constant_is_a_line_of_the_committed_capture`
+        /// now makes that a test failure instead.
+        const OUTBOUND_CAPTURE: &str =
+            include_str!("../../../verification/shared-agents/capture/outbound.jsonl");
+        const INBOUND_CAPTURE: &str =
+            include_str!("../../../verification/shared-agents/capture/inbound.jsonl");
+
         const RAW_OUT_HELLO: &str = r#"{"t":"hello","offers":[{"action_id":"agent:coder","label":"Coder","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo","allowed":["b62c9540-67fe-4fdc-833f-c89b3b7649d5"]}]}"#;
         const RAW_OUT_HEADER: &str = r#"{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"header","payload":{"agent":"Coder","kind":"header","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo"},"sealed":false}"#;
         const RAW_OUT_OUTPUT: &str = r#"{"t":"frame","session_id":"8015897c-2f89-4198-9892-b5df1ba013f2","kind":"output","payload":{"chunk":"coder: edited README.md","kind":"output"},"sealed":false}"#;
@@ -879,6 +893,149 @@ mod tests {
                 };
                 assert_eq!(status, outcome);
             }
+        }
+
+        #[test]
+        fn each_named_constant_is_a_line_of_the_committed_capture() {
+            // The constants above are hand-copied for readability. This is what
+            // stops them drifting from the file they claim to quote — a review
+            // finding: they agreed today, and nothing kept them agreeing.
+            for raw in [
+                RAW_OUT_HELLO,
+                RAW_OUT_HEADER,
+                RAW_OUT_OUTPUT,
+                RAW_OUT_STATUS,
+                RAW_OUT_CLOSED,
+                RAW_OUT_STATUS_STOPPED,
+                RAW_OUT_CLOSED_STOPPED,
+            ] {
+                assert!(
+                    OUTBOUND_CAPTURE.lines().any(|l| l == raw),
+                    "this constant is no longer a line of \
+                     verification/shared-agents/capture/outbound.jsonl:\n{raw}"
+                );
+            }
+            // `RAW_READY`/`RAW_OPEN` are Task 2's OWN captures, from an earlier
+            // session with its own ids, so they are deliberately not required
+            // to be lines of this task's inbound file. The `ready` ack is
+            // byte-identical anyway, which is worth pinning: two independent
+            // captures, months and a rewrite apart, agree on it.
+            assert!(
+                INBOUND_CAPTURE.lines().any(|l| l == RAW_READY),
+                "the `ready` ack changed shape between two independent live captures"
+            );
+        }
+
+        #[test]
+        fn every_captured_inbound_line_still_parses_as_a_service_message() {
+            // The inbound half of the same discipline. Nothing here may be an
+            // error: a service that speaks a dialect we do not know must be
+            // data (`Unknown`), never a dead host loop.
+            let lines: Vec<&str> = INBOUND_CAPTURE
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .collect();
+            assert_eq!(lines.len(), 4);
+            let mut opens = 0;
+            let mut stops = 0;
+            for line in lines {
+                match serde_json::from_str::<ServiceMessage>(line)
+                    .unwrap_or_else(|e| panic!("this crate can no longer read {line}: {e}"))
+                {
+                    ServiceMessage::Open {
+                        action_id, payload, ..
+                    } => {
+                        opens += 1;
+                        // Spec gap #1, from the real wire: every `open` this
+                        // service sends carries `action_id`, so `resolve_action`
+                        // never needs its `offer_actions` fallback here.
+                        assert!(
+                            action_id.is_some(),
+                            "a real `open` arrived without action_id: {line}"
+                        );
+                        assert!(parse_open_payload(&payload).is_ok());
+                    }
+                    ServiceMessage::Stop { .. } => stops += 1,
+                    // The `ready` ack, which this version deliberately does not
+                    // model.
+                    ServiceMessage::Unknown => {}
+                }
+            }
+            assert_eq!((opens, stops), (2, 1));
+        }
+
+        #[test]
+        fn every_captured_outbound_line_is_pinned_not_just_the_named_ones() {
+            // Review: pinning 4 of 19 lines proves the 4. Walk the whole file,
+            // so a frame this crate can no longer produce — or can no longer
+            // reproduce byte-for-byte — is a failure rather than a line nobody
+            // looked at.
+            let lines: Vec<&str> = OUTBOUND_CAPTURE
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .collect();
+            assert_eq!(
+                lines.len(),
+                19,
+                "the committed capture changed size; if that is deliberate, \
+                 this count is where the decision becomes visible in a diff"
+            );
+
+            let mut kinds: Vec<String> = Vec::new();
+            for line in lines {
+                let parsed: HostMessage = serde_json::from_str(line)
+                    .unwrap_or_else(|e| panic!("this crate can no longer read {line}: {e}"));
+                match &parsed {
+                    HostMessage::Hello { offers } => {
+                        assert!(!offers.is_empty());
+                        kinds.push("hello".into());
+                    }
+                    HostMessage::Frame {
+                        session_id,
+                        kind,
+                        payload,
+                        sealed,
+                    } => {
+                        assert!(!sealed, "DESIGN-relay-v02 §8: v0.2 is never sealed");
+                        // The payload really is one of OUR frames…
+                        let frame: HostFrame = serde_json::from_value(payload.clone())
+                            .unwrap_or_else(|e| panic!("payload is not a HostFrame: {line}: {e}"));
+                        assert_eq!(&frame.kind_str().to_string(), kind);
+                        assert!(
+                            V1_EMITTED_KINDS.contains(&frame.kind_str()),
+                            "a RESERVED frame kind was actually emitted on the \
+                             wire: {kind}"
+                        );
+                        // …and `session_frame` still rebuilds this exact line.
+                        assert_eq!(
+                            serde_json::to_string(&session_frame(session_id, frame)).unwrap(),
+                            line
+                        );
+                        kinds.push(kind.clone());
+                    }
+                    HostMessage::Closed { outcome, .. } => {
+                        assert!(!outcome.trim().is_empty());
+                        // Re-serializing a `closed` reproduces it too.
+                        assert_eq!(serde_json::to_string(&parsed).unwrap(), line);
+                        kinds.push(format!("closed:{outcome}"));
+                    }
+                }
+            }
+
+            // The shape of a real session, asserted rather than assumed: one
+            // hello, then per session a header, some output, one status, one
+            // closed — no duplicate terminals and nothing before the header.
+            assert_eq!(kinds[0], "hello");
+            assert_eq!(kinds[1], "header");
+            assert_eq!(kinds.iter().filter(|k| *k == "header").count(), 2);
+            assert_eq!(kinds.iter().filter(|k| *k == "status").count(), 2);
+            assert_eq!(
+                kinds
+                    .iter()
+                    .filter(|k| k.starts_with("closed:"))
+                    .collect::<Vec<_>>(),
+                ["closed:finished", "closed:stopped"]
+            );
         }
     }
 }

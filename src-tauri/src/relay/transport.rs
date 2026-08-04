@@ -36,21 +36,20 @@ pub fn next_backoff(current: Duration) -> Duration {
     }
 }
 
-/// Prefix on a dial error the SERVICE refused, as opposed to one it never
-/// answered. See [`dial_was_refused`].
-pub const REFUSED_PREFIX: &str = "the service refused this device";
+/// Prefix on a dial error the SERVICE answered and refused, as opposed to one it
+/// never answered at all. See [`dial_was_refused`].
+pub const REFUSED_PREFIX: &str = "the relay refused this device";
 
-/// Whether a failed dial was **refused** (a bad/revoked credential) rather than
-/// merely unreachable (an outage).
+/// Whether a failed dial was **refused** (the service answered and said no)
+/// rather than merely unreachable (an outage).
 ///
 /// Established live, not from prose: `openflow-service` (`feat/relay-v0.2`)
 /// answers the `GET /v2/relay/host` upgrade for a revoked *or* never-issued
-/// device token with `HTTP/1.1 401 Unauthorized` and
-/// `{"error":{"code":"unauthorized","message":"invalid or revoked token"}}`,
-/// while a service that is down surfaces as `Connection refused (os error 61)`.
-/// Before this, `WsConnector` flattened both into one string and `run_host_loop`
-/// logged both at `warn` and retried both forever — so an owner whose device had
-/// been revoked saw exactly what an owner with a flaky network saw.
+/// device token with `HTTP/1.1 401 Unauthorized`, while a service that is down
+/// surfaces as `Connection refused (os error 61)`. Before this, `WsConnector`
+/// flattened both into one string and `run_host_loop` logged both at `warn` and
+/// retried both forever — so an owner whose device had been revoked saw exactly
+/// what an owner with a flaky network saw.
 ///
 /// **The retry itself is deliberately unchanged.** A 401 is not always
 /// permanent (the service may be mid-restore, or the owner may be about to
@@ -59,6 +58,43 @@ pub const REFUSED_PREFIX: &str = "the service refused this device";
 /// is. Surfacing it in the UI belongs to the settings task, not here.
 pub fn dial_was_refused(error: &str) -> bool {
     error.starts_with(REFUSED_PREFIX)
+}
+
+/// The message for a handshake the service answered with a 4xx.
+///
+/// **Every status gets its own remedy, and a status we do not recognise gets
+/// none.** The first cut of this said "re-pair this device in Settings →
+/// Service" for any client error, which is wrong twice over and was caught in
+/// review by driving it live:
+///
+/// * `403` is spec gap #3 — a device that paired but never redeemed an invite.
+///   The service says `this device is not bound to a member; redeem an invite
+///   first`. Re-pairing produces another unbound device and changes nothing.
+/// * `404` is an older service with no `/v2/` routes at all. The remedy is
+///   upgrading the service; re-pairing is noise.
+///
+/// Only `401` — an invalid or revoked token — is actually fixed by re-pairing.
+/// This matters more than a log line: Task 8 is expected to build a settings
+/// banner on `dial_was_refused`, and wrong advice in a banner is worse than
+/// wrong advice in a log. Anything else says what happened and stops, because
+/// silence beats a confident wrong instruction.
+pub fn refused_message(status: u16) -> String {
+    match status {
+        401 => format!(
+            "{REFUSED_PREFIX}: HTTP 401, its device token is invalid or revoked \
+             — re-pair this device in Settings → Service"
+        ),
+        403 => format!(
+            "{REFUSED_PREFIX}: HTTP 403, its device token is valid but not \
+             allowed to host — this device is probably not bound to a member \
+             yet; redeem an invite"
+        ),
+        404 => format!(
+            "{REFUSED_PREFIX}: HTTP 404, this service has no /v2/relay/host \
+             route — it is probably older than v0.2; upgrade it"
+        ),
+        other => format!("{REFUSED_PREFIX}: HTTP {other}"),
+    }
 }
 
 /// The host socket URL for a configured service base URL.
@@ -167,7 +203,7 @@ impl RelayConnector for WsConnector {
                     tokio_tungstenite::tungstenite::Error::Http(resp)
                         if resp.status().is_client_error() =>
                     {
-                        format!("{REFUSED_PREFIX}'s token (HTTP {})", resp.status().as_u16())
+                        refused_message(resp.status().as_u16())
                     }
                     _ => format!("could not open the relay socket: {e}"),
                 })?;
@@ -204,14 +240,10 @@ mod tests {
 
     #[test]
     fn a_refused_device_token_is_told_apart_from_an_unreachable_service() {
-        // Both strings below are VERBATIM from a live dial against a real
+        // The outage strings below are VERBATIM from live dials against a real
         // openflow-service on `feat/relay-v0.2` (see
-        // verification/shared-agents/RESULTS.md): the first from a device
-        // revoked with `DELETE /v1/devices/{id}`, the second from a port with
-        // nothing listening on it.
-        assert!(dial_was_refused(
-            "the service refused this device's token (HTTP 401)"
-        ));
+        // verification/shared-agents/RESULTS.md).
+        assert!(dial_was_refused(&refused_message(401)));
         assert!(!dial_was_refused(
             "could not open the relay socket: IO error: Connection refused (os error 61)"
         ));
@@ -219,6 +251,53 @@ mod tests {
         assert!(!dial_was_refused(
             "the relay socket did not open within 15s"
         ));
+    }
+
+    #[test]
+    fn each_refusal_status_gets_the_remedy_that_actually_fixes_it() {
+        // *** Review Important 2. *** The first cut of this told every 4xx to
+        // "re-pair this device", which was verified live to be WRONG for the
+        // two statuses a real deployment actually hits after 401.
+        let re_pair = "re-pair this device";
+
+        let unauthorized = refused_message(401);
+        assert!(unauthorized.contains("401"));
+        assert!(
+            unauthorized.contains(re_pair),
+            "an invalid or revoked token IS fixed by re-pairing"
+        );
+
+        // Spec gap #3, confirmed live: the service answers a paired-but-unbound
+        // device with `this device is not bound to a member; redeem an invite
+        // first`. Re-pairing mints another unbound device and fixes nothing.
+        let forbidden = refused_message(403);
+        assert!(forbidden.contains("403"));
+        assert!(
+            !forbidden.contains(re_pair),
+            "re-pairing does not bind a device to a member; telling the owner \
+             to do it sends them round a loop that cannot terminate"
+        );
+        assert!(forbidden.contains("redeem an invite"));
+
+        // An older service with no /v2/ routes at all.
+        let not_found = refused_message(404);
+        assert!(not_found.contains("404"));
+        assert!(!not_found.contains(re_pair));
+        assert!(not_found.contains("upgrade it"));
+
+        // Anything we have not actually observed says what happened and stops.
+        // Silence beats a confident wrong instruction.
+        let unknown = refused_message(429);
+        assert!(unknown.contains("429"));
+        assert!(!unknown.contains(re_pair));
+        assert!(!unknown.contains("redeem"));
+        assert!(!unknown.contains("upgrade"));
+
+        // …and all four are still classified as refusals, so Task 8's banner
+        // sees them and `run_host_loop` logs them at `error`.
+        for s in [401, 403, 404, 429] {
+            assert!(dial_was_refused(&refused_message(s)), "status {s}");
+        }
     }
 
     #[test]

@@ -349,22 +349,43 @@ impl HostState {
                 let agent_label = run.name.clone();
                 let project = run.project_path.clone();
 
-                // Exactly the hotkey path: hand it to `start` and return at
-                // once. A run is seconds→minutes; nothing here awaits it.
-                let run_id = launcher.launch(run, instruction);
+                // *** The registration window, closed by holding the lock. ***
+                //
+                // `launch` spawns a task and returns a run id immediately, and
+                // that task can reach a TERMINAL before this function gets round
+                // to recording the run. `AgentRunManager::start`'s spawn-failure
+                // path is the mundane trigger — a bad `binary_path` emits, logs
+                // and calls `finalize` -> `on_terminal` right away, on a
+                // multi-threaded runtime. If that beat the insert below, BOTH
+                // `frame_for_run` and `close_run` would answer `None`, no
+                // `closed` would ever be sent, and `by_run`/`sessions` would
+                // keep a permanently orphaned entry — the requester's SSE stream
+                // hanging until the socket happens to drop. That is exactly the
+                // failure class DESIGN-relay-v02 §6 exists to forbid.
+                //
+                // Taking `by_run` BEFORE the launch makes the window
+                // unreachable: an early terminal blocks in `frame_for_run` /
+                // `close_run` on this same mutex until the registration is
+                // complete, then finds it. `sessions` is taken inside it, which
+                // is the same order `close_run` uses (by_run -> sessions), so
+                // this cannot deadlock. The explicit block (rather than a
+                // `drop`) is load-bearing: `handle_service_message` awaits the
+                // header below, and rustc will not call the future `Send` if a
+                // `MutexGuard` is merely dropped rather than scoped out.
+                {
+                    let mut by_run = self.by_run.lock().unwrap();
+                    let run_id = launcher.launch(run, instruction);
 
-                self.sessions.lock().unwrap().insert(
-                    session_id.clone(),
-                    HostSession {
-                        run_id: run_id.clone(),
-                        member_id: requester.member_id.clone(),
-                        display_name: requester.display_name.clone(),
-                    },
-                );
-                self.by_run
-                    .lock()
-                    .unwrap()
-                    .insert(run_id, session_id.clone());
+                    self.sessions.lock().unwrap().insert(
+                        session_id.clone(),
+                        HostSession {
+                            run_id: run_id.clone(),
+                            member_id: requester.member_id.clone(),
+                            display_name: requester.display_name.clone(),
+                        },
+                    );
+                    by_run.insert(run_id, session_id.clone());
+                }
 
                 let header = session_frame(
                     &session_id,
@@ -412,6 +433,17 @@ impl HostState {
 
     /// `action_id` from the message when the service supplies it (every real
     /// one does), else the cache an earlier `open` populated, else `None`.
+    ///
+    /// **The cache branch is untested weight against the real service, and that
+    /// is now a measured fact rather than a guess.** The live end-to-end task
+    /// captured every `open` a real `openflow-service` (`feat/relay-v0.2`)
+    /// sends: all of them carry `action_id`, and the service's own
+    /// `ServiceFrame::Open` makes it a hard `missing_field` error to omit — so
+    /// production only ever takes the first branch. See
+    /// `verification/shared-agents/RESULTS.md` §2 and
+    /// `relay::protocol::tests::real_captured_frames::every_captured_inbound_line_still_parses_as_a_service_message`.
+    /// Kept anyway (it costs one map insert and tolerates an older service),
+    /// but nobody should read it as a path anything exercises.
     fn resolve_action(&self, offer_id: &str, action_id: Option<&str>) -> Option<String> {
         if let Some(action) = action_id.filter(|a| !a.trim().is_empty()) {
             self.offer_actions
@@ -712,6 +744,25 @@ impl AgentHostManager {
     /// Re-publish the offer list after ANY settings change, so a revoked grant
     /// disappears immediately rather than at the next reconnect — and so the
     /// live connection re-authorises against the new settings.
+    ///
+    /// **KNOWN DEFECT, found by the live end-to-end task and deliberately not
+    /// fixed here: a live loop keeps dialling with the token it was born with.**
+    /// [`Self::ensure_started`] builds the [`WsConnector`] — URL *and* device
+    /// token — once, and the loop owns it for its whole life. The `(true,
+    /// Some(state))` arm below only installs fresh settings and pushes a
+    /// `hello`, and `ensure_started` is a no-op while a loop is live. So after
+    /// the owner unpairs and re-pairs (a new device token in the keyring), or
+    /// edits `service_url`, the host goes on dialling with the DEAD credential
+    /// until the app restarts — and, since v0.15.7's pairing writes the token
+    /// without restarting anything, the owner has no signal that it did.
+    /// Reproduce by revoking the device (`DELETE /v1/devices/{id}`), watching
+    /// the loop log `dial_was_refused` at `error`, then re-pairing: it keeps
+    /// failing. The fix is for `republish` to compare the connector's inputs
+    /// and `stop()` + `ensure_started()` when they change, which is a
+    /// behavioural change that belongs with the settings/UI task rather than
+    /// with a verification task. Recorded here, not only in
+    /// `verification/shared-agents/RESULTS.md`, because this is the function
+    /// whoever fixes it will be reading.
     pub fn republish(self: &Arc<Self>, settings: &AppSettings) {
         // Hot path. Every settings write in the app reaches here, so the common
         // case — sharing never configured, no loop running — must be nearly
@@ -862,12 +913,15 @@ async fn run_host_loop<C: RelayConnector, L: RunLauncher>(
                 // tell them apart in the log. Verified against a real
                 // openflow-service: a revoked device token gets HTTP 401 on
                 // the upgrade; an outage gets `Connection refused`.
+                //
+                // The remedy travels INSIDE the message (`refused_message`),
+                // never appended here: only a 401 is fixed by re-pairing, and
+                // a 403 (paired but not bound to a member) or a 404 (a service
+                // older than v0.2) needs a different action entirely. Review
+                // Important 2 — the first cut appended one remedy to all of
+                // them.
                 if dial_was_refused(&e) {
-                    log::error!(
-                        "relay: {e}; retrying in {}s — if this persists, re-pair \
-                         this device in Settings → Service",
-                        backoff.as_secs()
-                    );
+                    log::error!("relay: {e}. Retrying in {}s", backoff.as_secs());
                 } else {
                     log::warn!(
                         "relay: connect failed ({e}); retrying in {}s",
@@ -1327,6 +1381,116 @@ mod tests {
 
         // The run is now owned, so its output can be routed back.
         assert_eq!(state.session_for_run("run-1").as_deref(), Some("s1"));
+    }
+
+    #[test]
+    fn a_run_that_reaches_a_terminal_before_launch_returns_still_gets_its_closed() {
+        // *** Review Important 3: the registration window, and it is a HANG. ***
+        //
+        // `launch` returns a run id and the run is registered afterwards, so a
+        // run that terminates in between is invisible to both `frame_for_run`
+        // and `close_run`. The trigger is mundane: `AgentRunManager::start`
+        // spawns on a MULTI-THREADED runtime and its spawn-failure path (a bad
+        // `binary_path`) emits, logs and calls `finalize` -> `on_terminal`
+        // immediately.
+        //
+        // The consequence is not a lost line — Concern #3 as first written
+        // undersold it. Both calls answer `None`, so NO `closed` is ever sent
+        // and `by_run`/`sessions` keep an entry nothing will ever remove: the
+        // requester's SSE stream hangs until the socket drops. DESIGN-relay-v02
+        // §6 exists to forbid exactly that.
+        //
+        // The single production edit this catches: moving
+        // `let mut by_run = self.by_run.lock()` back below `launcher.launch(...)`.
+        struct InstantTerminalLauncher {
+            state: Mutex<Option<Arc<HostState>>>,
+            /// `(the status frame was routed, the closed envelope was minted)`.
+            results: Arc<Mutex<Vec<(bool, bool)>>>,
+            reached_terminal: Arc<AtomicBool>,
+            joiner: Mutex<Option<std::thread::JoinHandle<()>>>,
+        }
+        impl RunLauncher for InstantTerminalLauncher {
+            fn launch(&self, _agent: BrokeredRun, _instruction: String) -> String {
+                let state = self.state.lock().unwrap().clone().unwrap();
+                let results = Arc::clone(&self.results);
+                let reached = Arc::clone(&self.reached_terminal);
+                let handle = std::thread::spawn(move || {
+                    reached.store(true, Ordering::SeqCst);
+                    // Verbatim what `RelayFrameSink::on_terminal` does.
+                    let status = state
+                        .frame_for_run(
+                            "run-1",
+                            HostFrame::Status {
+                                status: "failed".into(),
+                            },
+                        )
+                        .is_some();
+                    let closed = state.close_run("run-1", "failed").is_some();
+                    results.lock().unwrap().push((status, closed));
+                });
+                // Hand the terminal a decisive head start. Without the lock
+                // held across this call it wins outright; with it, it is
+                // parked on `by_run` for the whole 50ms and finds the
+                // registration the moment it is released.
+                while !self.reached_terminal.load(Ordering::SeqCst) {
+                    std::thread::yield_now();
+                }
+                std::thread::sleep(Duration::from_millis(50));
+                *self.joiner.lock().unwrap() = Some(handle);
+                "run-1".to_string()
+            }
+            fn stop(&self, _run_id: &str) {}
+        }
+
+        let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let launcher = InstantTerminalLauncher {
+            state: Mutex::new(Some(Arc::clone(&state))),
+            results: Arc::clone(&results),
+            reached_terminal: Arc::new(AtomicBool::new(false)),
+            joiner: Mutex::new(None),
+        };
+        let t = FakeTransport::new(vec![]);
+
+        let open: ServiceMessage = serde_json::from_value(json!({
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "requester": {"member_id": "m-priya", "display_name": "Priya"},
+            "payload": {"instruction": "run a binary that does not exist"}
+        }))
+        .unwrap();
+        let _ = block_on(state.handle_service_message(open, &t, &launcher));
+        launcher
+            .joiner
+            .lock()
+            .unwrap()
+            .take()
+            .expect("the terminal thread was never handed over")
+            .join()
+            .expect("the terminal thread panicked");
+
+        let results = results.lock().unwrap().clone();
+        assert_eq!(results.len(), 1);
+        let (status_routed, closed_minted) = results[0];
+        assert!(
+            status_routed,
+            "the terminal status frame was dropped: the run finished before it \
+             was registered, so `frame_for_run` could not find its session"
+        );
+        assert!(
+            closed_minted,
+            "NO `closed` was sent for a run that terminated instantly — the \
+             requester's stream has nothing to end it and hangs until the \
+             socket drops (DESIGN-relay-v02 §6)"
+        );
+        // …and the bookkeeping is clean rather than permanently orphaned.
+        assert!(
+            state.session_for_run("run-1").is_none(),
+            "a closed run must leave no entry behind"
+        );
+        assert!(
+            state.close_run("run-1", "failed").is_none(),
+            "and `closed` is still sent exactly once"
+        );
     }
 
     #[test]

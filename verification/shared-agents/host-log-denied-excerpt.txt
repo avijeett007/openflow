@@ -1,0 +1,3 @@
+live: launching live-run-0: …/live/fake-coder ["--cwd", "…/live/shared-repo"] in …/live/shared-repo
+live: launching live-run-1: …/live/fake-coder ["--cwd", "…/live/shared-repo"] in …/live/shared-repo
+live: revoking the grant's member on the live state (no republish)
