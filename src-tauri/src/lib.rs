@@ -15,6 +15,7 @@ mod input;
 mod keychain;
 mod llm_client;
 mod managers;
+mod relay;
 // `pub` so the standalone M2 diarization ground-truth harness
 // (examples/diarize_ground_truth.rs) can exercise the *real*, unit-tested
 // `meeting::diarize` fusion/scoring code rather than a copy.
