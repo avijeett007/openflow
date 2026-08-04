@@ -265,14 +265,20 @@ pub fn authorize_open(
     // Equality alone would then let a grant that somehow stored a blank entry
     // (an older store, a hand-edited settings file) authorise an anonymous
     // requester.
+    //
+    // **This line is the whole rule, deliberately — do not "harden" it by also
+    // skipping blank entries in the predicate below.** That was the shape this
+    // guard shipped in, and the two checks are extensionally IDENTICAL: a blank
+    // stored entry can only ever be matched by a blank `member_id`, so each one
+    // refuses precisely what the other refuses. Two mutually redundant guards
+    // cannot be pinned separately — a test can only kill the conjunction — which
+    // means either one can be deleted on its own with the suite still green, and
+    // two independently-green commits then reopen the hole. One guard, one test
+    // that kills it (`a_blank_member_id_is_nobody`).
     if member_id.trim().is_empty() {
         return Err(DenyReason::MemberNotAllowed);
     }
-    if !grant
-        .allowed_members
-        .iter()
-        .any(|m| !m.trim().is_empty() && m == member_id)
-    {
+    if !grant.allowed_members.iter().any(|m| m == member_id) {
         return Err(DenyReason::MemberNotAllowed);
     }
     Ok(Authorized {
@@ -698,24 +704,51 @@ mod tests {
         // `requester` object at all arrives with `member_id: ""`. It must never
         // match — not even a grant that somehow stored a blank entry.
         //
-        // The single production edit that makes this fail: removing the
-        // blank-`member_id` guard from `authorize_open` (the first assertion
-        // below turns into an `Ok` as soon as a grant holds a blank entry).
+        // The single production edit that makes this fail: deleting the
+        // `member_id.trim().is_empty()` early return from `authorize_open`. Both
+        // of the first two assertions below then turn into `Ok`, because the
+        // stored entry the blank requester matches is exactly equal to it.
+        //
+        // That "single" is now literally true, and getting there took removing a
+        // guard rather than adding one. This test previously ran against TWO
+        // checks — the early return, and a `!m.trim().is_empty() &&` in the
+        // membership predicate — and killed only their conjunction: each was
+        // individually deletable with the suite green, and two such commits
+        // would have reopened the hole. The two were extensionally identical (a
+        // blank stored entry is matchable only by a blank `member_id`), so no
+        // input could ever have discriminated them; the fix was to keep one.
         let agents = vec![agent("coder", true)];
 
+        // The dangerous shape: the grant stores an entry the anonymous
+        // requester's `""` is EQUAL to, so plain equality would say yes.
         let blank_entry = sharing(true, vec![grant("g1", "coder", "/repo/site", &["", "m"])]);
-        assert_eq!(
-            authorize_open(&blank_entry, &agents, "agent:coder#g1", "").unwrap_err(),
-            DenyReason::MemberNotAllowed,
+        let anonymous = authorize_open(&blank_entry, &agents, "agent:coder#g1", "");
+        assert!(
+            anonymous.is_err(),
             "an anonymous requester must not match a blank allowed_members entry"
         );
-        assert_eq!(
-            authorize_open(&blank_entry, &agents, "agent:coder#g1", "   ").unwrap_err(),
-            DenyReason::MemberNotAllowed
-        );
-        // The real member on the same grant is unaffected.
-        assert!(authorize_open(&blank_entry, &agents, "agent:coder#g1", "m").is_ok());
+        assert_eq!(anonymous.unwrap_err(), DenyReason::MemberNotAllowed);
 
+        // …and the same for whitespace, which `trim` catches and equality does not.
+        let spaces = sharing(
+            true,
+            vec![grant("g1", "coder", "/repo/site", &["   ", "m"])],
+        );
+        let whitespace = authorize_open(&spaces, &agents, "agent:coder#g1", "   ");
+        assert!(
+            whitespace.is_err(),
+            "a whitespace-only requester is just as anonymous"
+        );
+        assert_eq!(whitespace.unwrap_err(), DenyReason::MemberNotAllowed);
+
+        // The real member on either grant is unaffected.
+        assert!(authorize_open(&blank_entry, &agents, "agent:coder#g1", "m").is_ok());
+        assert!(authorize_open(&spaces, &agents, "agent:coder#g1", "m").is_ok());
+
+        // Stated for the record, NOT as a pin: with no blank entry stored,
+        // equality alone already refuses an anonymous requester, so this case
+        // survives deleting the guard. It is here because it is the shape the
+        // wire actually produces most often, not because it proves anything.
         let normal = sharing(true, vec![grant("g1", "coder", "/repo/site", &["m-priya"])]);
         assert_eq!(
             authorize_open(&normal, &agents, "agent:coder#g1", "").unwrap_err(),
