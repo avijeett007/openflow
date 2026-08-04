@@ -155,6 +155,12 @@ pub enum AgentOutputSink {
     Panel,
     Notify,
     File,
+    /// C2: a brokered run's terminal status is sent back to the requester over
+    /// the relay. NEVER selectable in the UI and NEVER persisted — the agent
+    /// host pushes it onto an in-memory clone of the AgentDefinition for a
+    /// brokered run only (see `relay::grants::brokered_agent`). Present here so
+    /// `finalize` can apply it exactly like `Notify` and `File`.
+    Relay,
 }
 
 /// How a CLI agent receives the instruction (transcript). `Stdin` (default)
@@ -1029,6 +1035,59 @@ pub struct AppSettings {
     /// service. Default OFF. Independent of `service_sync_transcripts`.
     #[serde(default)]
     pub service_sync_usage: bool,
+
+    // ---- C2: shared agents ----
+    /// Sharing configuration. `skip_serializing_if` is deliberate and differs
+    /// from the sibling `service_*` fields: DESIGN-shared-agents §6 requires the
+    /// settings blob to be **byte-identical** when sharing is absent, which is
+    /// only literally true if a dormant config writes no key at all. Safe
+    /// because every write path is a read-modify-write of the whole struct
+    /// (`get_settings` → mutate → `write_settings`), so a dormant omission is
+    /// re-defaulted on the next read with nothing lost.
+    #[serde(default, skip_serializing_if = "SharingConfig::is_dormant")]
+    pub sharing: SharingConfig,
+}
+
+/// One standing grant: this agent, in this folder, invokable by these people.
+///
+/// Every field is `#[serde(default)]` and the type is `Default`, because grants
+/// live inside `AppSettings` and the settings store **wipes to defaults on any
+/// parse failure** — one malformed grant must degrade to an empty grant, never
+/// destroy the user's whole configuration.
+#[derive(Serialize, Deserialize, Clone, Debug, Type, PartialEq, Eq, Default)]
+pub struct ShareGrant {
+    #[serde(default)]
+    pub agent_id: String,
+    /// EXPLICIT per grant and **never inherited** from the agent's own
+    /// `project_path`: the blast radius of a brokered run is a directory the
+    /// owner chose for this grant (DESIGN-shared-agents §3).
+    #[serde(default)]
+    pub project_path: String,
+    /// Service member ids allowed to invoke it.
+    #[serde(default)]
+    pub allowed_members: Vec<String>,
+}
+
+/// Sharing (C2). Default OFF: with `enabled == false` **no socket is ever
+/// opened and no task is ever spawned** — asserted by
+/// `agent_host::tests::no_connect_attempt_when_sharing_is_off`.
+#[derive(Serialize, Deserialize, Clone, Debug, Type, PartialEq, Eq, Default)]
+pub struct SharingConfig {
+    /// Master switch. False ⇒ no socket, no publish, nothing.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Per-agent grants. Empty ⇒ nothing is offered even if `enabled`.
+    #[serde(default)]
+    pub grants: Vec<ShareGrant>,
+}
+
+impl SharingConfig {
+    /// Nothing has ever been configured. Used by `skip_serializing_if` so a
+    /// settings file written by a build that has this feature but has never had
+    /// it turned on is byte-identical to a v0.15.7 file.
+    pub fn is_dormant(&self) -> bool {
+        !self.enabled && self.grants.is_empty()
+    }
 }
 
 fn default_meeting_app_allowlist() -> Vec<String> {
@@ -1618,6 +1677,9 @@ pub fn get_default_settings() -> AppSettings {
         service_enabled: false,
         service_sync_transcripts: false,
         service_sync_usage: false,
+
+        // Shared agents — dormant by default (off, no grants, no socket).
+        sharing: SharingConfig::default(),
     }
 }
 
@@ -2497,5 +2559,118 @@ mod tests {
         let out = format!("{:?}", map);
         assert!(!out.contains("secret"));
         assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn legacy_store_without_sharing_defaults_it_off_and_stays_byte_identical() {
+        // The regression half of DESIGN-shared-agents §6. A store persisted by
+        // v0.15.7 has no `sharing` key at all. It must deserialize with sharing
+        // fully dormant, AND re-serialize without inventing the key — so an
+        // upgrading user's settings file is byte-for-byte what it was.
+        let raw = serde_json::json!({
+            "bindings": {},
+            "push_to_talk": true,
+            "audio_feedback": false
+        });
+        let settings: AppSettings =
+            serde_json::from_value(raw).expect("pre-sharing store should deserialize");
+        assert!(!settings.sharing.enabled);
+        assert!(settings.sharing.grants.is_empty());
+        assert!(settings.sharing.is_dormant());
+
+        let round_tripped = serde_json::to_value(&settings).unwrap();
+        assert!(
+            round_tripped.get("sharing").is_none(),
+            "a dormant SharingConfig must not be written back into the store"
+        );
+
+        // Fresh-install defaults match: no socket is possible out of the box.
+        let fresh = get_default_settings();
+        assert!(!fresh.sharing.enabled);
+        assert!(fresh.sharing.grants.is_empty());
+    }
+
+    #[test]
+    fn configured_sharing_round_trips_and_is_persisted() {
+        let mut settings = get_default_settings();
+        settings.sharing = SharingConfig {
+            enabled: true,
+            grants: vec![ShareGrant {
+                agent_id: "coder".into(),
+                project_path: "/repo/site".into(),
+                allowed_members: vec!["m-priya".into()],
+            }],
+        };
+        assert!(!settings.sharing.is_dormant());
+        let v = serde_json::to_value(&settings).unwrap();
+        assert_eq!(v["sharing"]["enabled"], serde_json::json!(true));
+        assert_eq!(
+            v["sharing"]["grants"][0]["project_path"],
+            serde_json::json!("/repo/site")
+        );
+
+        let back: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(back.sharing, settings.sharing);
+    }
+
+    #[test]
+    fn a_partial_grant_object_does_not_wipe_the_store() {
+        // The C0 hazard, applied to grants: the store wipes to defaults on ANY
+        // parse failure, so a grant written by a future/older build with a missing
+        // field must degrade to an empty-but-present grant, never fail the whole
+        // AppSettings deserialization.
+        let raw = serde_json::json!({
+            "bindings": {},
+            "push_to_talk": true,
+            "audio_feedback": false,
+            "sharing": { "enabled": true, "grants": [ { "agent_id": "coder" } ] }
+        });
+        let settings: AppSettings =
+            serde_json::from_value(raw).expect("a partial grant must not wipe the store");
+        assert_eq!(settings.sharing.grants.len(), 1);
+        assert_eq!(settings.sharing.grants[0].agent_id, "coder");
+        assert_eq!(settings.sharing.grants[0].project_path, "");
+        assert!(settings.sharing.grants[0].allowed_members.is_empty());
+    }
+
+    #[test]
+    fn adding_the_relay_sink_variant_leaves_existing_sinks_identical() {
+        // AgentOutputSink is matched on by the frontend. Adding a variant must not
+        // change how the shipped ones serialize, and the `[Panel]` default — what
+        // every existing agent in every existing store has — must round-trip
+        // byte-identically.
+        let default_sinks = vec![AgentOutputSink::Panel];
+        let json = serde_json::to_string(&default_sinks).unwrap();
+        assert_eq!(json, r#"["panel"]"#);
+        let back: Vec<AgentOutputSink> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, default_sinks);
+
+        assert_eq!(
+            serde_json::to_string(&AgentOutputSink::Notify).unwrap(),
+            r#""notify""#
+        );
+        assert_eq!(
+            serde_json::to_string(&AgentOutputSink::File).unwrap(),
+            r#""file""#
+        );
+        // The new variant, pinned so the wire value can't drift later.
+        assert_eq!(
+            serde_json::to_string(&AgentOutputSink::Relay).unwrap(),
+            r#""relay""#
+        );
+        assert_eq!(
+            serde_json::from_str::<AgentOutputSink>(r#""relay""#).unwrap(),
+            AgentOutputSink::Relay
+        );
+    }
+
+    #[test]
+    fn no_persisted_agent_ever_carries_the_relay_sink() {
+        // Relay is applied to an in-memory clone for a brokered run only. A stored
+        // agent that somehow claims it still deserializes (tolerance), but the
+        // shipped defaults must never offer it.
+        for agent in get_default_settings().agents {
+            assert!(!agent.output_sinks.contains(&AgentOutputSink::Relay));
+        }
     }
 }
