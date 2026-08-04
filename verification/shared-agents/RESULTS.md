@@ -181,7 +181,7 @@ data: {"outcome":"finished"}
 (the shell prompt is back — the stream terminated on its own)
 ```
 
-Full stream: [`session.log`](session.log).
+Full stream: [`session-happy-path.sse.txt`](session-happy-path.sse.txt).
 
 **Assert 1 — the file actually changed.** Not a log line; the repo:
 
@@ -293,7 +293,7 @@ $ ps -ax -o pid=,ppid=,args= | awk -v want="$SCRATCH/live/fake-coder" '$3 == wan
 (no output)
 ```
 
-Full stream: [`session-stop.log`](session-stop.log).
+Full stream: [`session-requester-stop.sse.txt`](session-requester-stop.sse.txt).
 
 ### 5.2 Stop from the owner
 
@@ -326,7 +326,7 @@ data: {"outcome":"host_disconnected"}
 ```
 
 The stream **terminated** rather than hanging — DESIGN-relay-v02 §6's named
-failure class. Full stream: [`session-hostkill.log`](session-hostkill.log).
+failure class. Full stream: [`session-host-killed.sse.txt`](session-host-killed.sse.txt).
 
 Relaunching the host: the run is **not** silently restarted. The relaunched
 host's entire outbound traffic was one `hello`:

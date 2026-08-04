@@ -1,0 +1,33 @@
+event: frame
+data: {"seq":9,"kind":"header","sealed":false,"payload":{"agent":"Coder","kind":"header","project":"/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo"}}
+
+event: frame
+data: {"seq":10,"kind":"output","sealed":false,"payload":{"chunk":"coder: cwd=/private/tmp/claude-501/-Users-avijitsarkar-personal-projects-fable-5-projects/4b5b1dfd-7b5d-46d2-bce0-7faffb8c481d/scratchpad/live/shared-repo","kind":"output"}}
+
+event: frame
+data: {"seq":11,"kind":"output","sealed":false,"payload":{"chunk":"coder: instruction=LONG: keep working until told to stop","kind":"output"}}
+
+event: frame
+data: {"seq":12,"kind":"output","sealed":false,"payload":{"chunk":"coder: this one takes a while","kind":"output"}}
+
+event: frame
+data: {"seq":13,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 0","kind":"output"}}
+
+event: frame
+data: {"seq":14,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 1","kind":"output"}}
+
+event: frame
+data: {"seq":15,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 2","kind":"output"}}
+
+event: frame
+data: {"seq":16,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 3","kind":"output"}}
+
+event: frame
+data: {"seq":17,"kind":"output","sealed":false,"payload":{"chunk":"coder: working 4","kind":"output"}}
+
+event: frame
+data: {"seq":18,"kind":"status","sealed":false,"payload":{"kind":"status","status":"stopped"}}
+
+event: closed
+data: {"outcome":"stopped"}
+
