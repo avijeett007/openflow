@@ -116,9 +116,6 @@ pub fn create_agent(app: AppHandle, agent: AgentDefinition) -> Result<(), String
     let mut settings = settings::get_settings(&app);
     apply_create_agent(&mut settings, agent)?;
     settings::write_settings(&app, settings);
-    // C2: the offer list is derived from agents + grants, so republish it. A
-    // no-op unless sharing is actually running.
-    crate::managers::agent_host::republish_offers(&app);
     Ok(())
 }
 
@@ -130,9 +127,6 @@ pub fn update_agent(app: AppHandle, agent: AgentDefinition) -> Result<(), String
     let (was_enabled, now_enabled) = apply_update_agent(&mut settings, agent)?;
     let binding = settings.bindings.get(&binding_id).cloned();
     settings::write_settings(&app, settings);
-    // C2: disabling a shared agent must withdraw its offer immediately, not at
-    // the next reconnect. A no-op unless sharing is actually running.
-    crate::managers::agent_host::republish_offers(&app);
 
     // Only touch the OS hotkey registration when the enabled flag actually flips,
     // and only when a hotkey is set. Errors are non-fatal (duplicate/absent).
@@ -156,8 +150,6 @@ pub fn delete_agent(app: AppHandle, id: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     let removed_binding = apply_delete_agent(&mut settings, &id)?;
     settings::write_settings(&app, settings);
-    // C2: a deleted agent's offer disappears with it.
-    crate::managers::agent_host::republish_offers(&app);
 
     // Unregister its hotkey (best-effort) and drop any per-agent API key.
     if let Some(binding) = removed_binding {

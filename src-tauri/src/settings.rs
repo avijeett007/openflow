@@ -1918,6 +1918,18 @@ pub fn write_settings(app: &AppHandle, settings: AppSettings) {
     };
 
     store.set("settings", serde_json::to_value(&settings).unwrap());
+
+    // C2 shared agents: republish the offer list on ANY settings change. This
+    // is the single choke point every write already passes through, so a grant
+    // the owner just revoked cannot keep being honoured because some caller
+    // forgot to say so. Returns immediately (before any keyring access) when
+    // sharing is dormant and no host loop is running, which is the default and
+    // the overwhelmingly common case.
+    //
+    // Safe from here: `republish` only READS settings (`get_settings`, which
+    // persists via `store.set` and never re-enters `write_settings`), so there
+    // is no recursion.
+    crate::managers::agent_host::republish_offers(app);
 }
 
 pub fn get_bindings(app: &AppHandle) -> HashMap<String, ShortcutBinding> {

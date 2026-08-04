@@ -136,6 +136,25 @@ impl std::ops::Deref for BrokeredRun {
 
 /// Re-check an incoming `open` against the CURRENT settings. Called for every
 /// session, however confident the relay was.
+///
+/// **Caller obligation, and the limit of what the token proves.** This is a pure
+/// function of the config it is handed. The [`Authorized`] it mints therefore
+/// proves *"a re-check ran, and it resolved to exactly this agent and this
+/// folder"* — it cannot prove the config was the owner's live settings, because
+/// `SharingConfig`/`AgentDefinition` are plain serde settings data with public
+/// fields that any caller can construct. No visibility modifier closes that:
+/// `pub(in crate::managers)` is illegal from here (`crate::managers` is not an
+/// ancestor of `crate::relay::grants`), and moving the config behind a newtype
+/// only moves the same forgeable constructor one level up.
+///
+/// What actually holds the line is that there is exactly ONE production caller
+/// — `managers::agent_host::HostState::handle_service_message` — and it reads
+/// the live `Mutex` snapshot that `set_config` keeps current. That property is
+/// guarded by
+/// `agent_host::tests::a_grant_revoked_since_the_offer_was_published_is_refused_on_the_live_socket`,
+/// which fails if the caller ever stops reading live settings. A second caller
+/// must do the same; passing a hand-built `SharingConfig` here would be
+/// authorising against fiction.
 pub fn authorize_open(
     sharing: &SharingConfig,
     agents: &[AgentDefinition],

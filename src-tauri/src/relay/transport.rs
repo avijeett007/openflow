@@ -18,6 +18,12 @@ use tokio_tungstenite::tungstenite::Message;
 pub const BACKOFF_MIN: Duration = Duration::from_secs(1);
 pub const BACKOFF_MAX: Duration = Duration::from_secs(60);
 
+/// Cap on a single dial. Without it an unreachable service blocks in
+/// `connect_async` for the OS TCP timeout (~75s on macOS) — during which the
+/// loop is uninterruptible, cannot observe a `stop()`, and the backoff schedule
+/// is meaningless because one "attempt" outlasts the whole ladder.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
 pub fn next_backoff(current: Duration) -> Duration {
     if current < BACKOFF_MIN {
         return BACKOFF_MIN;
@@ -121,9 +127,16 @@ impl RelayConnector for WsConnector {
                 .parse()
                 .map_err(|_| "bad device token".to_string())?,
         );
-        let (stream, _resp) = tokio_tungstenite::connect_async(request)
-            .await
-            .map_err(|e| format!("could not open the relay socket: {e}"))?;
+        let (stream, _resp) =
+            tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(request))
+                .await
+                .map_err(|_| {
+                    format!(
+                        "the relay socket did not open within {}s",
+                        CONNECT_TIMEOUT.as_secs()
+                    )
+                })?
+                .map_err(|e| format!("could not open the relay socket: {e}"))?;
         let (tx, rx) = stream.split();
         Ok(WsRelayTransport {
             tx: Mutex::new(tx),

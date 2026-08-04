@@ -32,6 +32,7 @@
 //! `a2a.rs`.
 
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -72,6 +73,16 @@ pub fn should_host(
     offer_count: usize,
 ) -> bool {
     sharing.enabled && offer_count > 0 && service_enabled && has_token
+}
+
+/// Whether a settings write can skip the republish work entirely.
+///
+/// Pure, because `republish` now runs on EVERY settings write in the app and
+/// this predicate is the whole reason that is affordable: when it holds, the
+/// call returns before touching the OS keyring. Kept testable so "the choke
+/// point is free when the feature is off" is asserted rather than assumed.
+pub fn republish_is_a_no_op(sharing: &SharingConfig, is_hosting: bool) -> bool {
+    sharing.is_dormant() && !is_hosting
 }
 
 /// **The one place a relay socket is ever opened**, including on every
@@ -188,6 +199,12 @@ impl HostState {
         let mut cfg = self.config.lock().unwrap();
         cfg.sharing = sharing;
         cfg.agents = agents;
+        // The offer_id → action_id cache describes the offers we published
+        // BEFORE this change. Republishing re-mints them, and the service may
+        // reuse an offer_id for a different action; resolving a bare `open`
+        // through a stale entry would then run the wrong agent in the wrong
+        // grant folder. Guessing is exactly how that happens, so forget.
+        self.offer_actions.lock().unwrap().clear();
     }
 
     fn snapshot(&self) -> (SharingConfig, Vec<AgentDefinition>) {
@@ -252,14 +269,24 @@ impl HostState {
         self.offer_actions.lock().unwrap().clear();
     }
 
-    /// Dispatch one service message. Never panics, never propagates an error:
-    /// a newer or misbehaving service must not be able to kill the host loop.
+    /// Dispatch one service message. Never panics and never propagates an
+    /// error: a newer or misbehaving service must not be able to kill the host
+    /// loop.
+    ///
+    /// Returns [`ControlFlow::Break`] when the socket failed to accept a write.
+    /// That matters most on the `open` response path: a socket that is still
+    /// readable but no longer writable would otherwise let the host launch the
+    /// run, record the session, silently lose the header, and keep serving —
+    /// leaving the agent to run to completion in the owner's folder with the
+    /// teammate never told it started, and a service retry refused
+    /// `already_open`. Dropping the connection instead lets the service report
+    /// `host_disconnected` and the reconnect re-publish cleanly.
     pub async fn handle_service_message<T: RelayTransport, L: RunLauncher>(
         &self,
         msg: ServiceMessage,
         transport: &T,
         launcher: &L,
-    ) {
+    ) -> ControlFlow<()> {
         match msg {
             ServiceMessage::Open {
                 session_id,
@@ -274,23 +301,21 @@ impl HostState {
                 // Refuse instead — the requester keeps the session it has.
                 if self.sessions.lock().unwrap().contains_key(&session_id) {
                     log::warn!("relay: duplicate open for live session {session_id}");
-                    self.refuse(transport, &session_id, "already_open").await;
-                    return;
+                    return self.refuse(transport, &session_id, "already_open").await;
                 }
 
                 let Some(action) = self.resolve_action(&offer_id, action_id.as_deref()) else {
                     log::warn!("relay: open for an offer this host cannot resolve ({offer_id})");
-                    self.refuse(transport, &session_id, DenyReason::UnknownOffer.outcome())
+                    return self
+                        .refuse(transport, &session_id, DenyReason::UnknownOffer.outcome())
                         .await;
-                    return;
                 };
 
                 let instruction = match parse_open_payload(&payload) {
                     Ok(p) => p.instruction,
                     Err(e) => {
                         log::warn!("relay: refusing session {session_id}: {e}");
-                        self.refuse(transport, &session_id, "bad_request").await;
-                        return;
+                        return self.refuse(transport, &session_id, "bad_request").await;
                     }
                 };
 
@@ -306,12 +331,19 @@ impl HostState {
                             "relay: refusing session {session_id} for {} on {action}: {reason:?}",
                             requester.member_id
                         );
-                            self.refuse(transport, &session_id, reason.outcome()).await;
-                            return;
+                            return self.refuse(transport, &session_id, reason.outcome()).await;
                         }
                     };
 
                 // Only reachable with the token in hand.
+                //
+                // NOTE: `display_name` is supplied by the SERVICE and is never
+                // validated here. It is only ever shown (the `← Priya` panel
+                // label) and never used to decide anything — `member_id` is what
+                // `authorize_open` checks. Treat it as untrusted display text:
+                // it is the owner's only in-app signal of who is running code on
+                // their machine, so a UI task rendering it must not let it
+                // impersonate another member.
                 let run = brokered_agent(&authorized, &requester.display_name);
                 let agent_label = run.name.clone();
                 let project = run.project_path.clone();
@@ -340,7 +372,14 @@ impl HostState {
                         project,
                     },
                 );
-                let _ = send_message(transport, header).await;
+                if let Err(e) = send_message(transport, header).await {
+                    // The run is already going and is deliberately left alone
+                    // (ruling R4). Drop the socket so the service tells the
+                    // requester, rather than serving on a write-broken one.
+                    log::warn!("relay: could not send the header for {session_id} ({e})");
+                    return ControlFlow::Break(());
+                }
+                ControlFlow::Continue(())
             }
 
             ServiceMessage::Stop { session_id } => {
@@ -360,10 +399,12 @@ impl HostState {
                     // able to stop a run it does not own (DESIGN-relay-v02 §6).
                     None => log::debug!("relay: stop for an unknown session {session_id}"),
                 }
+                ControlFlow::Continue(())
             }
 
             ServiceMessage::Unknown => {
                 log::debug!("relay: ignoring a message this version does not model");
+                ControlFlow::Continue(())
             }
         }
     }
@@ -383,15 +424,27 @@ impl HostState {
 
     /// Close a session that never started a run. Deliberately terse on the
     /// wire: a stranger learns they were refused, not the owner's configuration.
-    async fn refuse<T: RelayTransport>(&self, transport: &T, session_id: &str, outcome: &str) {
-        let _ = send_message(
+    async fn refuse<T: RelayTransport>(
+        &self,
+        transport: &T,
+        session_id: &str,
+        outcome: &str,
+    ) -> ControlFlow<()> {
+        match send_message(
             transport,
             HostMessage::Closed {
                 session_id: session_id.to_string(),
                 outcome: outcome.to_string(),
             },
         )
-        .await;
+        .await
+        {
+            Ok(()) => ControlFlow::Continue(()),
+            Err(e) => {
+                log::warn!("relay: could not send the refusal for {session_id} ({e})");
+                ControlFlow::Break(())
+            }
+        }
     }
 }
 
@@ -404,14 +457,111 @@ async fn send_message<T: RelayTransport>(transport: &T, msg: HostMessage) -> Res
 // The manager
 // ---------------------------------------------------------------------------
 
+/// Everything ONE live host loop owns. Replaced wholesale on restart and never
+/// mutated in place.
+///
+/// The `running` flag is per-loop and that is the whole point: a single shared
+/// flag re-armed by a restart would revive a loop that had already been stopped,
+/// leaving it hosting from the `HostState` it captured at birth — i.e. still
+/// honouring a grant the owner had revoked. Two loops would then also race to
+/// clear the one flag, silently killing the survivor.
+struct HostSlot {
+    running: Arc<AtomicBool>,
+    state: Arc<HostState>,
+    outbound: mpsc::UnboundedSender<HostMessage>,
+}
+
+/// The manager's start/stop bookkeeping, deliberately split out with **no
+/// `AppHandle` in it** so it can be unit tested. The bug this shape exists to
+/// prevent lived in exactly the region that was previously declared untestable.
+#[derive(Default)]
+struct HostSlots(Mutex<Option<HostSlot>>);
+
+impl HostSlots {
+    /// Is a loop live right now? A slot whose flag has been cleared is a loop on
+    /// its way out, and does not count.
+    fn is_hosting(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|s| s.running.load(Ordering::SeqCst))
+    }
+
+    fn state(&self) -> Option<Arc<HostState>> {
+        self.0
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|s| Arc::clone(&s.state))
+    }
+
+    fn enqueue(&self, msg: HostMessage) {
+        if let Some(slot) = self.0.lock().unwrap().as_ref() {
+            let _ = slot.outbound.send(msg);
+        }
+    }
+
+    /// Claim the slot for a new loop, returning its **own** flag and receiver.
+    /// `None` when a loop is already live, which is what makes `ensure_started`
+    /// idempotent.
+    fn install(
+        &self,
+        state: Arc<HostState>,
+    ) -> Option<(Arc<AtomicBool>, mpsc::UnboundedReceiver<HostMessage>)> {
+        let mut current = self.0.lock().unwrap();
+        if current
+            .as_ref()
+            .is_some_and(|s| s.running.load(Ordering::SeqCst))
+        {
+            return None;
+        }
+        // A NEW flag every time. Any previous loop keeps the old one, cleared
+        // for good, so this restart cannot revive it.
+        let running = Arc::new(AtomicBool::new(true));
+        let (tx, rx) = mpsc::unbounded_channel();
+        *current = Some(HostSlot {
+            running: Arc::clone(&running),
+            state,
+            outbound: tx,
+        });
+        Some((running, rx))
+    }
+
+    /// Stop the loop that is live now (if any) and forget it. Only ever clears
+    /// the flag it took out of the slot, never a successor's.
+    fn stop(&self) {
+        let slot = self.0.lock().unwrap().take();
+        if let Some(slot) = slot {
+            slot.running.store(false, Ordering::SeqCst);
+            // Dropping the sender wakes the loop out of its outbound wait.
+            drop(slot.outbound);
+            slot.state.on_disconnect();
+        }
+    }
+
+    /// Called by a loop as it exits. Clears the slot **only if it is still that
+    /// loop's slot**, so a loop that outlived a restart cannot tear down its
+    /// successor — and so a loop that exited on its own leaves no stale slot for
+    /// `republish` to enqueue into.
+    fn retire(&self, running: &Arc<AtomicBool>) {
+        let mut current = self.0.lock().unwrap();
+        if current
+            .as_ref()
+            .is_some_and(|s| Arc::ptr_eq(&s.running, running))
+        {
+            *current = None;
+            log::info!("relay: host loop exited; no longer hosting");
+        }
+    }
+}
+
 /// Owns the host loop's lifetime. Mirrors `ServiceSyncManager`'s shape: managed
 /// in Tauri state, started idempotently, and a no-op until configured.
 pub struct AgentHostManager {
     app: AppHandle,
     runs: Arc<AgentRunManager>,
-    running: Arc<AtomicBool>,
-    state: Mutex<Option<Arc<HostState>>>,
-    outbound: Mutex<Option<mpsc::UnboundedSender<HostMessage>>>,
+    slots: HostSlots,
     /// The relay sink + the `agent-run-output` subscription are installed at
     /// most once, and only after the gate has already said yes.
     wired: AtomicBool,
@@ -422,23 +572,19 @@ impl AgentHostManager {
         Self {
             app: app.clone(),
             runs,
-            running: Arc::new(AtomicBool::new(false)),
-            state: Mutex::new(None),
-            outbound: Mutex::new(None),
+            slots: HostSlots::default(),
             wired: AtomicBool::new(false),
         }
     }
 
     fn state(&self) -> Option<Arc<HostState>> {
-        self.state.lock().unwrap().clone()
+        self.slots.state()
     }
 
     /// Queue a message for the live socket. Dropped silently when nothing is
     /// connected — a frame for a dead session has nowhere to go.
     fn enqueue(&self, msg: HostMessage) {
-        if let Some(tx) = self.outbound.lock().unwrap().as_ref() {
-            let _ = tx.send(msg);
-        }
+        self.slots.enqueue(msg);
     }
 
     /// Start the host loop if it is not already running AND the feature is
@@ -463,22 +609,16 @@ impl AgentHostManager {
         if settings.service_url.trim().is_empty() {
             return;
         }
-        // CAS false→true so only one loop ever runs.
-        if self
-            .running
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_err()
-        {
-            return;
-        }
 
         let state = Arc::new(HostState::new(
             settings.sharing.clone(),
             settings.agents.clone(),
         ));
-        *self.state.lock().unwrap() = Some(Arc::clone(&state));
-        let (tx, rx) = mpsc::unbounded_channel::<HostMessage>();
-        *self.outbound.lock().unwrap() = Some(tx);
+        // Claims the slot and mints this loop's OWN flag; `None` means a loop is
+        // already live, which is what makes this idempotent.
+        let Some((running, rx)) = self.slots.install(Arc::clone(&state)) else {
+            return;
+        };
         self.wire_run_pipeline();
 
         let connector = WsConnector {
@@ -489,13 +629,21 @@ impl AgentHostManager {
             manager: Arc::clone(&self.runs),
             app: self.app.clone(),
         });
-        let running = Arc::clone(&self.running);
         log::info!("relay: hosting {} shared agent(s)", offers.len());
+        let flag = Arc::clone(&running);
+        let manager = Arc::downgrade(self);
         tauri::async_runtime::spawn(async move {
             // Both `true` by construction: the gate above already established
             // that the service is paired and a device token exists. Unpairing
             // goes through `republish` → `stop`, not through this loop.
             run_host_loop(connector, launcher, state, running, true, true, rx).await;
+            // Leave no stale slot behind: without this, a loop that exited on
+            // its own would leave `state`/`outbound` set, and every later
+            // `republish` would enqueue into a channel with no receiver — a
+            // silently dead host with nothing in the log to say so.
+            if let Some(manager) = manager.upgrade() {
+                manager.slots.retire(&flag);
+            }
         });
     }
 
@@ -537,12 +685,7 @@ impl AgentHostManager {
     /// removed). The loop observes the flag and exits; **local runs are left
     /// alone**, exactly as on a dropped socket.
     pub fn stop(&self) {
-        self.running.store(false, Ordering::SeqCst);
-        // Dropping the sender wakes the loop out of its outbound wait.
-        self.outbound.lock().unwrap().take();
-        if let Some(state) = self.state.lock().unwrap().take() {
-            state.on_disconnect();
-        }
+        self.slots.stop();
     }
 
     /// Re-publish the offer list after ANY settings change, so a revoked grant
@@ -550,6 +693,12 @@ impl AgentHostManager {
     /// live connection re-authorises against the new settings.
     pub fn republish(self: &Arc<Self>) {
         let settings = crate::settings::get_settings(&self.app);
+        // Hot path. Every settings write in the app reaches here, so a dormant
+        // config with no loop running must cost nothing beyond this check — in
+        // particular it must not touch the OS keyring.
+        if republish_is_a_no_op(&settings.sharing, self.slots.is_hosting()) {
+            return;
+        }
         let token =
             crate::keychain::get_api_key(KEYRING_SCOPE, KEYRING_ACCOUNT).unwrap_or_default();
         let offers = offers_from_grants(&settings.sharing, &settings.agents);
@@ -560,18 +709,24 @@ impl AgentHostManager {
             offers.len(),
         );
 
-        match (wanted, self.state()) {
+        if !wanted {
+            // No longer eligible: withdraw everything.
+            self.stop();
+            return;
+        }
+        // `is_hosting` — not merely "a slot exists" — because a loop on its way
+        // out still has a slot, and enqueueing into its channel would drop the
+        // republish on the floor.
+        match (self.slots.is_hosting(), self.state()) {
             // Still hosting: install the new settings on the LIVE state (so the
             // next `open` is re-checked against them) and push a fresh `hello`.
             (true, Some(state)) => {
                 state.set_config(settings.sharing.clone(), settings.agents.clone());
                 self.enqueue(HostMessage::Hello { offers });
             }
-            // Newly eligible (a first grant, a fresh pairing).
-            (true, None) => self.ensure_started(),
-            // No longer eligible: withdraw everything.
-            (false, Some(_)) => self.stop(),
-            (false, None) => {}
+            // Newly eligible (a first grant, a fresh pairing), or the previous
+            // loop has stopped and a fresh one is owed.
+            _ => self.ensure_started(),
         }
     }
 }
@@ -598,14 +753,25 @@ impl RelayFrameSink for AgentHostManager {
     }
 }
 
-/// Look the host manager up in Tauri state and re-publish. A free function so
-/// the settings/agent commands can call it without importing the type or caring
-/// whether the feature is configured.
+/// Re-publish this host's offers because settings changed.
+///
+/// Called from **`settings::write_settings`** — the single choke point every
+/// settings write already goes through — rather than from each of the ~40
+/// scattered call sites. That is deliberate: "remember to call republish after
+/// touching `settings.sharing`" is exactly the kind of convention this task
+/// exists to abolish, and the failure mode is not merely a stale offer. A
+/// revoked grant that never reaches the live `HostState` keeps being honoured
+/// until the next reconnect.
+///
+/// Cheap on the hot path: it returns before reading the keyring (or anything
+/// else) unless sharing has actually been configured or a loop is live.
 pub fn republish_offers(app: &AppHandle) {
     use tauri::Manager;
-    if let Some(host) = app.try_state::<Arc<AgentHostManager>>() {
-        host.inner().republish();
-    }
+    let Some(host) = app.try_state::<Arc<AgentHostManager>>() else {
+        // Before `initialize_core_logic` has run, or in a test harness.
+        return;
+    };
+    host.inner().republish();
 }
 
 // ---------------------------------------------------------------------------
@@ -724,9 +890,15 @@ async fn serve_connection<T: RelayTransport, L: RunLauncher>(
             incoming = line_rx.recv() => match incoming {
                 Some(line) => match serde_json::from_str::<ServiceMessage>(&line) {
                     Ok(msg) => {
-                        state
+                        // A write failure while answering ends the connection,
+                        // exactly as it does on the outbound arm below.
+                        if state
                             .handle_service_message(msg, conn.as_ref(), launcher.as_ref())
                             .await
+                            .is_break()
+                        {
+                            break;
+                        }
                     }
                     // Not fatal, by design: a service that speaks a dialect we
                     // cannot parse must not take the host down.
@@ -821,6 +993,9 @@ mod tests {
         /// "the app shut down as the socket went away", so they exit without
         /// waiting out a real reconnect backoff.
         stop_on_close: Mutex<Option<Arc<AtomicBool>>>,
+        /// A socket that is still READABLE but no longer writable — the exact
+        /// half-broken state that made losing a header silent.
+        fail_sends: bool,
     }
 
     impl FakeTransport {
@@ -830,7 +1005,13 @@ mod tests {
                 sent: Arc::new(Mutex::new(Vec::new())),
                 hang_when_drained: false,
                 stop_on_close: Mutex::new(None),
+                fail_sends: false,
             }
+        }
+        fn write_broken() -> Self {
+            let mut t = Self::new(vec![]);
+            t.fail_sends = true;
+            t
         }
         fn idle(lines: Vec<&str>) -> Self {
             let mut t = Self::new(lines);
@@ -857,7 +1038,13 @@ mod tests {
             line: String,
         ) -> impl std::future::Future<Output = Result<(), String>> + Send {
             self.sent.lock().unwrap().push(line);
-            async { Ok(()) }
+            let broken = self.fail_sends;
+            async move {
+                if broken {
+                    return Err("broken pipe".to_string());
+                }
+                Ok(())
+            }
         }
         fn recv(&self) -> impl std::future::Future<Output = Option<String>> + Send {
             let next = self.inbound.lock().unwrap().pop_front();
@@ -970,6 +1157,24 @@ mod tests {
     }
 
     #[test]
+    fn republishing_is_free_when_sharing_was_never_configured() {
+        // `write_settings` is the app's single settings choke point and every
+        // write now calls republish. That is only acceptable because a dormant
+        // config with no live loop returns before reading the OS keyring.
+        let dormant = SharingConfig::default();
+        assert!(dormant.is_dormant());
+        assert!(republish_is_a_no_op(&dormant, false));
+
+        // …but a live loop must still be told, even with a now-dormant config —
+        // that is exactly the "sharing was switched off" case, which has to
+        // reach `stop()`.
+        assert!(!republish_is_a_no_op(&dormant, true));
+        // …and a configured host always does the work.
+        assert!(!republish_is_a_no_op(&sharing_with_grant(), false));
+        assert!(!republish_is_a_no_op(&sharing_with_grant(), true));
+    }
+
+    #[test]
     fn the_gate_requires_switch_grants_pairing_and_a_token_all_at_once() {
         let agents = vec![agent("coder")];
         let on = sharing_with_grant();
@@ -1044,7 +1249,7 @@ mod tests {
             "payload": {"instruction": "add a comment to README"}
         }))
         .unwrap();
-        block_on(state.handle_service_message(msg, &t, &l));
+        let _ = block_on(state.handle_service_message(msg, &t, &l));
 
         let launched = l.launched.lock().unwrap();
         assert_eq!(launched.len(), 1);
@@ -1083,7 +1288,7 @@ mod tests {
             "payload": {"instruction": "rm -rf /"}
         }))
         .unwrap();
-        block_on(state.handle_service_message(msg, &t, &l));
+        let _ = block_on(state.handle_service_message(msg, &t, &l));
 
         assert!(l.launched.lock().unwrap().is_empty(), "nothing may run");
         let v: serde_json::Value = serde_json::from_str(&t.sent()[0]).unwrap();
@@ -1112,7 +1317,7 @@ mod tests {
             "payload": "go"
         }))
         .unwrap();
-        block_on(state.handle_service_message(msg, &t, &l));
+        let _ = block_on(state.handle_service_message(msg, &t, &l));
 
         assert!(l.launched.lock().unwrap().is_empty(), "nothing may run");
         let v: serde_json::Value = serde_json::from_str(&t.sent()[0]).unwrap();
@@ -1131,7 +1336,7 @@ mod tests {
             "payload": {}
         }))
         .unwrap();
-        block_on(state.handle_service_message(msg, &t, &l));
+        let _ = block_on(state.handle_service_message(msg, &t, &l));
         assert!(l.launched.lock().unwrap().is_empty());
         let v: serde_json::Value = serde_json::from_str(&t.sent()[0]).unwrap();
         assert_eq!(v["outcome"], json!("bad_request"));
@@ -1151,7 +1356,7 @@ mod tests {
             "payload": "go"
         }))
         .unwrap();
-        block_on(state.handle_service_message(bare.clone(), &t, &l));
+        let _ = block_on(state.handle_service_message(bare.clone(), &t, &l));
         assert!(l.launched.lock().unwrap().is_empty());
         let v: serde_json::Value = serde_json::from_str(&t.sent()[0]).unwrap();
         assert_eq!(v["outcome"], json!("unknown_offer"));
@@ -1164,8 +1369,8 @@ mod tests {
             "payload": "go"
         }))
         .unwrap();
-        block_on(state.handle_service_message(full, &t, &l));
-        block_on(state.handle_service_message(bare, &t, &l));
+        let _ = block_on(state.handle_service_message(full, &t, &l));
+        let _ = block_on(state.handle_service_message(bare, &t, &l));
         assert_eq!(l.launched.lock().unwrap().len(), 2);
     }
 
@@ -1180,8 +1385,8 @@ mod tests {
             "payload": "go"
         }))
         .unwrap();
-        block_on(state.handle_service_message(open.clone(), &t, &l));
-        block_on(state.handle_service_message(open, &t, &l));
+        let _ = block_on(state.handle_service_message(open.clone(), &t, &l));
+        let _ = block_on(state.handle_service_message(open, &t, &l));
 
         assert_eq!(
             l.launched.lock().unwrap().len(),
@@ -1197,6 +1402,46 @@ mod tests {
     }
 
     #[test]
+    fn republishing_forgets_the_offer_id_cache() {
+        // Offer ids are re-minted by the service on republish and may be reused
+        // for a DIFFERENT action. Resolving a bare `open` through a stale entry
+        // would run the wrong agent in the wrong grant folder.
+        let state = HostState::new(sharing_with_grant(), vec![agent("coder")]);
+        let t = FakeTransport::new(vec![]);
+        let l = FakeLauncher::default();
+        let full: ServiceMessage = serde_json::from_value(json!({
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "requester": {"member_id": "m-priya", "display_name": "Priya"},
+            "payload": "go"
+        }))
+        .unwrap();
+        let _ = block_on(state.handle_service_message(full, &t, &l));
+        assert_eq!(
+            l.launched.lock().unwrap().len(),
+            1,
+            "the cache is populated"
+        );
+
+        // The owner edits sharing; offers are republished.
+        state.set_config(sharing_with_grant(), vec![agent("coder")]);
+
+        let bare: ServiceMessage = serde_json::from_value(json!({
+            "t": "open", "session_id": "s2", "offer_id": "o1",
+            "requester": {"member_id": "m-priya", "display_name": "Priya"},
+            "payload": "go"
+        }))
+        .unwrap();
+        let _ = block_on(state.handle_service_message(bare, &t, &l));
+        assert_eq!(
+            l.launched.lock().unwrap().len(),
+            1,
+            "a stale offer_id must not resolve after a republish"
+        );
+        let v: serde_json::Value = serde_json::from_str(t.sent().last().unwrap()).unwrap();
+        assert_eq!(v["outcome"], json!("unknown_offer"));
+    }
+
+    #[test]
     fn stop_from_the_requester_routes_to_the_existing_kill_channel() {
         let agents = vec![agent("coder")];
         let state = HostState::new(sharing_with_grant(), agents);
@@ -1208,12 +1453,51 @@ mod tests {
             "payload": "go"
         }))
         .unwrap();
-        block_on(state.handle_service_message(open, &t, &l));
+        let _ = block_on(state.handle_service_message(open, &t, &l));
 
         let stop: ServiceMessage =
             serde_json::from_value(json!({"t": "stop", "session_id": "s1"})).unwrap();
-        block_on(state.handle_service_message(stop, &t, &l));
+        let _ = block_on(state.handle_service_message(stop, &t, &l));
         assert_eq!(l.stopped.lock().unwrap().as_slice(), ["run-1".to_string()]);
+    }
+
+    #[test]
+    fn a_write_broken_socket_drops_the_connection_instead_of_serving_on() {
+        // The half-broken case: still readable, no longer writable. The run is
+        // launched (and deliberately left running — ruling R4), but the header
+        // never reaches the requester. Serving on would leave the agent working
+        // in the owner's folder with the teammate never told it started, and a
+        // service retry refused `already_open`.
+        let state = HostState::new(sharing_with_grant(), vec![agent("coder")]);
+        let t = FakeTransport::write_broken();
+        let l = FakeLauncher::default();
+        let open: ServiceMessage = serde_json::from_value(json!({
+            "t": "open", "session_id": "s1", "offer_id": "o1", "action_id": "agent:coder",
+            "requester": {"member_id": "m-priya", "display_name": "Priya"},
+            "payload": "go"
+        }))
+        .unwrap();
+
+        let flow = block_on(state.handle_service_message(open, &t, &l));
+        assert!(
+            flow.is_break(),
+            "a failed header write must drop the connection, not be swallowed"
+        );
+        // The run really did start, and is NOT killed by the write failure.
+        assert_eq!(l.launched.lock().unwrap().len(), 1);
+        assert!(l.stopped.lock().unwrap().is_empty());
+
+        // A refusal that cannot be written is equally fatal to the connection.
+        let state = HostState::new(sharing_with_grant(), vec![agent("coder")]);
+        let t = FakeTransport::write_broken();
+        let denied: ServiceMessage = serde_json::from_value(json!({
+            "t": "open", "session_id": "s2", "offer_id": "o1", "action_id": "agent:coder",
+            "requester": {"member_id": "m-stranger", "display_name": "Stranger"},
+            "payload": "go"
+        }))
+        .unwrap();
+        assert!(block_on(state.handle_service_message(denied, &t, &l)).is_break());
+        assert_eq!(l.launched.lock().unwrap().len(), 1, "still nothing new ran");
     }
 
     #[test]
@@ -1223,7 +1507,7 @@ mod tests {
         let l = FakeLauncher::default();
         let stop: ServiceMessage =
             serde_json::from_value(json!({"t": "stop", "session_id": "nope"})).unwrap();
-        block_on(state.handle_service_message(stop, &t, &l));
+        let _ = block_on(state.handle_service_message(stop, &t, &l));
         assert!(l.stopped.lock().unwrap().is_empty());
     }
 
@@ -1238,7 +1522,7 @@ mod tests {
             "payload": "go"
         }))
         .unwrap();
-        block_on(state.handle_service_message(open, &t, &l));
+        let _ = block_on(state.handle_service_message(open, &t, &l));
 
         assert!(state
             .frame_for_run(
@@ -1280,7 +1564,7 @@ mod tests {
             "payload": "go"
         }))
         .unwrap();
-        block_on(state.handle_service_message(open, &t, &l));
+        let _ = block_on(state.handle_service_message(open, &t, &l));
         assert_eq!(l.launched.lock().unwrap().len(), 1);
 
         state.on_disconnect();
@@ -1312,7 +1596,7 @@ mod tests {
         let t = FakeTransport::new(vec![]);
         let l = FakeLauncher::default();
         let msg: ServiceMessage = serde_json::from_value(json!({"t": "ping_v3"})).unwrap();
-        block_on(state.handle_service_message(msg, &t, &l));
+        let _ = block_on(state.handle_service_message(msg, &t, &l));
         assert!(t.sent().is_empty());
         assert!(l.launched.lock().unwrap().is_empty());
     }
@@ -1425,6 +1709,175 @@ mod tests {
         assert_eq!(b, Duration::from_secs(2));
         b = backoff_after_session(b, Duration::from_millis(20));
         assert_eq!(b, Duration::from_secs(4), "it must actually escalate");
+    }
+
+    #[test]
+    fn a_stopped_loop_stays_stopped_when_the_manager_restarts() {
+        // *** Regression: the stale-loop revival. ***
+        //
+        // `stop()` then `ensure_started()` is an ordinary sequence — revoke the
+        // last grant on agent A (gate false ⇒ stop), then share agent B (gate
+        // true ⇒ start). When both loops shared ONE `Arc<AtomicBool>`, the
+        // restart re-armed the flag the stopped loop was still watching, so
+        // loop 1 woke up inside its backoff and carried on hosting from the
+        // `HostState` it captured at birth — i.e. it kept publishing and
+        // authorising the REVOKED grant, alongside the new loop.
+        //
+        // The single production edit this catches: making `HostSlots::install`
+        // reuse the previous slot's flag instead of minting a new one.
+        struct RefusingConnector {
+            attempts: Arc<AtomicUsize>,
+        }
+        impl RelayConnector for RefusingConnector {
+            type Conn = FakeTransport;
+            fn connect(
+                &self,
+            ) -> impl std::future::Future<Output = Result<FakeTransport, String>> + Send
+            {
+                self.attempts.fetch_add(1, Ordering::SeqCst);
+                async { Err("refused".to_string()) }
+            }
+        }
+
+        let slots = Arc::new(HostSlots::default());
+        let stale_state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        let attempts = Arc::new(AtomicUsize::new(0));
+
+        // Loop 1 takes the slot and gets ITS flag from the real bookkeeping.
+        let (running_1, rx_1) = slots.install(Arc::clone(&stale_state)).unwrap();
+        assert!(slots.is_hosting());
+
+        let connector = RefusingConnector {
+            attempts: Arc::clone(&attempts),
+        };
+        let launcher = Arc::new(FakeLauncher::default());
+        let slots_probe = Arc::clone(&slots);
+        let attempts_probe = Arc::clone(&attempts);
+        let running_1_probe = Arc::clone(&running_1);
+
+        block_on(async move {
+            let loop_1 = tokio::spawn(run_host_loop(
+                connector,
+                launcher,
+                stale_state,
+                running_1,
+                true,
+                true,
+                rx_1,
+            ));
+            // Loop 1 has dialled once and is now inside its backoff.
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            assert_eq!(attempts_probe.load(Ordering::SeqCst), 1);
+
+            // The owner revokes the grant…
+            slots_probe.stop();
+            assert!(!slots_probe.is_hosting());
+            // …and immediately shares a different agent. This is the restart.
+            let fresh = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+            let (running_2, _rx_2) = slots_probe.install(fresh).unwrap();
+
+            assert!(
+                !Arc::ptr_eq(&running_1_probe, &running_2),
+                "each loop must own its flag; sharing one is the bug"
+            );
+            assert!(
+                !running_1_probe.load(Ordering::SeqCst),
+                "the restart must not re-arm the stopped loop's flag"
+            );
+
+            // Well past loop 1's first backoff (BACKOFF_MIN = 1s).
+            tokio::time::sleep(Duration::from_millis(1300)).await;
+            assert_eq!(
+                attempts_probe.load(Ordering::SeqCst),
+                1,
+                "the stopped loop dialled again: it is still hosting with its \
+                 STALE HostState alongside the restarted loop"
+            );
+
+            // It really did exit, rather than merely not dialling yet.
+            let joined = tokio::time::timeout(Duration::from_secs(3), loop_1).await;
+            assert!(joined.is_ok(), "the stopped loop never exited");
+
+            // And retiring loop 1 must NOT tear down loop 2's slot.
+            slots_probe.retire(&running_1_probe);
+            assert!(
+                slots_probe.is_hosting(),
+                "a departing loop tore down its successor"
+            );
+        });
+    }
+
+    #[test]
+    fn a_loop_that_exits_on_its_own_leaves_no_stale_slot() {
+        // The second failure from the same root: if a finished loop left its
+        // state/outbound behind, every later `republish` would enqueue into a
+        // channel with no receiver — a permanently dead host, silently.
+        let slots = HostSlots::default();
+        let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        let (running, _rx) = slots.install(state).unwrap();
+        assert!(slots.is_hosting() && slots.state().is_some());
+
+        // The loop finishes and retires itself.
+        running.store(false, Ordering::SeqCst);
+        slots.retire(&running);
+
+        assert!(!slots.is_hosting());
+        assert!(
+            slots.state().is_none(),
+            "a retired loop must leave nothing for republish to enqueue into"
+        );
+        // …and the slot is free, so a later ensure_started can take it.
+        let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        assert!(slots.install(state).is_some(), "the slot must be reusable");
+    }
+
+    #[test]
+    fn a_restart_over_a_dead_but_unretired_slot_mints_a_fresh_flag() {
+        // The reachable window for flag REUSE: `run_host_loop` has returned and
+        // cleared its own flag, but the spawned task has not yet called
+        // `retire`. An `ensure_started` landing here sees a slot that is present
+        // but dead. If it recycled that slot's flag it would re-arm a loop
+        // that is already exiting — and that loop's `retire`, now matching by
+        // pointer, would then clear the NEW slot and kill the live host.
+        let slots = HostSlots::default();
+        let first = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        let (running_1, _rx_1) = slots.install(first).unwrap();
+
+        running_1.store(false, Ordering::SeqCst); // the loop has finished
+        assert!(!slots.is_hosting(), "a cleared flag means not hosting");
+
+        let second = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        let (running_2, _rx_2) = slots
+            .install(second)
+            .expect("a dead slot must be replaceable");
+
+        assert!(
+            !Arc::ptr_eq(&running_1, &running_2),
+            "the restart recycled the departing loop's flag"
+        );
+        assert!(
+            !running_1.load(Ordering::SeqCst),
+            "the departing loop must not be re-armed by a restart"
+        );
+
+        // …and when loop 1 finally retires, it must not take loop 2 with it.
+        slots.retire(&running_1);
+        assert!(
+            slots.is_hosting(),
+            "a departing loop tore down the live host"
+        );
+        assert!(running_2.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_second_ensure_started_while_hosting_is_a_no_op() {
+        let slots = HostSlots::default();
+        let state = Arc::new(HostState::new(sharing_with_grant(), vec![agent("coder")]));
+        assert!(slots.install(Arc::clone(&state)).is_some());
+        assert!(
+            slots.install(state).is_none(),
+            "only one loop may ever be live"
+        );
     }
 
     #[test]
