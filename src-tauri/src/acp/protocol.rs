@@ -195,6 +195,53 @@ pub struct ToolLocation {
     pub path: String,
 }
 
+/// One entry of a tool call's `content` array (schema `ToolCallContent`).
+///
+/// Only the `diff` variant's **`path`** is modelled, and deliberately so: for a
+/// `diff` block the schema marks `path` **required** and defines it as *"the
+/// absolute file path being modified"*. That names a file the tool call touches
+/// exactly as authoritatively as `locations` does — it is the agent's own word,
+/// not a guess of ours.
+///
+/// **Why this is modelled at all** (third-vendor divergence, 2026-08-04):
+/// `codex-acp` 1.1.9 announces a file edit with a `tool_call` carrying **no
+/// `locations` key at all** and puts the absolute path ONLY in
+/// `content[{"type":"diff","path":…}]`. `claude-agent-acp` 0.64.2 sends both.
+/// Both frames are in `fixtures/real-agent-frames.jsonl`. Until this existed,
+/// every Codex file edit reached the run panel *and the permanent File-sink
+/// record* as a bare `▸ Editing files` naming no file — the same class of loss
+/// as MF1, from a different vendor.
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ToolCallContentWire {
+    /// `content` | `diff` | `terminal`, per the schema's discriminator. Kept as
+    /// a String so a variant a newer agent invents is data, not a parse failure.
+    #[serde(rename = "type", deserialize_with = "null_as_default")]
+    pub content_type: String,
+    /// Present (and required) on `diff` blocks; absent on the others.
+    #[serde(deserialize_with = "null_as_default")]
+    pub path: String,
+}
+
+/// The absolute paths a tool call touches, **as the agent stated them**.
+///
+/// `locations` wins whenever the agent sent any; the `diff` blocks' `path`es are
+/// the fallback, in wire order, deduplicated. Nothing is inferred: an agent that
+/// named no file at all still gets an empty list, because an invented path above
+/// an Allow button is the one thing this feature must never produce.
+pub fn stated_paths(locations: &[ToolLocation], content: &[ToolCallContentWire]) -> Vec<String> {
+    if !locations.is_empty() {
+        return locations.iter().map(|l| l.path.clone()).collect();
+    }
+    let mut out: Vec<String> = Vec::new();
+    for c in content {
+        if c.content_type == "diff" && !c.path.is_empty() && !out.contains(&c.path) {
+            out.push(c.path.clone());
+        }
+    }
+    out
+}
+
 /// `session/request_permission`'s `toolCall`. **Schema-typed as a
 /// `ToolCallUpdate`, so `toolCallId` is the ONLY required field** — Kimi
 /// 0.31.0 really does send a permission request whose `toolCall` carries just
@@ -247,6 +294,12 @@ pub enum SessionUpdate {
     /// Schema `ToolCall`: `toolCallId` + `title` required, the rest optional.
     /// This is the CREATE, so an absent field genuinely means "empty" and
     /// flattening to a default loses nothing.
+    ///
+    /// `content` is carried for one reason only — it is where `codex-acp` 1.1.9
+    /// puts the edited file's absolute path, having sent no `locations` at all.
+    /// See `ToolCallContentWire` / `stated_paths`. Note this is the CREATE
+    /// variant *only*: on `ToolCallUpdate`, absence is a three-way that must be
+    /// preserved verbatim (MF1), so nothing is derived there.
     #[serde(rename_all = "camelCase")]
     ToolCall {
         tool_call_id: String,
@@ -258,6 +311,8 @@ pub enum SessionUpdate {
         status: String,
         #[serde(default, deserialize_with = "null_as_default")]
         locations: Vec<ToolLocation>,
+        #[serde(default, deserialize_with = "null_as_default")]
+        content: Vec<ToolCallContentWire>,
     },
     /// Schema `ToolCallUpdate`: **`toolCallId` is the only required field**, and
     /// every other one is a genuine three-way — present / absent / null — where

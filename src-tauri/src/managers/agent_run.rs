@@ -1558,7 +1558,12 @@ fn permission_response_body(outcome: &PermissionOutcome) -> Value {
 /// permission request with no preceding `tool_call`, and that join then misses
 /// — leaving a card that says *"Edit file"* with no indication of which file,
 /// above an Allow button. We were handed the answer and threw it away.
-fn permission_request_event(
+/// `pub(crate)` so `acp::replay_tests` can drive it with REAL captured
+/// `session/request_permission` frames rather than re-deriving the same
+/// construction by hand (a hand-rolled mirror is free to drift away from the
+/// thing it claims to test — which is the failure mode this whole file exists
+/// to prevent).
+pub(crate) fn permission_request_event(
     request_id: &str,
     tool_call: &ToolCallWire,
     options: &[PermissionOptionWire],

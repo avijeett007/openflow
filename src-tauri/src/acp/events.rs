@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri_specta::Event;
 
-use crate::acp::protocol::SessionUpdate;
+use crate::acp::protocol::{stated_paths, SessionUpdate};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Type, PartialEq)]
 pub struct PlanEntry {
@@ -122,12 +122,16 @@ pub fn map_session_update(u: &SessionUpdate) -> Option<RunEvent> {
             kind,
             status,
             locations,
+            content,
         } => RunEvent::ToolCall {
             id: tool_call_id.clone(),
             title: title.clone(),
             tool_kind: kind.clone(),
             status: status.clone(),
-            locations: locations.iter().map(|l| l.path.clone()).collect(),
+            // `locations` when the agent sent any, else the `diff` blocks' own
+            // `path`es — which is the ONLY place codex-acp 1.1.9 states the file
+            // it is editing. See `protocol::stated_paths`.
+            locations: stated_paths(locations, content),
         },
         SessionUpdate::ToolCallUpdate {
             tool_call_id,
@@ -203,7 +207,27 @@ pub fn render_line(e: &RunEvent) -> Option<String> {
             }
             s
         }
-        RunEvent::PermissionRequest { title, .. } => format!("? {title}"),
+        // A permission request is the one line in the permanent record that says
+        // "the user was asked to authorise something". A blank one is useless
+        // there, and `codex-acp` 1.1.9 really does send a
+        // `session/request_permission` whose `toolCall` is
+        // `{toolCallId, kind, status, rawInput}` — **no `title` at all** (the
+        // schema types that `toolCall` as a `ToolCallUpdate`, where only
+        // `toolCallId` is required, so it is legal). That produced a bare
+        // `"? "`. Falling back to the `kind` the agent DID state says something
+        // true; the last resort names nothing it was not told. Untouched
+        // whenever a title is present, which is every other agent.
+        RunEvent::PermissionRequest {
+            title, tool_kind, ..
+        } => {
+            if !title.trim().is_empty() {
+                format!("? {title}")
+            } else if !tool_kind.trim().is_empty() {
+                format!("? {tool_kind}")
+            } else {
+                "? permission requested".to_string()
+            }
+        }
         RunEvent::PermissionResolved {
             outcome, automatic, ..
         } => {
@@ -220,7 +244,9 @@ pub fn render_line(e: &RunEvent) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::acp::protocol::{PlanEntryWire, SessionUpdate, TextContent, ToolLocation};
+    use crate::acp::protocol::{
+        PlanEntryWire, SessionUpdate, TextContent, ToolCallContentWire, ToolLocation,
+    };
 
     // Gap flagged in Task 1's review: `Plan` was the one `SessionUpdate` variant
     // never exercised through `map_session_update` by the brief's own tests
@@ -285,6 +311,7 @@ mod tests {
             locations: vec![ToolLocation {
                 path: "/a/b.rs".into(),
             }],
+            content: vec![],
         };
         let e = map_session_update(&u).unwrap();
         match &e {
@@ -311,9 +338,139 @@ mod tests {
             kind: "think".into(),
             status: "pending".into(),
             locations: vec![],
+            content: vec![],
         };
         let e = map_session_update(&u).unwrap();
         assert_eq!(render_line(&e).as_deref(), Some("▸ Think"));
+    }
+
+    /// **Third-vendor divergence (codex-acp 1.1.9).** An edit `tool_call` with
+    /// NO `locations` whose only statement of the file is a `diff` content
+    /// block. The path must reach the event — and therefore the panel and the
+    /// permanent File-sink record — exactly as if it had arrived in
+    /// `locations`. The verbatim frame is replayed in `replay_tests`.
+    #[test]
+    fn a_tool_call_that_states_its_file_only_in_a_diff_block_still_names_it() {
+        let u = SessionUpdate::ToolCall {
+            tool_call_id: "exec-800532ce".into(),
+            title: "Editing files".into(),
+            kind: "edit".into(),
+            status: "in_progress".into(),
+            locations: vec![],
+            content: vec![
+                ToolCallContentWire {
+                    content_type: "diff".into(),
+                    path: "/repo/NOTES.md".into(),
+                },
+                // A duplicate and a non-diff block must not add entries.
+                ToolCallContentWire {
+                    content_type: "diff".into(),
+                    path: "/repo/NOTES.md".into(),
+                },
+                ToolCallContentWire {
+                    content_type: "terminal".into(),
+                    path: String::new(),
+                },
+            ],
+        };
+        let e = map_session_update(&u).unwrap();
+        match &e {
+            RunEvent::ToolCall { locations, .. } => {
+                assert_eq!(locations, &vec!["/repo/NOTES.md".to_string()])
+            }
+            _ => panic!("expected ToolCall"),
+        }
+        assert_eq!(
+            render_line(&e).as_deref(),
+            Some("▸ Editing files — /repo/NOTES.md")
+        );
+    }
+
+    /// `locations` is the agent's primary statement and must always win — the
+    /// `content` fallback exists only for agents that send no `locations`.
+    #[test]
+    fn explicit_locations_win_over_a_diff_blocks_path() {
+        let u = SessionUpdate::ToolCall {
+            tool_call_id: "t9".into(),
+            title: "Edit".into(),
+            kind: "edit".into(),
+            status: "pending".into(),
+            locations: vec![ToolLocation {
+                path: "/repo/from-locations.rs".into(),
+            }],
+            content: vec![ToolCallContentWire {
+                content_type: "diff".into(),
+                path: "/repo/from-content.rs".into(),
+            }],
+        };
+        match map_session_update(&u).unwrap() {
+            RunEvent::ToolCall { locations, .. } => {
+                assert_eq!(locations, vec!["/repo/from-locations.rs".to_string()])
+            }
+            e => panic!("expected ToolCall, got {e:?}"),
+        }
+    }
+
+    /// The other half of "never guess": an agent that named no file anywhere
+    /// must still produce an EMPTY list, not an invented one.
+    #[test]
+    fn a_tool_call_that_names_no_file_anywhere_stays_empty() {
+        let u = SessionUpdate::ToolCall {
+            tool_call_id: "t8".into(),
+            title: "Think".into(),
+            kind: "think".into(),
+            status: "pending".into(),
+            locations: vec![],
+            content: vec![ToolCallContentWire {
+                content_type: "content".into(),
+                path: String::new(),
+            }],
+        };
+        match map_session_update(&u).unwrap() {
+            RunEvent::ToolCall { locations, .. } => assert!(locations.is_empty()),
+            e => panic!("expected ToolCall, got {e:?}"),
+        }
+    }
+
+    /// **Third-vendor divergence (codex-acp 1.1.9).** Its permission requests
+    /// carry no `title`. The permanent record must not contain a bare `"? "`;
+    /// it falls back to the `kind` the agent DID state.
+    #[test]
+    fn a_title_less_permission_request_falls_back_to_the_kind_the_agent_stated() {
+        let titled = RunEvent::PermissionRequest {
+            request_id: "r1".into(),
+            tool_call_id: Some("t1".into()),
+            title: "Edit src/main.rs".into(),
+            tool_kind: "edit".into(),
+            locations: vec![],
+            options: vec![],
+        };
+        assert_eq!(render_line(&titled).as_deref(), Some("? Edit src/main.rs"));
+
+        let untitled = RunEvent::PermissionRequest {
+            request_id: "r2".into(),
+            tool_call_id: Some("exec-fa8e68f8".into()),
+            title: String::new(),
+            tool_kind: "execute".into(),
+            locations: vec![],
+            options: vec![],
+        };
+        let line = render_line(&untitled).unwrap();
+        assert_eq!(line, "? execute");
+        assert_ne!(line.trim(), "?", "a blank permission line records nothing");
+
+        let nameless = RunEvent::PermissionRequest {
+            request_id: "r3".into(),
+            tool_call_id: None,
+            title: String::new(),
+            tool_kind: String::new(),
+            locations: vec![],
+            options: vec![],
+        };
+        assert_eq!(
+            render_line(&nameless).as_deref(),
+            Some("? permission requested")
+        );
     }
 
     #[test]
